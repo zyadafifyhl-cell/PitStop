@@ -1,12 +1,13 @@
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { getSavedCarProfile, saveCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById } from '@/lib/booking/demoShops';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
@@ -15,6 +16,8 @@ import type { Booking } from '@/lib/booking/types';
 
 export default function HomeScreen() {
   const { t, tp, locale } = useI18n();
+  const theme = useAppTheme();
+  const { preference } = useThemePreference();
   const { customer, logout } = useCustomerAuth();
   const [nextBooking, setNextBooking] = useState<Booking | null>(null);
   const [savedCarType, setSavedCarType] = useState('');
@@ -78,25 +81,40 @@ export default function HomeScreen() {
       ? nextBookingShop.nameAr
       : nextBookingShop.name
     : nextBooking?.shopId;
+  const backgroundLogo =
+    preference === 'light'
+      ? require('../../assets/images/pitstop-logo-light.png')
+      : require('../../assets/images/pitstop-logo-dark.png');
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.greeting}>{greeting}</Text>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <View pointerEvents="none" style={styles.backgroundLogoWrap}>
+        <Image
+          source={backgroundLogo}
+          style={[styles.backgroundLogo, { opacity: preference === 'light' ? 0.045 : 0.06 }]}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+        />
+      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+        <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
 
       {nextBooking ? (
-        <Pressable onPress={() => router.push('/bookings')} style={styles.nextBookingCard}>
-          <Text style={styles.sectionEyebrow}>{t('home_next_booking_title')}</Text>
-          <Text style={styles.cardTitle}>{nextBookingShopName}</Text>
-          <Text style={styles.cardMeta}>{formatBookingDateTime(nextBooking.scheduledAt, locale)}</Text>
-          <Text style={styles.cardMeta}>
+        <Pressable
+          onPress={() => router.push('/bookings')}
+          style={[styles.nextBookingCard, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+          <Text style={[styles.sectionEyebrow, { color: theme.accent }]}>{t('home_next_booking_title')}</Text>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>{nextBookingShopName}</Text>
+          <Text style={[styles.cardMeta, { color: theme.textMuted }]}>{formatBookingDateTime(nextBooking.scheduledAt, locale)}</Text>
+          <Text style={[styles.cardMeta, { color: theme.textMuted }]}>
             {shopTypeLabel(nextBooking.shopType, locale)} · {bookingStatusLabel(nextBooking.status, locale)}
           </Text>
         </Pressable>
       ) : null}
 
-      <View style={styles.profileCard}>
-        <Text style={styles.cardTitle}>{t('home_car_profile_title')}</Text>
-        <Text style={styles.cardMeta}>
+      <View style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Text style={[styles.cardTitle, { color: theme.text }]}>{t('home_car_profile_title')}</Text>
+        <Text style={[styles.cardMeta, { color: theme.textMuted }]}>
           {savedCarType
             ? tp('home_car_profile_saved_line', { carType: savedCarType })
             : t('home_car_profile_lead')}
@@ -106,17 +124,17 @@ export default function HomeScreen() {
             value={carTypeDraft}
             onChangeText={setCarTypeDraft}
             placeholder={t('home_car_profile_placeholder')}
-            placeholderTextColor={AppTheme.textDim}
-            style={styles.profileInput}
+            placeholderTextColor={theme.textDim}
+            style={[styles.profileInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
           />
-          <Pressable onPress={onSaveCarProfile} style={styles.profileSaveBtn}>
-            <Text style={styles.profileSaveText}>{t('home_car_profile_save')}</Text>
+          <Pressable onPress={onSaveCarProfile} style={[styles.profileSaveBtn, { backgroundColor: theme.accent }]}>
+            <Text style={[styles.profileSaveText, { color: theme.onAccent }]}>{t('home_car_profile_save')}</Text>
           </Pressable>
         </View>
       </View>
 
-      <Text style={styles.title}>{t('home_pick_service')}</Text>
-      <Text style={styles.lead}>{t('home_pick_service_lead')}</Text>
+      <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
+      <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
 
       <ServiceOptionCard
         type="maintenance"
@@ -143,27 +161,37 @@ export default function HomeScreen() {
         onPress={() => router.push(`/service/winch` as Href)}
       />
 
-      <Text style={styles.sectionTitle}>{t('home_offers_title')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_title')}</Text>
       <View style={styles.offersRow}>
-        <Pressable onPress={() => router.push('/service/wash' as Href)} style={styles.offerCard}>
-          <Text style={styles.offerTitle}>{t('home_offer_wash_title')}</Text>
-          <Text style={styles.offerMeta}>{t('home_offer_wash_body')}</Text>
+        <Pressable onPress={() => router.push('/service/wash' as Href)} style={[styles.offerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.offerTitle, { color: theme.text }]}>{t('home_offer_wash_title')}</Text>
+          <Text style={[styles.offerMeta, { color: theme.textMuted }]}>{t('home_offer_wash_body')}</Text>
         </Pressable>
-        <Pressable onPress={() => router.push('/service/maintenance' as Href)} style={styles.offerCard}>
-          <Text style={styles.offerTitle}>{t('home_offer_maintenance_title')}</Text>
-          <Text style={styles.offerMeta}>{t('home_offer_maintenance_body')}</Text>
+        <Pressable onPress={() => router.push('/service/maintenance' as Href)} style={[styles.offerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.offerTitle, { color: theme.text }]}>{t('home_offer_maintenance_title')}</Text>
+          <Text style={[styles.offerMeta, { color: theme.textMuted }]}>{t('home_offer_maintenance_body')}</Text>
         </Pressable>
       </View>
 
       <Pressable onPress={onSignOut} style={styles.signOut}>
-        <Text style={styles.signOutText}>{t('home_sign_out')}</Text>
+        <Text style={[styles.signOutText, { color: theme.textDim }]}>{t('home_sign_out')}</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  screen: { flex: 1 },
+  scroll: { flex: 1 },
+  backgroundLogoWrap: {
+    position: 'absolute',
+    top: 56,
+    alignSelf: 'center',
+    width: 820,
+    height: 820,
+  },
+  backgroundLogo: { width: '100%', height: '100%' },
   content: { padding: 20, paddingBottom: 40 },
   greeting: { color: AppTheme.textMuted, fontSize: 14, marginBottom: 6 },
   title: { color: AppTheme.text, fontSize: 28, fontWeight: '900', marginBottom: 8 },
@@ -213,7 +241,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  profileSaveText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  profileSaveText: { fontSize: 13, fontWeight: '800' },
   sectionTitle: { color: AppTheme.text, fontSize: 20, fontWeight: '900', marginTop: 6, marginBottom: 12 },
   offersRow: { flexDirection: 'row', gap: 10 },
   offerCard: {

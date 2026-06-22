@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppTheme, SERVICE_COLORS } from '@/constants/Theme';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatPhoneDisplay } from '@/lib/linking/contact';
 import type { ShopType } from '@/lib/booking/types';
 
@@ -38,25 +38,26 @@ export function ShopListCard({
   onOpenMaps,
   onPress,
 }: Props) {
-  const accent = SERVICE_COLORS[type];
+  const theme = useAppTheme();
+  const accent = theme.accent;
 
   return (
     <View style={styles.wrap}>
       <LinearGradient
-        colors={['#1E293B', AppTheme.card]}
+        colors={[theme.bgElevated, theme.card]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.card}>
+        style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.topRow}>
-          <View style={[styles.badge, { backgroundColor: `${accent}33` }]}>
+          <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
             <Text style={[styles.badgeText, { color: accent }]}>{typeLabel}</Text>
           </View>
           <View style={styles.topRight}>
-            {distanceLabel ? <Text style={styles.distance}>{distanceLabel}</Text> : null}
+            {distanceLabel ? <Text style={[styles.distance, { color: theme.accent }]}>{distanceLabel}</Text> : null}
             {rating != null ? (
               <View style={styles.rating}>
-                <FontAwesome name="star" size={12} color={AppTheme.warm} />
-                <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+                <FontAwesome name="star" size={12} color={theme.text} />
+                <Text style={[styles.ratingText, { color: theme.text }]}>{rating.toFixed(1)}</Text>
               </View>
             ) : null}
             {onToggleFavorite ? (
@@ -64,19 +65,19 @@ export function ShopListCard({
                 <FontAwesome
                   name={isFavorite ? 'heart' : 'heart-o'}
                   size={20}
-                  color={isFavorite ? '#EF4444' : AppTheme.textDim}
+                  color={isFavorite ? theme.danger : theme.textDim}
                 />
               </Pressable>
             ) : null}
           </View>
         </View>
-        <Text style={styles.name}>{name}</Text>
-        <Text style={styles.address}>{address}</Text>
+        <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+        <Text style={[styles.address, { color: theme.textMuted }]}>{address}</Text>
 
         {phone && onCall ? (
-          <Pressable onPress={onCall} style={styles.phoneRow}>
-            <FontAwesome name="phone" size={14} color={AppTheme.green} />
-            <Text style={styles.phoneText}>{formatPhoneDisplay(phone)}</Text>
+          <Pressable onPress={onCall} style={[styles.phoneRow, { backgroundColor: theme.accentSoft }]}>
+            <FontAwesome name="phone" size={14} color={theme.accent} />
+            <Text style={[styles.phoneText, { color: theme.text }]}>{formatPhoneDisplay(phone)}</Text>
           </Pressable>
         ) : null}
 
@@ -105,7 +106,6 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: AppTheme.border,
     padding: 18,
   },
   topRow: {
@@ -117,12 +117,12 @@ const styles = StyleSheet.create({
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   badge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 11, fontWeight: '700' },
-  distance: { color: AppTheme.accent, fontSize: 12, fontWeight: '700' },
+  distance: { fontSize: 12, fontWeight: '700' },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  ratingText: { color: AppTheme.text, fontSize: 13, fontWeight: '600' },
+  ratingText: { fontSize: 13, fontWeight: '600' },
   iconBtn: { padding: 4 },
-  name: { color: AppTheme.text, fontSize: 20, fontWeight: '800', marginBottom: 6 },
-  address: { color: AppTheme.textMuted, fontSize: 14, lineHeight: 20 },
+  name: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
+  address: { fontSize: 14, lineHeight: 20 },
   phoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -131,10 +131,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: AppTheme.greenSoft,
     alignSelf: 'flex-start',
   },
-  phoneText: { color: AppTheme.text, fontSize: 15, fontWeight: '700' },
+  phoneText: { fontSize: 15, fontWeight: '700' },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',

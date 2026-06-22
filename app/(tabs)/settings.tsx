@@ -3,7 +3,7 @@ import React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SettingsRow } from '@/components/ui/SettingsRow';
-import { AppTheme, SERVICE_COLORS } from '@/constants/Theme';
+import { AppTheme } from '@/constants/Theme';
 import { SUPPORT } from '@/constants/support';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -58,7 +58,7 @@ export default function SettingsScreen() {
           icon="key"
           label={t('customer_forgot_password')}
           hint={t('settings_reset_password_hint')}
-          accent={theme.warm}
+          accent={theme.accent}
           onPress={onResetPassword}
         />
       </View>
@@ -83,7 +83,7 @@ export default function SettingsScreen() {
           icon="sun-o"
           label={t('settings_theme_light')}
           hint={preference === 'light' ? t('settings_selected') : undefined}
-          accent={theme.warm}
+          accent={theme.accent}
           onPress={() => setPreference('light')}
         />
         <SettingsRow
@@ -101,7 +101,7 @@ export default function SettingsScreen() {
           icon="phone"
           label={t('settings_call_support')}
           hint={SUPPORT.phoneDisplay}
-          accent={AppTheme.green}
+          accent={theme.accent}
           onPress={() =>
             safeOpen(() => openSupportPhone())
           }
@@ -110,7 +110,7 @@ export default function SettingsScreen() {
           icon="comment"
           label={t('settings_whatsapp_support')}
           hint={SUPPORT.phoneDisplay}
-          accent="#25D366"
+          accent={theme.accent}
           onPress={() =>
             safeOpen(() =>
               openSupportWhatsApp(
@@ -138,28 +138,28 @@ export default function SettingsScreen() {
           icon="wrench"
           label={t('service_maintenance_title')}
           hint={t('settings_see_closest')}
-          accent={SERVICE_COLORS.maintenance}
+          accent={theme.accent}
           onPress={() => router.push('/nearby/maintenance' as Href)}
         />
         <SettingsRow
           icon="tint"
           label={t('service_wash_title')}
           hint={t('settings_see_closest')}
-          accent={SERVICE_COLORS.wash}
+          accent={theme.accent}
           onPress={() => router.push('/nearby/wash' as Href)}
         />
         <SettingsRow
           icon="cogs"
           label={t('service_parts_title')}
           hint={t('settings_see_closest')}
-          accent={SERVICE_COLORS.parts}
+          accent={theme.accent}
           onPress={() => router.push('/nearby/parts' as Href)}
         />
         <SettingsRow
           icon="truck"
           label={t('service_winch_title')}
           hint={t('settings_see_closest')}
-          accent={SERVICE_COLORS.winch}
+          accent={theme.accent}
           onPress={() => router.push('/nearby/winch' as Href)}
         />
       </View>
@@ -169,7 +169,7 @@ export default function SettingsScreen() {
       <SettingsRow
         icon="sign-out"
         label={t('home_sign_out')}
-        accent={AppTheme.danger}
+        accent={theme.danger}
         onPress={onSignOut}
       />
     </ScrollView>

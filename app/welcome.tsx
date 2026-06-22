@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,7 +19,7 @@ import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
-import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { isStrongPassword } from '@/lib/authValidation';
 import { isValidEgyptMobile } from '@/lib/phone';
 
@@ -27,6 +28,7 @@ type LoginMode = 'customer' | 'owner';
 export default function WelcomeScreen() {
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
+  const { preference } = useThemePreference();
   const { login: loginCustomer, register, resetPassword, busy: customerBusy } = useCustomerAuth();
   const { login: loginShop, busy: shopBusy } = useShopAuth();
 
@@ -126,6 +128,10 @@ export default function WelcomeScreen() {
   }
 
   const busy = mode === 'customer' ? customerBusy : shopBusy;
+  const logoSource =
+    preference === 'light'
+      ? require('../assets/images/pitstop-logo-light.png')
+      : require('../assets/images/pitstop-logo-dark.png');
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
@@ -138,10 +144,14 @@ export default function WelcomeScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <View style={[styles.logoWrap, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
-              <FontAwesome name="car" size={36} color={theme.accent} />
+            <View style={[styles.logoWrap, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+              <Image
+                source={logoSource}
+                style={styles.logoImage}
+                resizeMode="cover"
+                accessibilityLabel="PitStop logo"
+              />
             </View>
-            <Text style={[styles.appName, { color: theme.text }]}>{t('welcome_app_name')}</Text>
             <Text style={[styles.tagline, { color: theme.textMuted }]}>{t('welcome_tagline')}</Text>
           </View>
 
@@ -159,9 +169,9 @@ export default function WelcomeScreen() {
               <FontAwesome
                 name="user"
                 size={16}
-                color={mode === 'customer' ? '#fff' : theme.textMuted}
+                color={mode === 'customer' ? theme.onAccent : theme.textMuted}
               />
-              <Text style={[styles.modeText, { color: theme.textMuted }, mode === 'customer' && styles.modeTextActive]}>
+              <Text style={[styles.modeText, { color: mode === 'customer' ? theme.onAccent : theme.textMuted }]}>
                 {t('welcome_customer_btn')}
               </Text>
             </Pressable>
@@ -175,9 +185,9 @@ export default function WelcomeScreen() {
               <FontAwesome
                 name="briefcase"
                 size={16}
-                color={mode === 'owner' ? '#fff' : theme.textMuted}
+                color={mode === 'owner' ? theme.onAccent : theme.textMuted}
               />
-              <Text style={[styles.modeText, { color: theme.textMuted }, mode === 'owner' && styles.modeTextActive]}>
+              <Text style={[styles.modeText, { color: mode === 'owner' ? theme.onAccent : theme.textMuted }]}>
                 {t('welcome_owner_btn')}
               </Text>
             </Pressable>
@@ -231,11 +241,11 @@ export default function WelcomeScreen() {
                   disabled={busy}
                   style={[styles.submitBtn, busy && { opacity: 0.6 }]}>
                   <LinearGradient
-                    colors={[theme.accent, '#2563EB']}
+                    colors={[theme.accent, theme.accent]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
-                    <Text style={styles.submitText}>
+                    <Text style={[styles.submitText, { color: theme.onAccent }]}>
                       {busy
                         ? t('cloud_busy')
                         : isRegister
@@ -283,11 +293,11 @@ export default function WelcomeScreen() {
                   disabled={busy}
                   style={[styles.submitBtn, busy && { opacity: 0.6 }]}>
                   <LinearGradient
-                    colors={[theme.warm, '#D97706']}
+                    colors={[theme.warm, theme.warm]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
-                    <Text style={styles.submitText}>{t('shop_login_btn')}</Text>
+                    <Text style={[styles.submitText, { color: theme.onAccent }]}>{t('shop_login_btn')}</Text>
                   </LinearGradient>
                 </Pressable>
                 <Text style={[styles.demoHint, { color: theme.textDim }]}>{t('shop_demo_accounts')}</Text>
@@ -302,7 +312,7 @@ export default function WelcomeScreen() {
                 { backgroundColor: theme.card, borderColor: theme.border },
                 locale === 'en' && { backgroundColor: theme.accent, borderColor: theme.accent },
               ]}>
-              <Text style={[styles.languageText, { color: theme.textMuted }, locale === 'en' && styles.languageTextActive]}>English</Text>
+              <Text style={[styles.languageText, { color: locale === 'en' ? theme.onAccent : theme.textMuted }]}>English</Text>
             </Pressable>
             <Pressable
               onPress={() => setLocale('ar')}
@@ -311,7 +321,7 @@ export default function WelcomeScreen() {
                 { backgroundColor: theme.card, borderColor: theme.border },
                 locale === 'ar' && { backgroundColor: theme.accent, borderColor: theme.accent },
               ]}>
-              <Text style={[styles.languageText, { color: theme.textMuted }, locale === 'ar' && styles.languageTextActive]}>العربية</Text>
+              <Text style={[styles.languageText, { color: locale === 'ar' ? theme.onAccent : theme.textMuted }]}>العربية</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -332,16 +342,18 @@ const styles = StyleSheet.create({
   },
   hero: { alignItems: 'center', marginBottom: 28 },
   logoWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
+    width: 160,
+    height: 160,
+    borderRadius: 34,
     backgroundColor: AppTheme.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 18,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: AppTheme.border,
+    overflow: 'hidden',
   },
+  logoImage: { width: '100%', height: '100%' },
   appName: {
     color: AppTheme.text,
     fontSize: 32,

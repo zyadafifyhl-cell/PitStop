@@ -5,7 +5,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { createElement, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppTheme } from '@/constants/Theme';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
   dateFromYmd,
   formatDateYmdLabel,
@@ -33,11 +33,15 @@ export function BookingDatePicker({
   label,
   pickHint,
   minimumDate,
-  borderColor = AppTheme.border,
-  backgroundColor = AppTheme.card,
-  textColor = AppTheme.text,
+  borderColor,
+  backgroundColor,
+  textColor,
 }: Props) {
+  const theme = useAppTheme();
   const [showAndroidPicker, setShowAndroidPicker] = useState(false);
+  const resolvedBorderColor = borderColor ?? theme.border;
+  const resolvedBackgroundColor = backgroundColor ?? theme.card;
+  const resolvedTextColor = textColor ?? theme.text;
   const minDate = minimumDate ?? minBookingDate();
   const selected = dateFromYmd(valueYmd) ?? minDate;
   const minYmd = toDateYmd(minDate);
@@ -50,7 +54,7 @@ export function BookingDatePicker({
   if (Platform.OS === 'web') {
     return (
       <View style={styles.wrap}>
-        <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+        <Text style={[styles.label, { color: resolvedTextColor }]}>{label}</Text>
         {createElement('input', {
           type: 'date',
           value: valueYmd,
@@ -60,12 +64,12 @@ export function BookingDatePicker({
             width: '100%',
             borderWidth: 1,
             borderStyle: 'solid',
-            borderColor,
+            borderColor: resolvedBorderColor,
             borderRadius: 12,
             padding: 14,
             fontSize: 16,
-            backgroundColor,
-            color: textColor,
+            backgroundColor: resolvedBackgroundColor,
+            color: resolvedTextColor,
             boxSizing: 'border-box',
           },
         })}
@@ -75,14 +79,14 @@ export function BookingDatePicker({
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+      <Text style={[styles.label, { color: resolvedTextColor }]}>{label}</Text>
       {Platform.OS === 'android' ? (
         <>
           <Pressable
             onPress={() => setShowAndroidPicker(true)}
-            style={[styles.field, { borderColor, backgroundColor }]}>
-            <FontAwesome name="calendar" size={18} color={AppTheme.accent} />
-            <Text style={[styles.value, { color: textColor }]}>
+            style={[styles.field, { borderColor: resolvedBorderColor, backgroundColor: resolvedBackgroundColor }]}>
+            <FontAwesome name="calendar" size={18} color={theme.accent} />
+            <Text style={[styles.value, { color: resolvedTextColor }]}>
               {formatDateYmdLabel(valueYmd, locale)}
             </Text>
           </Pressable>
@@ -97,8 +101,8 @@ export function BookingDatePicker({
           ) : null}
         </>
       ) : (
-        <View style={[styles.pickerWrap, { borderColor, backgroundColor }]}>
-          <Text style={[styles.iosHint, { color: AppTheme.textMuted }]}>{pickHint}</Text>
+        <View style={[styles.pickerWrap, { borderColor: resolvedBorderColor, backgroundColor: resolvedBackgroundColor }]}>
+          <Text style={[styles.iosHint, { color: theme.textMuted }]}>{pickHint}</Text>
           <DateTimePicker
             value={selected}
             mode="date"

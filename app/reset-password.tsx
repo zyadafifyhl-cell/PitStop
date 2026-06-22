@@ -2,7 +2,6 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { AppTheme } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { isStrongPassword } from '@/lib/authValidation';
@@ -57,7 +56,7 @@ export default function ResetPasswordScreen() {
           onPress={onSave}
           disabled={busy}
           style={[styles.btn, { backgroundColor: theme.accent, opacity: busy ? 0.65 : 1 }]}>
-          <Text style={styles.btnText}>{t('customer_reset_password_save')}</Text>
+          <Text style={[styles.btnText, { color: theme.onAccent }]}>{t('customer_reset_password_save')}</Text>
         </Pressable>
       </View>
     </View>
@@ -78,5 +77,5 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 12, lineHeight: 18, marginTop: 8 },
   btn: { marginTop: 18, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  btnText: { color: AppTheme.white, fontSize: 16, fontWeight: '800' },
+  btnText: { fontSize: 16, fontWeight: '800' },
 });

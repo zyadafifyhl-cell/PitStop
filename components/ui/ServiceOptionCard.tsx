@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppTheme, SERVICE_COLORS } from '@/constants/Theme';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import type { ShopType } from '@/lib/booking/types';
 
 type Props = {
@@ -22,23 +22,24 @@ const ICONS: Record<ShopType, React.ComponentProps<typeof FontAwesome>['name']> 
 };
 
 export function ServiceOptionCard({ type, title, subtitle, onPress }: Props) {
-  const accent = SERVICE_COLORS[type];
+  const theme = useAppTheme();
+  const accent = theme.accent;
 
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.wrap, pressed && styles.pressed]}>
       <LinearGradient
-        colors={[AppTheme.card, AppTheme.bgElevated]}
+        colors={[theme.card, theme.bgElevated]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.card}>
-        <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
+        style={[styles.card, { borderColor: theme.border }]}>
+        <View style={[styles.iconWrap, { backgroundColor: theme.accentSoft }]}>
           <FontAwesome name={ICONS[type]} size={28} color={accent} />
         </View>
         <View style={styles.textWrap}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+          <Text style={[styles.subtitle, { color: theme.textMuted }]}>{subtitle}</Text>
         </View>
-        <FontAwesome name="chevron-right" size={16} color={AppTheme.textDim} />
+        <FontAwesome name="chevron-right" size={16} color={theme.textDim} />
       </LinearGradient>
     </Pressable>
   );
@@ -50,7 +51,6 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: AppTheme.border,
     padding: 18,
     flexDirection: 'row',
     alignItems: 'center',
@@ -64,6 +64,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   textWrap: { flex: 1 },
-  title: { color: AppTheme.text, fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  subtitle: { color: AppTheme.textMuted, fontSize: 13, lineHeight: 18 },
+  title: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  subtitle: { fontSize: 13, lineHeight: 18 },
 });
