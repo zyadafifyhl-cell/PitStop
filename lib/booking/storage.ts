@@ -1,0 +1,187 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import type { Booking, BookingStatus } from '@/lib/booking/types';
+import { getSupabase } from '@/lib/supabase/client';
+
+const BOOKINGS_KEY = '@pitstop/bookings/v1';
+const CUSTOMER_PHONE_KEY = '@pitstop/bookings/customer-phone';
+const PLATFORM_FEE_RATE = 0.12;
+
+function newId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function defaultServicePriceEgp(shopType: Booking['shopType']): number {
+  if (shopType === 'maintenance') return 650;
+  if (shopType === 'wash') return 220;
+  if (shopType === 'winch') return 500;
+  return 420;
+}
+
+function isUuid(value: string | undefined): value is string {
+  return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+type BookingRow = {
+  id: string;
+  shop_id: string;
+  shop_type: Booking['shopType'];
+  customer_id?: string | null;
+  customer_phone: string;
+  car_type: string;
+  car_color: string | null;
+  service_price_egp: number | string | null;
+  platform_fee_egp: number | string | null;
+  scheduled_at: string;
+  status: BookingStatus;
+  created_at: string;
+};
+
+function mapBookingRow(row: BookingRow): Booking {
+  return {
+    id: row.id,
+    shopId: row.shop_id,
+    shopType: row.shop_type,
+    customerId: row.customer_id ?? undefined,
+    customerPhone: row.customer_phone,
+    carType: row.car_type,
+    carColor: row.car_color ?? '',
+    servicePriceEgp: Number(row.service_price_egp ?? 0),
+    platformFeeEgp: Number(row.platform_fee_egp ?? 0),
+    scheduledAt: row.scheduled_at,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
+async function readAll(): Promise<Booking[]> {
+  try {
+    const raw = await AsyncStorage.getItem(BOOKINGS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Booking[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeAll(bookings: Booking[]): Promise<void> {
+  await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
+}
+
+export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('shop_id', shopId)
+      .order('scheduled_at', { ascending: true });
+
+    if (!error && data) return (data as BookingRow[]).map(mapBookingRow);
+  }
+
+  const rows = await readAll();
+  return rows
+    .filter((b) => b.shopId === shopId)
+    .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+}
+
+export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('customer_phone', phone)
+      .order('scheduled_at', { ascending: false });
+
+    if (!error && data) return (data as BookingRow[]).map(mapBookingRow);
+  }
+
+  const rows = await readAll();
+  return rows
+    .filter((b) => b.customerPhone === phone)
+    .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
+}
+
+export async function createBooking(
+  input: Omit<Booking, 'id' | 'status' | 'createdAt'>,
+): Promise<Booking> {
+  const servicePriceEgp = Math.max(
+    0,
+    Math.round((input.servicePriceEgp ?? defaultServicePriceEgp(input.shopType)) * 100) / 100,
+  );
+  const platformFeeEgp = Math.round(servicePriceEgp * PLATFORM_FEE_RATE * 100) / 100;
+  const booking: Booking = {
+    ...input,
+    servicePriceEgp,
+    platformFeeEgp,
+    id: newId(),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert({
+        shop_id: input.shopId,
+        shop_type: input.shopType,
+        customer_id: isUuid(input.customerId) ? input.customerId : null,
+        customer_phone: input.customerPhone,
+        car_type: input.carType,
+        car_color: input.carColor,
+        service_price_egp: servicePriceEgp,
+        platform_fee_egp: platformFeeEgp,
+        scheduled_at: input.scheduledAt,
+        status: 'pending',
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) return mapBookingRow(data as BookingRow);
+  }
+
+  const rows = await readAll();
+  rows.push(booking);
+  await writeAll(rows);
+  return booking;
+}
+
+export async function updateBookingStatus(
+  bookingId: string,
+  status: BookingStatus,
+): Promise<Booking | null> {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ status })
+      .eq('id', bookingId)
+      .select('*')
+      .single();
+
+    if (!error && data) return mapBookingRow(data as BookingRow);
+  }
+
+  const rows = await readAll();
+  const idx = rows.findIndex((b) => b.id === bookingId);
+  if (idx < 0) return null;
+  rows[idx] = { ...rows[idx], status };
+  await writeAll(rows);
+  return rows[idx];
+}
+
+export async function getSavedCustomerPhone(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(CUSTOMER_PHONE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCustomerPhone(phone: string): Promise<void> {
+  await AsyncStorage.setItem(CUSTOMER_PHONE_KEY, phone);
+}

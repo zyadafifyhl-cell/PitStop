@@ -1,0 +1,293 @@
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+
+import { AppTheme } from '@/constants/Theme';
+import { useCustomerAuth } from '@/context/CustomerAuthContext';
+import { useI18n } from '@/context/I18nContext';
+import {
+  type ChatMessage,
+  getGreetingMessage,
+  getQuickQuestions,
+  isApiConfigured,
+  sendChatMessage,
+} from '@/lib/ai-chat';
+
+export default function AssistantScreen() {
+  const { t, locale, isRTL } = useI18n();
+  const { customer } = useCustomerAuth();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [showQuickQuestions, setShowQuickQuestions] = useState(true);
+  const flatListRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    setMessages([
+      {
+        id: 'greeting',
+        role: 'assistant',
+        content: getGreetingMessage(locale),
+        timestamp: Date.now(),
+      },
+    ]);
+    setShowQuickQuestions(true);
+  }, [locale]);
+
+  const handleSend = useCallback(
+    async (text?: string) => {
+      const messageText = text || inputText.trim();
+      if (!messageText || isLoading) return;
+
+      if (!isApiConfigured()) {
+        Alert.alert(t('chat_error'), t('chat_no_api_key'));
+        return;
+      }
+
+      setInputText('');
+      setShowQuickQuestions(false);
+
+      const userMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: messageText,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      setIsLoading(true);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+
+      try {
+        const response = await sendChatMessage(messageText, [...messages, userMsg], {
+          locale,
+          customerName: customer?.name,
+        });
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } catch {
+        Alert.alert(t('chat_error'));
+      } finally {
+        setIsLoading(false);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    },
+    [inputText, isLoading, messages, locale, customer?.name, t],
+  );
+
+  function handleClearChat() {
+    Alert.alert(t('chat_clear_confirm_title'), t('chat_clear_confirm_body'), [
+      { text: t('alert_cancel'), style: 'cancel' },
+      {
+        text: t('alert_delete'),
+        style: 'destructive',
+        onPress: () => {
+          setMessages([
+            {
+              id: 'greeting',
+              role: 'assistant',
+              content: getGreetingMessage(locale),
+              timestamp: Date.now(),
+            },
+          ]);
+          setShowQuickQuestions(true);
+        },
+      },
+    ]);
+  }
+
+  const quickQuestions = getQuickQuestions(locale);
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>{t('chat_title')}</Text>
+          <Text style={styles.headerSubtitle}>{t('chat_subtitle')}</Text>
+        </View>
+        <Pressable onPress={handleClearChat} style={styles.clearBtn}>
+          <FontAwesome name="trash-o" size={18} color={AppTheme.textMuted} />
+        </Pressable>
+      </View>
+
+      {!isApiConfigured() ? (
+        <View style={styles.notice}>
+          <FontAwesome name="exclamation-circle" size={20} color={AppTheme.warm} />
+          <Text style={styles.noticeText}>{t('chat_no_api_key')}</Text>
+        </View>
+      ) : null}
+
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.messageList}
+        renderItem={({ item }) => (
+          <View
+            style={[
+              styles.messageRow,
+              item.role === 'user' ? styles.messageRowUser : styles.messageRowAssistant,
+            ]}>
+            <View
+              style={[
+                styles.messageBubble,
+                item.role === 'user' ? styles.userBubble : styles.assistantBubble,
+              ]}>
+              <Text style={[styles.messageText, item.role === 'user' && styles.userText]}>
+                {item.content}
+              </Text>
+            </View>
+          </View>
+        )}
+        ListFooterComponent={
+          <>
+            {isLoading ? (
+              <View style={styles.typingIndicator}>
+                <ActivityIndicator size="small" color={AppTheme.accent} />
+                <Text style={styles.typingText}>{t('chat_typing')}</Text>
+              </View>
+            ) : null}
+            {showQuickQuestions && messages.length <= 1 ? (
+              <View style={styles.quickQuestionsContainer}>
+                <Text style={styles.quickQuestionsTitle}>{t('chat_quick_questions')}</Text>
+                {quickQuestions.map((q) => (
+                  <Pressable
+                    key={q}
+                    onPress={() => handleSend(q)}
+                    style={styles.quickQuestionBtn}>
+                    <Text style={styles.quickQuestionText}>{q}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </>
+        }
+      />
+
+      <View style={styles.inputContainer}>
+        <TextInput
+          style={[styles.input, { textAlign: isRTL ? 'right' : 'left' }]}
+          placeholder={t('chat_placeholder')}
+          placeholderTextColor={AppTheme.textDim}
+          value={inputText}
+          onChangeText={setInputText}
+          multiline
+          maxLength={600}
+          editable={!isLoading}
+        />
+        <Pressable
+          onPress={() => handleSend()}
+          disabled={!inputText.trim() || isLoading}
+          style={[styles.sendBtn, (!inputText.trim() || isLoading) && styles.sendBtnDisabled]}>
+          <FontAwesome name="send" size={18} color="#fff" />
+        </Pressable>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.border,
+    backgroundColor: AppTheme.bgElevated,
+  },
+  headerText: { flex: 1 },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: AppTheme.text },
+  headerSubtitle: { fontSize: 13, color: AppTheme.textMuted, marginTop: 2 },
+  clearBtn: { padding: 8 },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    margin: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: AppTheme.warmSoft,
+    borderWidth: 1,
+    borderColor: AppTheme.border,
+  },
+  noticeText: { flex: 1, color: AppTheme.text, fontSize: 13, lineHeight: 18 },
+  messageList: { paddingHorizontal: 12, paddingVertical: 12 },
+  messageRow: { flexDirection: 'row', marginVertical: 4 },
+  messageRowUser: { justifyContent: 'flex-end' },
+  messageRowAssistant: { justifyContent: 'flex-start' },
+  messageBubble: { maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16 },
+  userBubble: { backgroundColor: AppTheme.accent, borderBottomRightRadius: 4 },
+  assistantBubble: {
+    backgroundColor: AppTheme.card,
+    borderWidth: 1,
+    borderColor: AppTheme.border,
+    borderBottomLeftRadius: 4,
+  },
+  messageText: { fontSize: 15, lineHeight: 22, color: AppTheme.text },
+  userText: { color: '#fff' },
+  typingIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
+  typingText: { color: AppTheme.textMuted, fontSize: 14, fontStyle: 'italic' },
+  quickQuestionsContainer: { paddingVertical: 12, gap: 8 },
+  quickQuestionsTitle: { fontSize: 14, fontWeight: '700', color: AppTheme.text, marginBottom: 4 },
+  quickQuestionBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: AppTheme.border,
+    backgroundColor: AppTheme.card,
+  },
+  quickQuestionText: { color: AppTheme.accent, fontSize: 14, fontWeight: '600' },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.border,
+    backgroundColor: AppTheme.bgElevated,
+    gap: 8,
+  },
+  input: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 120,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: AppTheme.text,
+    backgroundColor: AppTheme.card,
+    borderWidth: 1,
+    borderColor: AppTheme.border,
+  },
+  sendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.accent,
+  },
+  sendBtnDisabled: { backgroundColor: AppTheme.textDim },
+});

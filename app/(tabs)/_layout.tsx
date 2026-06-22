@@ -1,59 +1,95 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Link, Tabs } from 'expo-router';
-import { Pressable } from 'react-native';
+import { Tabs } from 'expo-router';
 
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { useCustomerAuth } from '@/context/CustomerAuthContext';
+import { useShopAuth } from '@/context/ShopAuthContext';
+import { useI18n } from '@/context/I18nContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 
-// You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
   color: string;
 }) {
-  return <FontAwesome size={28} style={{ marginBottom: -3 }} {...props} />;
+  return <FontAwesome size={22} style={{ marginBottom: -2 }} {...props} />;
 }
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const { t, locale } = useI18n();
+  const { customer } = useCustomerAuth();
+  const { shop } = useShopAuth();
+  const theme = useAppTheme();
+  const isCustomer = !!customer && !shop;
 
   return (
     <Tabs
+      key={locale}
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
+        tabBarActiveTintColor: theme.accent,
+        tabBarInactiveTintColor: theme.textDim,
+        tabBarStyle: {
+          backgroundColor: theme.bgElevated,
+          borderTopColor: theme.border,
+          display: shop && !isCustomer ? 'none' : 'flex',
+        },
+        headerStyle: { backgroundColor: theme.bgElevated },
+        headerTintColor: theme.text,
+        headerTitleStyle: { fontWeight: '700' },
+        sceneStyle: { backgroundColor: theme.bg },
         headerShown: useClientOnlyValue(false, true),
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="info-circle"
-                    size={25}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
+          title: t('tab_home'),
+          tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
+          href: isCustomer || !shop ? undefined : null,
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="bookings"
         options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
+          title: t('tab_my_bookings'),
+          tabBarIcon: ({ color }) => <TabBarIcon name="list-alt" color={color} />,
+          href: isCustomer || !shop ? undefined : null,
         }}
       />
+      <Tabs.Screen
+        name="favorites"
+        options={{
+          title: t('tab_favorites'),
+          tabBarIcon: ({ color }) => <TabBarIcon name="heart" color={color} />,
+          href: isCustomer ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="assistant"
+        options={{
+          title: t('tab_assistant'),
+          tabBarIcon: ({ color }) => <TabBarIcon name="comments" color={color} />,
+          headerShown: false,
+          href: isCustomer ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: t('tab_settings'),
+          tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
+          href: isCustomer ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="shop"
+        options={{
+          title: t('tab_shop'),
+          tabBarIcon: ({ color }) => <TabBarIcon name="briefcase" color={color} />,
+          href: shop ? undefined : isCustomer ? null : undefined,
+        }}
+      />
+      <Tabs.Screen name="catalog" options={{ href: null }} />
+      <Tabs.Screen name="alerts" options={{ href: null }} />
     </Tabs>
   );
 }
