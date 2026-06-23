@@ -83,6 +83,7 @@ export default function ShopsInAreaScreen() {
           {shops.map((shop) => (
             <ShopListCard
               key={shop.id}
+              shopId={shop.id}
               name={locale === 'ar' ? shop.nameAr : shop.name}
               address={locale === 'ar' ? shop.addressAr : shop.address}
               type={shop.type}

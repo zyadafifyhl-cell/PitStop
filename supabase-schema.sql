@@ -103,6 +103,16 @@ create table if not exists public.parts_order_items (
   line_total_egp numeric(10, 2) not null default 0
 );
 
+create table if not exists public.shop_push_tokens (
+  id uuid primary key default gen_random_uuid(),
+  shop_id text not null references public.shops(id) on delete cascade,
+  owner_email text not null,
+  expo_push_token text not null,
+  locale text not null default 'en' check (locale in ('en', 'ar')),
+  updated_at timestamptz not null default now(),
+  unique (shop_id, expo_push_token)
+);
+
 alter table public.areas enable row level security;
 alter table public.shops enable row level security;
 alter table public.profiles enable row level security;
@@ -110,6 +120,7 @@ alter table public.bookings enable row level security;
 alter table public.spare_parts enable row level security;
 alter table public.parts_orders enable row level security;
 alter table public.parts_order_items enable row level security;
+alter table public.shop_push_tokens enable row level security;
 
 drop policy if exists "Anyone can read areas" on public.areas;
 create policy "Anyone can read areas" on public.areas for select using (true);
@@ -210,6 +221,17 @@ for select using (
     and lower(shops.owner_email) = lower(auth.jwt() ->> 'email')
   )
 );
+
+drop policy if exists "Anyone can read shop push tokens" on public.shop_push_tokens;
+create policy "Anyone can read shop push tokens"
+on public.shop_push_tokens for select
+using (true);
+
+drop policy if exists "Anyone can manage shop push tokens" on public.shop_push_tokens;
+create policy "Anyone can manage shop push tokens"
+on public.shop_push_tokens for all
+using (true)
+with check (true);
 
 insert into public.areas (id, name, name_ar, city, city_ar) values
   ('maadi', 'Maadi', 'المعادي', 'Cairo', 'القاهرة'),

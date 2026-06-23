@@ -1,6 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
+import { shopTypeLabel } from '@/lib/booking/format';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
+import { sendShopPushForBooking } from '@/lib/push/shopPush';
 import { getSupabase } from '@/lib/supabase/client';
 
 const BOOKINGS_KEY = '@pitstop/bookings/v1';
@@ -67,6 +70,21 @@ async function readAll(): Promise<Booking[]> {
 
 async function writeAll(bookings: Booking[]): Promise<void> {
   await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
+}
+
+async function sendOwnerBookingPush(booking: Booking): Promise<void> {
+  const when = new Date(booking.scheduledAt);
+  const whenEn = when.toLocaleString('en-EG');
+  const whenAr = when.toLocaleString('ar-EG');
+  await sendShopPushForBooking({
+    shopId: booking.shopId,
+    serviceLabelEn: shopTypeLabel(booking.shopType, 'en'),
+    serviceLabelAr: shopTypeLabel(booking.shopType, 'ar'),
+    customerPhone: booking.customerPhone,
+    whenEn,
+    whenAr,
+    bookingId: booking.id,
+  });
 }
 
 export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
@@ -141,12 +159,35 @@ export async function createBooking(
       .select('*')
       .single();
 
-    if (!error && data) return mapBookingRow(data as BookingRow);
+    if (!error && data) {
+      const created = mapBookingRow(data as BookingRow);
+      await pushOwnerNotification({
+        shopId: created.shopId,
+        kind: 'service_booking',
+        customerPhone: created.customerPhone,
+        bookingId: created.id,
+        shopType: created.shopType,
+        scheduledAt: created.scheduledAt,
+        totalEgp: created.servicePriceEgp,
+      });
+      await sendOwnerBookingPush(created);
+      return created;
+    }
   }
 
   const rows = await readAll();
   rows.push(booking);
   await writeAll(rows);
+  await pushOwnerNotification({
+    shopId: booking.shopId,
+    kind: 'service_booking',
+    customerPhone: booking.customerPhone,
+    bookingId: booking.id,
+    shopType: booking.shopType,
+    scheduledAt: booking.scheduledAt,
+    totalEgp: booking.servicePriceEgp,
+  });
+  await sendOwnerBookingPush(booking);
   return booking;
 }
 

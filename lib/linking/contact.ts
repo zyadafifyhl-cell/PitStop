@@ -15,10 +15,14 @@ export async function openSupportPhone(): Promise<void> {
 }
 
 export async function openSupportEmail(subject?: string, body?: string): Promise<void> {
+  await openEmailTo(SUPPORT.email, subject, body);
+}
+
+export async function openEmailTo(to: string, subject?: string, body?: string): Promise<void> {
   const q: string[] = [];
   if (subject) q.push(`subject=${encodeURIComponent(subject)}`);
   if (body) q.push(`body=${encodeURIComponent(body)}`);
-  const url = `mailto:${SUPPORT.email}${q.length ? `?${q.join('&')}` : ''}`;
+  const url = `mailto:${to}${q.length ? `?${q.join('&')}` : ''}`;
   await Linking.openURL(url);
 }
 

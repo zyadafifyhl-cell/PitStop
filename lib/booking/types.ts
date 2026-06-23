@@ -77,3 +77,53 @@ export type PartsOrder = {
   status: PartsOrderStatus;
   createdAt: string;
 };
+
+export type ShopOffer = {
+  id: string;
+  title: string;
+  titleAr?: string;
+  validUntil: string;
+  active: boolean;
+  createdAt: string;
+};
+
+export type ShopExtras = {
+  shopId: string;
+  imageUrls: string[];
+  servicePriceEgp?: number;
+  offers: ShopOffer[];
+  updatedAt: string;
+};
+
+export type OwnerNotificationKind = 'service_booking' | 'parts_order';
+
+export type OwnerNotification = {
+  id: string;
+  shopId: string;
+  kind: OwnerNotificationKind;
+  createdAt: string;
+  bookingId?: string;
+  orderId?: string;
+  customerPhone: string;
+  shopType?: ShopType;
+  scheduledAt?: string;
+  totalEgp?: number;
+  partsCount?: number;
+};
+
+export type CustomerInvoice = {
+  id: string;
+  customerId?: string;
+  customerPhone: string;
+  customerEmail?: string;
+  orderId: string;
+  shopId: string;
+  shippingAddress: string;
+  items: PartsOrderItem[];
+  subtotalEgp: number;
+  platformFeeEgp: number;
+  totalEgp: number;
+  status: PartsOrderStatus;
+  createdAt: string;
+  emailedAt?: string;
+};

@@ -14,11 +14,15 @@ import {
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import {
+  buildPartsInvoiceEmailBody,
+  markCustomerInvoiceEmailed,
+} from '@/lib/booking/commerceEvents';
 import { getShopById } from '@/lib/booking/demoShops';
 import { formatEgp } from '@/lib/booking/reporting';
 import { createPartsOrder, listInventoryForShop } from '@/lib/booking/partsStorage';
 import type { SparePartItem } from '@/lib/booking/types';
-import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
+import { formatPhoneDisplay, openEmailTo, openPhone, openShopInMaps } from '@/lib/linking/contact';
 
 export default function PartsShopScreen() {
   const { shopId } = useLocalSearchParams<{ shopId: string }>();
@@ -72,6 +76,7 @@ export default function PartsShopScreen() {
       const result = await createPartsOrder({
         shopId: shop.id,
         customerId: customer.id,
+        customerEmail: customer.email,
         customerPhone: customer.phone,
         shippingAddress: shippingAddress.trim(),
         items: lines,
@@ -83,6 +88,24 @@ export default function PartsShopScreen() {
       setQtyMap({});
       setShippingAddress('');
       await refresh();
+      if (result.order && customer.email) {
+        const emailPayload = buildPartsInvoiceEmailBody({
+          locale,
+          shopName: locale === 'ar' ? shop.nameAr : shop.name,
+          orderId: result.order.id,
+          shippingAddress: result.order.shippingAddress,
+          subtotalText: formatEgp(result.order.subtotalEgp, locale),
+          feeText: formatEgp(result.order.platformFeeEgp, locale),
+          totalText: formatEgp(result.order.totalEgp, locale),
+          items: result.order.items,
+        });
+        try {
+          await openEmailTo(customer.email, emailPayload.subject, emailPayload.body);
+          await markCustomerInvoiceEmailed(result.order.id, new Date().toISOString());
+        } catch {
+          Alert.alert(t('parts_invoice_email_fail_title'), t('parts_invoice_email_fail_body'));
+        }
+      }
       Alert.alert(t('parts_order_success_title'), t('parts_order_success_body'), [
         { text: t('welcome_ok'), onPress: () => router.push('/bookings') },
       ]);

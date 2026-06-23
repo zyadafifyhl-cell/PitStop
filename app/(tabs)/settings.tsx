@@ -1,6 +1,6 @@
 import { router, type Href } from 'expo-router';
 import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SettingsRow } from '@/components/ui/SettingsRow';
 import { AppTheme } from '@/constants/Theme';
@@ -18,7 +18,10 @@ export default function SettingsScreen() {
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
   const { preference, setPreference } = useThemePreference();
-  const { customer, resetPassword, logout } = useCustomerAuth();
+  const { customer, resetPassword, verifyPassword, logout } = useCustomerAuth();
+  const [privacyVisible, setPrivacyVisible] = React.useState(false);
+  const [privacyUnlocked, setPrivacyUnlocked] = React.useState(false);
+  const [privacyPassword, setPrivacyPassword] = React.useState('');
 
   async function safeOpen(fn: () => Promise<void>) {
     try {
@@ -42,6 +45,26 @@ export default function SettingsScreen() {
     );
   }
 
+  async function unlockPrivacy() {
+    const result = await verifyPassword(privacyPassword);
+    if (result === 'ok') {
+      setPrivacyUnlocked(true);
+      setPrivacyPassword('');
+      return;
+    }
+    if (result === 'not_configured') {
+      Alert.alert(t('privacy_not_configured_title'), t('privacy_not_configured_body'));
+      return;
+    }
+    Alert.alert(t('privacy_wrong_password_title'), t('privacy_wrong_password_body'));
+  }
+
+  function maskValue(value: string, visible = 2): string {
+    if (!value) return '••••••';
+    if (value.length <= visible) return '•'.repeat(Math.max(4, value.length));
+    return `${value.slice(0, visible)}${'•'.repeat(Math.max(4, value.length - visible))}`;
+  }
+
   return (
     <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
       {customer ? (
@@ -56,10 +79,14 @@ export default function SettingsScreen() {
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <SettingsRow
           icon="key"
-          label={t('customer_forgot_password')}
-          hint={t('settings_reset_password_hint')}
+          label={t('privacy_settings_title')}
+          hint={t('privacy_settings_lead')}
           accent={theme.accent}
-          onPress={onResetPassword}
+          onPress={() => {
+            setPrivacyVisible(true);
+            setPrivacyUnlocked(false);
+            setPrivacyPassword('');
+          }}
         />
       </View>
 
@@ -172,6 +199,53 @@ export default function SettingsScreen() {
         accent={theme.danger}
         onPress={onSignOut}
       />
+
+      <Modal visible={privacyVisible} transparent animationType="fade" onRequestClose={() => setPrivacyVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('privacy_settings_title')}</Text>
+            <Text style={[styles.modalLead, { color: theme.textMuted }]}>{t('privacy_settings_lead')}</Text>
+
+            {!privacyUnlocked ? (
+              <>
+                <TextInput
+                  placeholder={t('privacy_password_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  secureTextEntry
+                  value={privacyPassword}
+                  onChangeText={setPrivacyPassword}
+                  style={[styles.modalInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+                />
+                <Pressable onPress={unlockPrivacy} style={[styles.modalBtn, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.modalBtnText, { color: theme.onAccent }]}>{t('privacy_unlock')}</Text>
+                </Pressable>
+                <Pressable onPress={onResetPassword} style={styles.modalLinkBtn}>
+                  <Text style={[styles.modalLinkText, { color: theme.accent }]}>{t('privacy_forgot_password')}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <View style={styles.privacyInfoWrap}>
+                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
+                  {t('privacy_user_label')}: {maskValue(customer?.name ?? '', 1)}
+                </Text>
+                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
+                  {t('privacy_email_label')}: {maskValue(customer?.email ?? '', 2)}
+                </Text>
+                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
+                  {t('privacy_phone_label')}: {maskValue(customer?.phone ?? '', 4)}
+                </Text>
+                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
+                  {t('privacy_password_label')}: {'•'.repeat(12)}
+                </Text>
+              </View>
+            )}
+
+            <Pressable onPress={() => setPrivacyVisible(false)} style={[styles.modalCloseBtn, { borderColor: theme.border }]}>
+              <Text style={[styles.modalCloseText, { color: theme.textMuted }]}>{t('alert_cancel')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -206,4 +280,45 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 20,
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
+  modalLead: { fontSize: 13, lineHeight: 19, marginBottom: 10 },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 15,
+  },
+  modalBtn: {
+    marginTop: 10,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalBtnText: { fontSize: 15, fontWeight: '800' },
+  modalLinkBtn: { marginTop: 10, alignItems: 'center' },
+  modalLinkText: { fontSize: 13, fontWeight: '700' },
+  privacyInfoWrap: { marginTop: 4, gap: 8 },
+  privacyInfoLine: { fontSize: 14, fontWeight: '600' },
+  modalCloseBtn: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  modalCloseText: { fontSize: 14, fontWeight: '700' },
 });

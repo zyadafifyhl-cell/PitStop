@@ -1,7 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import {
+  createCustomerInvoiceFromPartsOrder,
+  pushOwnerNotification,
+  updateCustomerInvoiceOrderStatus,
+} from '@/lib/booking/commerceEvents';
 import { DEMO_SHOPS } from '@/lib/booking/demoShops';
+import { formatEgp } from '@/lib/booking/reporting';
 import type { PartsOrder, PartsOrderItem, PartsOrderStatus, SparePartItem } from '@/lib/booking/types';
+import { sendShopPushForPartsOrder } from '@/lib/push/shopPush';
 
 const INVENTORY_KEY = '@pitstop/parts-inventory/v1';
 const ORDERS_KEY = '@pitstop/parts-orders/v1';
@@ -160,12 +167,14 @@ export async function updatePartsOrderStatus(
   rows[idx] = { ...rows[idx], status };
   map[shopId] = rows;
   await writeOrderMap(map);
+  await updateCustomerInvoiceOrderStatus(orderId, status);
   return rows[idx];
 }
 
 export async function createPartsOrder(input: {
   shopId: string;
   customerId?: string;
+  customerEmail?: string;
   customerPhone: string;
   shippingAddress: string;
   items: Array<{ partId: string; qty: number }>;
@@ -227,5 +236,28 @@ export async function createPartsOrder(input: {
   };
   orderMap[input.shopId] = [order, ...(orderMap[input.shopId] ?? [])];
   await writeOrderMap(orderMap);
+  await pushOwnerNotification({
+    shopId: order.shopId,
+    kind: 'parts_order',
+    customerPhone: order.customerPhone,
+    orderId: order.id,
+    totalEgp: order.totalEgp,
+    partsCount: order.items.reduce((sum, line) => sum + line.qty, 0),
+  });
+  const partsCount = order.items.reduce((sum, line) => sum + line.qty, 0);
+  await sendShopPushForPartsOrder({
+    shopId: order.shopId,
+    customerPhone: order.customerPhone,
+    partsCount,
+    totalEn: formatEgp(order.totalEgp, 'en'),
+    totalAr: formatEgp(order.totalEgp, 'ar'),
+    orderId: order.id,
+  });
+  await createCustomerInvoiceFromPartsOrder({
+    customerId: input.customerId,
+    customerPhone: input.customerPhone,
+    customerEmail: input.customerEmail,
+    order,
+  });
   return { order };
 }

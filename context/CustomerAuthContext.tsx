@@ -30,6 +30,7 @@ type CustomerAuthContextValue = {
     password: string;
   }) => Promise<RegisterResult>;
   resetPassword: (email: string) => Promise<'ok' | 'invalid' | 'not_configured'>;
+  verifyPassword: (password: string) => Promise<'ok' | 'invalid' | 'not_configured'>;
   logout: () => Promise<void>;
 };
 
@@ -184,6 +185,22 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     [],
   );
 
+  const verifyPassword = useCallback(
+    async (password: string) => {
+      try {
+        const email = customer?.email?.trim().toLowerCase();
+        if (!email || !password.trim()) return 'invalid';
+        const supabase = getSupabase();
+        if (!supabase) return 'not_configured';
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        return error ? 'invalid' : 'ok';
+      } catch {
+        return 'invalid';
+      }
+    },
+    [customer?.email],
+  );
+
   const logout = useCallback(async () => {
     await AsyncStorage.removeItem(SESSION_KEY);
     await getSupabase()?.auth.signOut();
@@ -191,8 +208,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const value = useMemo(
-    () => ({ ready, customer, busy, login, register, resetPassword, logout }),
-    [ready, customer, busy, login, register, resetPassword, logout],
+    () => ({ ready, customer, busy, login, register, resetPassword, verifyPassword, logout }),
+    [ready, customer, busy, login, register, resetPassword, verifyPassword, logout],
   );
 
   return <CustomerAuthContext.Provider value={value}>{children}</CustomerAuthContext.Provider>;

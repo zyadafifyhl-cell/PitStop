@@ -21,6 +21,9 @@ import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useI18n } from '@/context/I18nContext';
 import {
+  listOwnerNotificationsForShop,
+} from '@/lib/booking/commerceEvents';
+import {
   buildOwnerReportHtml,
   filterBookingsByRange,
   formatEgp,
@@ -32,7 +35,7 @@ import {
   type ReportPreset,
 } from '@/lib/booking/reporting';
 import { useShopAuth } from '@/context/ShopAuthContext';
-import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
+import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import {
   addInventoryItem,
   listInventoryForShop,
@@ -40,8 +43,24 @@ import {
   updateInventoryStock,
   updatePartsOrderStatus,
 } from '@/lib/booking/partsStorage';
+import {
+  addShopImage,
+  addShopOffer,
+  cancelShopOffer,
+  getShopExtras,
+  removeShopImage,
+  setShopServicePrice,
+} from '@/lib/booking/shopExtrasStorage';
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
-import type { Booking, BookingStatus, PartsOrder, SparePartItem } from '@/lib/booking/types';
+import { registerOwnerPushToken } from '@/lib/push/shopPush';
+import type {
+  Booking,
+  BookingStatus,
+  OwnerNotification,
+  PartsOrder,
+  ShopExtras,
+  SparePartItem,
+} from '@/lib/booking/types';
 
 const PRESETS: ReportPreset[] = ['2d', '3d', '7d', '30d', 'custom'];
 
@@ -68,6 +87,26 @@ export default function ShopScreen() {
   const [newPartPrice, setNewPartPrice] = useState('');
   const [newPartStock, setNewPartStock] = useState('1');
   const [newPartImage, setNewPartImage] = useState('');
+  const [ownerNotifications, setOwnerNotifications] = useState<OwnerNotification[]>([]);
+  const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [newServicePrice, setNewServicePrice] = useState('');
+  const [newOfferTitle, setNewOfferTitle] = useState('');
+  const [newOfferTitleAr, setNewOfferTitleAr] = useState('');
+  const [newOfferDays, setNewOfferDays] = useState('7');
+
+  const refreshOwnerNotifications = useCallback(async () => {
+    if (!shop) return;
+    const rows = await listOwnerNotificationsForShop(shop.id);
+    setOwnerNotifications(rows);
+  }, [shop]);
+
+  const refreshShopExtras = useCallback(async () => {
+    if (!shop) return;
+    const row = await getShopExtras(shop.id);
+    setShopExtras(row);
+    if (row.servicePriceEgp != null) setNewServicePrice(String(row.servicePriceEgp));
+  }, [shop]);
 
   const refreshBookings = useCallback(async () => {
     if (!shop) return;
@@ -95,9 +134,22 @@ export default function ShopScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!shop) return;
+      refreshOwnerNotifications();
+      refreshShopExtras();
       if (shop.type === 'parts') refreshPartsData();
       else refreshBookings();
-    }, [shop, refreshBookings, refreshPartsData]),
+    }, [shop, refreshBookings, refreshPartsData, refreshOwnerNotifications, refreshShopExtras]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!shop) return;
+      registerOwnerPushToken({
+        shopId: shop.id,
+        ownerEmail: shop.ownerEmail,
+        locale,
+      }).catch(() => {});
+    }, [shop, locale]),
   );
 
   const reportRange = useMemo(() => {
@@ -226,6 +278,79 @@ export default function ShopScreen() {
     return t('parts_status_shipped');
   }
 
+  function ownerNotificationLine(notification: OwnerNotification): string {
+    if (notification.kind === 'service_booking') {
+      const serviceLabel = notification.shopType
+        ? shopTypeLabel(notification.shopType, locale)
+        : t('service_maintenance_title');
+      const when = notification.scheduledAt
+        ? formatBookingDateTime(notification.scheduledAt, locale)
+        : new Date(notification.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG');
+      return t('shop_notification_service_booking_line')
+        .replace('{service}', serviceLabel)
+        .replace('{phone}', notification.customerPhone)
+        .replace('{when}', when);
+    }
+    const partsCount = String(notification.partsCount ?? 0);
+    const total = formatEgp(notification.totalEgp ?? 0, locale);
+    return t('shop_notification_parts_order_line')
+      .replace('{phone}', notification.customerPhone)
+      .replace('{count}', partsCount)
+      .replace('{total}', total);
+  }
+
+  async function onAddShopImage() {
+    if (!shop || !newImageUrl.trim()) return;
+    await addShopImage(shop.id, newImageUrl);
+    setNewImageUrl('');
+    await refreshShopExtras();
+  }
+
+  async function onRemoveShopImage(imageUrl: string) {
+    if (!shop) return;
+    await removeShopImage(shop.id, imageUrl);
+    await refreshShopExtras();
+  }
+
+  async function onSaveServicePrice() {
+    if (!shop) return;
+    const price = Number(newServicePrice);
+    if (Number.isNaN(price) || price < 0) {
+      Alert.alert(t('shop_price_invalid_title'), t('shop_price_invalid_body'));
+      return;
+    }
+    await setShopServicePrice(shop.id, price);
+    await refreshShopExtras();
+  }
+
+  async function onAddOffer() {
+    if (!shop || !newOfferTitle.trim()) {
+      Alert.alert(t('shop_offer_invalid_title'), t('shop_offer_invalid_body'));
+      return;
+    }
+    const days = Number(newOfferDays);
+    if (Number.isNaN(days) || days < 1) {
+      Alert.alert(t('shop_offer_invalid_title'), t('shop_offer_invalid_body'));
+      return;
+    }
+    await addShopOffer({
+      shopId: shop.id,
+      title: newOfferTitle,
+      titleAr: newOfferTitleAr,
+      validDays: days,
+    });
+    setNewOfferTitle('');
+    setNewOfferTitleAr('');
+    setNewOfferDays('7');
+    await refreshShopExtras();
+  }
+
+  async function onCancelOffer(offerId: string) {
+    if (!shop) return;
+    await cancelShopOffer(shop.id, offerId);
+    await refreshShopExtras();
+  }
+
   if (!ready) {
     return (
       <View style={[styles.center, { backgroundColor: palette.background }]}>
@@ -289,6 +414,129 @@ export default function ShopScreen() {
   }
 
   const shopName = locale === 'ar' ? shop.nameAr : shop.name;
+  const activeOffers = (shopExtras?.offers ?? []).filter((offer) => offer.active);
+  const shopManageCard = (
+    <View
+      style={[
+        styles.reportCard,
+        {
+          borderColor: colorScheme === 'dark' ? '#333' : '#e5e7eb',
+          backgroundColor: colorScheme === 'dark' ? '#111' : '#fff',
+        },
+      ]}>
+      <Text style={[styles.reportTitle, { color: palette.text }]}>
+        {t('shop_manage_title').replace('{name}', shopName)}
+      </Text>
+      <Text style={[styles.reportLead, { color: palette.text }]}>{t('shop_manage_lead')}</Text>
+
+      <Text style={[styles.label, { color: palette.text }]}>{t('shop_manage_image_label')}</Text>
+      <TextInput
+        placeholder={t('shop_manage_image_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        value={newImageUrl}
+        onChangeText={setNewImageUrl}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <Pressable onPress={onAddShopImage} style={[styles.primaryBtn, { backgroundColor: palette.tint }]}>
+        <Text style={styles.primaryBtnText}>{t('shop_manage_add_image')}</Text>
+      </Pressable>
+      {shopExtras?.imageUrls?.length ? (
+        <View style={styles.actions}>
+          {shopExtras.imageUrls.map((url) => (
+            <Pressable key={url} onPress={() => onRemoveShopImage(url)} style={[styles.actionBtn, { backgroundColor: '#dc2626' }]}>
+              <Text style={styles.actionText}>{t('shop_manage_remove_image')}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <Text style={[styles.label, { color: palette.text }]}>{t('shop_manage_price_label')}</Text>
+      <TextInput
+        placeholder={t('shop_manage_price_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        keyboardType="numeric"
+        value={newServicePrice}
+        onChangeText={setNewServicePrice}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <Pressable onPress={onSaveServicePrice} style={[styles.primaryBtn, { backgroundColor: palette.tint }]}>
+        <Text style={styles.primaryBtnText}>{t('shop_manage_save_price')}</Text>
+      </Pressable>
+
+      <Text style={[styles.label, { color: palette.text }]}>{t('shop_manage_offer_title')}</Text>
+      <TextInput
+        placeholder={t('shop_manage_offer_title_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        value={newOfferTitle}
+        onChangeText={setNewOfferTitle}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <TextInput
+        placeholder={t('shop_manage_offer_title_ar_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        value={newOfferTitleAr}
+        onChangeText={setNewOfferTitleAr}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <TextInput
+        placeholder={t('shop_manage_offer_days_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        keyboardType="numeric"
+        value={newOfferDays}
+        onChangeText={setNewOfferDays}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <Pressable onPress={onAddOffer} style={[styles.primaryBtn, { backgroundColor: palette.tint }]}>
+        <Text style={styles.primaryBtnText}>{t('shop_manage_add_offer')}</Text>
+      </Pressable>
+      {activeOffers.length ? (
+        <View style={styles.actions}>
+          {activeOffers.map((offer) => (
+            <Pressable key={offer.id} onPress={() => onCancelOffer(offer.id)} style={[styles.actionBtn, { backgroundColor: '#dc2626' }]}>
+              <Text style={styles.actionText}>
+                {locale === 'ar' ? (offer.titleAr || offer.title) : offer.title}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
 
   if (shop.type === 'parts') {
     return (
@@ -296,12 +544,37 @@ export default function ShopScreen() {
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.title, { color: palette.text }]}>{shopName}</Text>
+            <Text style={[styles.meta, { color: palette.text }]}>{t('shop_welcome_back').replace('{name}', shopName)}</Text>
             <Text style={[styles.lead, { color: palette.text }]}>{t('parts_owner_dashboard_lead')}</Text>
           </View>
           <Pressable onPress={onLogout} style={styles.logoutBtn}>
             <Text style={{ color: palette.tint, fontWeight: '700' }}>{t('shop_logout')}</Text>
           </Pressable>
         </View>
+
+        <View
+          style={[
+            styles.reportCard,
+            {
+              borderColor: colorScheme === 'dark' ? '#333' : '#e5e7eb',
+              backgroundColor: colorScheme === 'dark' ? '#111' : '#fff',
+            },
+          ]}>
+          <Text style={[styles.reportTitle, { color: palette.text }]}>{t('shop_notifications_title')}</Text>
+          {ownerNotifications.length === 0 ? (
+            <Text style={[styles.meta, { color: palette.text }]}>{t('shop_notifications_empty')}</Text>
+          ) : (
+            ownerNotifications.slice(0, 6).map((notification) => (
+              <View key={notification.id} style={styles.notificationRow}>
+                <Text style={[styles.metaStrong, { color: palette.text }]}>{ownerNotificationLine(notification)}</Text>
+                <Text style={[styles.meta, { color: palette.text }]}>
+                  {new Date(notification.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+        {shopManageCard}
 
         <View
           style={[
@@ -471,12 +744,37 @@ export default function ShopScreen() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.title, { color: palette.text }]}>{shopName}</Text>
+          <Text style={[styles.meta, { color: palette.text }]}>{t('shop_welcome_back').replace('{name}', shopName)}</Text>
           <Text style={[styles.lead, { color: palette.text }]}>{t('shop_dashboard_lead')}</Text>
         </View>
         <Pressable onPress={onLogout} style={styles.logoutBtn}>
           <Text style={{ color: palette.tint, fontWeight: '700' }}>{t('shop_logout')}</Text>
         </Pressable>
       </View>
+
+      <View
+        style={[
+          styles.reportCard,
+          {
+            borderColor: colorScheme === 'dark' ? '#333' : '#e5e7eb',
+            backgroundColor: colorScheme === 'dark' ? '#111' : '#fff',
+          },
+        ]}>
+        <Text style={[styles.reportTitle, { color: palette.text }]}>{t('shop_notifications_title')}</Text>
+        {ownerNotifications.length === 0 ? (
+          <Text style={[styles.meta, { color: palette.text }]}>{t('shop_notifications_empty')}</Text>
+        ) : (
+          ownerNotifications.slice(0, 6).map((notification) => (
+            <View key={notification.id} style={styles.notificationRow}>
+              <Text style={[styles.metaStrong, { color: palette.text }]}>{ownerNotificationLine(notification)}</Text>
+              <Text style={[styles.meta, { color: palette.text }]}>
+                {new Date(notification.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+      {shopManageCard}
 
       <View
         style={[
@@ -720,6 +1018,12 @@ const styles = StyleSheet.create({
   metaStrong: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
   meta: { fontSize: 14, opacity: 0.85, marginTop: 2 },
   status: { fontSize: 14, fontWeight: '700', marginTop: 10 },
+  notificationRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#303030',
+    paddingTop: 10,
+    marginTop: 10,
+  },
   partOwnerRow: {
     borderWidth: 1,
     borderColor: '#334155',
