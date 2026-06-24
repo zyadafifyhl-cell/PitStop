@@ -10,14 +10,14 @@ const PUBLIC_PATHS = ['/welcome', '/reset-password'];
 export function UserAuthGate() {
   const pathname = usePathname();
   const router = useRouter();
-  const { ready: customerReady, customer } = useCustomerAuth();
+  const { ready: customerReady, customer, isGuest } = useCustomerAuth();
   const { ready: shopReady, shop } = useShopAuth();
 
   useEffect(() => {
     if (!customerReady || !shopReady) return;
 
     const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-    const isLoggedIn = !!customer || !!shop;
+    const isLoggedIn = !!customer || !!shop || isGuest;
 
     if (shop) return;
 
@@ -29,7 +29,7 @@ export function UserAuthGate() {
     if (customer && pathname === '/welcome') {
       router.replace('/');
     }
-  }, [customerReady, shopReady, customer, shop, pathname, router]);
+  }, [customerReady, shopReady, customer, shop, isGuest, pathname, router]);
 
   return null;
 }

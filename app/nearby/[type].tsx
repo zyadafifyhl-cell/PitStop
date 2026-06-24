@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 
 import { ShopListCard } from '@/components/ui/ShopListCard';
-import { AppTheme } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatDistance, listShopsSortedByDistance } from '@/lib/booking/nearby';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { parseShopType } from '@/lib/booking/serviceType';
@@ -22,6 +22,7 @@ import { openAllShopsInMaps, openPhone, openShopInMaps } from '@/lib/linking/con
 export default function NearbyScreen() {
   const { type: rawType } = useLocalSearchParams<{ type: string }>();
   const { t, locale } = useI18n();
+  const theme = useAppTheme();
   const type = parseShopType(rawType);
   const [loading, setLoading] = useState(true);
   const [locationDenied, setLocationDenied] = useState(false);
@@ -57,8 +58,8 @@ export default function NearbyScreen() {
 
   if (!type) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.muted}>{t('service_invalid')}</Text>
+      <View style={[styles.center, { backgroundColor: theme.bg }]}>
+        <Text style={[styles.muted, { color: theme.textMuted }]}>{t('service_invalid')}</Text>
       </View>
     );
   }
@@ -66,15 +67,15 @@ export default function NearbyScreen() {
   const serviceLabel = shopTypeLabel(type, locale);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>{t('nearby_title')}</Text>
-      <Text style={styles.lead}>
+    <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.title, { color: theme.text }]}>{t('nearby_title')}</Text>
+      <Text style={[styles.lead, { color: theme.textMuted }]}>
         {locationDenied ? t('nearby_no_location') : t('nearby_lead')}
       </Text>
-      <Text style={styles.badge}>{serviceLabel}</Text>
+      <Text style={[styles.badge, { color: theme.accent }]}>{serviceLabel}</Text>
 
       {loading ? (
-        <ActivityIndicator color={AppTheme.accent} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       ) : (
         <>
           <Pressable
@@ -83,8 +84,8 @@ export default function NearbyScreen() {
                 Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')),
               )
             }
-            style={styles.mapsAllBtn}>
-            <Text style={styles.mapsAllText}>{t('nearby_open_all_maps')}</Text>
+            style={[styles.mapsAllBtn, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+            <Text style={[styles.mapsAllText, { color: theme.accent }]}>{t('nearby_open_all_maps')}</Text>
           </Pressable>
 
           {shops.map((shop, index) => (
@@ -102,7 +103,7 @@ export default function NearbyScreen() {
               rating={shop.rating}
               phone={shop.phone}
               distanceLabel={formatDistance(shop.distanceKm, locale)}
-              bookLabel={t('book_tap_to_book')}
+              bookLabel={shop.type === 'parts' ? t('book_tap_to_book') : t('shop_profile_open')}
               onCall={() =>
                 openPhone(shop.phone).catch(() =>
                   Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')),
@@ -114,7 +115,9 @@ export default function NearbyScreen() {
                 )
               }
               onPress={() =>
-                router.push({ pathname: '/book/[shopId]', params: { shopId: shop.id } })
+                shop.type === 'parts'
+                  ? router.push(`/parts-shop/${shop.id}` as any)
+                  : router.push(`/shop-profile/${shop.id}` as any)
               }
             />
           ))}
@@ -125,21 +128,19 @@ export default function NearbyScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  screen: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: AppTheme.bg },
-  muted: { color: AppTheme.textMuted },
-  title: { color: AppTheme.text, fontSize: 24, fontWeight: '900', marginBottom: 8 },
-  lead: { color: AppTheme.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 12 },
-  badge: { color: AppTheme.accent, fontSize: 13, fontWeight: '700', marginBottom: 16 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  muted: {},
+  title: { fontSize: 24, fontWeight: '900', marginBottom: 8 },
+  lead: { fontSize: 14, lineHeight: 20, marginBottom: 12 },
+  badge: { fontSize: 13, fontWeight: '700', marginBottom: 16 },
   mapsAllBtn: {
-    backgroundColor: AppTheme.accentSoft,
     borderWidth: 1,
-    borderColor: AppTheme.accent,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     marginBottom: 16,
   },
-  mapsAllText: { color: AppTheme.accent, fontWeight: '700', fontSize: 14 },
+  mapsAllText: { fontWeight: '700', fontSize: 14 },
 });

@@ -9,7 +9,7 @@ import { useI18n } from '@/context/I18nContext';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras } from '@/lib/booking/types';
 import { formatEgp } from '@/lib/booking/reporting';
-import { formatPhoneDisplay } from '@/lib/linking/contact';
+import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
 import type { ShopType } from '@/lib/booking/types';
 
 type Props = {
@@ -62,7 +62,12 @@ export function ShopListCard({
   }, [shopId]);
 
   const topOffer = extras?.offers?.[0];
+  const profileImage = extras?.profileImageUrl || extras?.imageUrls?.[0];
   const offerLabel = topOffer ? (locale === 'ar' ? (topOffer.titleAr || topOffer.title) : topOffer.title) : null;
+  const resolvedName = locale === 'ar' ? extras?.profileNameAr || extras?.profileName || name : extras?.profileName || name;
+  const resolvedAddress =
+    locale === 'ar' ? extras?.profileAddressAr || extras?.profileAddress || address : extras?.profileAddress || address;
+  const resolvedPhone = extras?.profilePhone || phone;
 
   return (
     <View style={styles.wrap}>
@@ -83,6 +88,11 @@ export function ShopListCard({
                 <Text style={[styles.ratingText, { color: theme.text }]}>{rating.toFixed(1)}</Text>
               </View>
             ) : null}
+            {extras?.servicePriceEgp != null ? (
+              <View style={[styles.priceChip, { backgroundColor: theme.accentSoft }]}>
+                <Text style={[styles.priceChipText, { color: theme.accent }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
+              </View>
+            ) : null}
             {onToggleFavorite ? (
               <Pressable onPress={onToggleFavorite} hitSlop={8} style={styles.iconBtn}>
                 <FontAwesome
@@ -94,12 +104,15 @@ export function ShopListCard({
             ) : null}
           </View>
         </View>
-        <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
-        <Text style={[styles.address, { color: theme.textMuted }]}>{address}</Text>
+        <View style={styles.identityRow}>
+          {profileImage ? <Image source={{ uri: profileImage }} style={styles.avatar} contentFit="cover" /> : null}
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.name, { color: theme.text }]}>{resolvedName}</Text>
+            <Text style={[styles.address, { color: theme.textMuted }]}>{resolvedAddress}</Text>
+          </View>
+        </View>
         {extras?.servicePriceEgp != null ? (
-          <Text style={[styles.priceMeta, { color: theme.accent }]}>
-            {t('shop_card_price_from')}: {formatEgp(extras.servicePriceEgp, locale)}
-          </Text>
+          <Text style={[styles.priceMeta, { color: theme.accent }]}>{t('shop_card_price_from')}</Text>
         ) : null}
         {offerLabel ? (
           <View style={[styles.offerChip, { backgroundColor: theme.accentSoft }]}>
@@ -107,13 +120,23 @@ export function ShopListCard({
           </View>
         ) : null}
         {extras?.imageUrls?.[0] ? (
-          <Image source={{ uri: extras.imageUrls[0] }} style={styles.coverImage} />
+          <View style={[styles.coverFrame, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+            <Image source={{ uri: extras.imageUrls[0] }} style={styles.coverImage} contentFit="contain" />
+          </View>
         ) : null}
 
-        {phone && onCall ? (
-          <Pressable onPress={onCall} style={[styles.phoneRow, { backgroundColor: theme.accentSoft }]}>
+        {resolvedPhone ? (
+          <Pressable
+            onPress={() => {
+              if (extras?.profilePhone) {
+                openPhone(extras.profilePhone).catch(() => {});
+                return;
+              }
+              onCall?.();
+            }}
+            style={[styles.phoneRow, { backgroundColor: theme.accentSoft }]}>
             <FontAwesome name="phone" size={14} color={theme.accent} />
-            <Text style={[styles.phoneText, { color: theme.text }]}>{formatPhoneDisplay(phone)}</Text>
+            <Text style={[styles.phoneText, { color: theme.text }]}>{formatPhoneDisplay(resolvedPhone)}</Text>
           </Pressable>
         ) : null}
 
@@ -156,7 +179,11 @@ const styles = StyleSheet.create({
   distance: { fontSize: 12, fontWeight: '700' },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   ratingText: { fontSize: 13, fontWeight: '600' },
+  priceChip: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  priceChipText: { fontSize: 11, fontWeight: '800' },
   iconBtn: { padding: 4 },
+  identityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#111' },
   name: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
   address: { fontSize: 14, lineHeight: 20 },
   priceMeta: { fontSize: 13, fontWeight: '700', marginTop: 8 },
@@ -168,12 +195,18 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   offerChipText: { fontSize: 12, fontWeight: '800' },
+  coverFrame: {
+    width: '100%',
+    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 8,
+    overflow: 'hidden',
+  },
   coverImage: {
     width: '100%',
-    height: 130,
+    height: 190,
     borderRadius: 10,
-    marginTop: 10,
-    backgroundColor: '#111',
   },
   phoneRow: {
     flexDirection: 'row',

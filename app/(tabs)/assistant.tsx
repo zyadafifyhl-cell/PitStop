@@ -13,9 +13,9 @@ import {
   View,
 } from 'react-native';
 
-import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
   type ChatMessage,
   getGreetingMessage,
@@ -26,6 +26,7 @@ import {
 
 export default function AssistantScreen() {
   const { t, locale, isRTL } = useI18n();
+  const theme = useAppTheme();
   const { customer } = useCustomerAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -115,23 +116,23 @@ export default function AssistantScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={[styles.screen, { backgroundColor: theme.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.bgElevated }]}>
         <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>{t('chat_title')}</Text>
-          <Text style={styles.headerSubtitle}>{t('chat_subtitle')}</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>{t('chat_title')}</Text>
+          <Text style={[styles.headerSubtitle, { color: theme.textMuted }]}>{t('chat_subtitle')}</Text>
         </View>
         <Pressable onPress={handleClearChat} style={styles.clearBtn}>
-          <FontAwesome name="trash-o" size={18} color={AppTheme.textMuted} />
+          <FontAwesome name="trash-o" size={18} color={theme.textMuted} />
         </Pressable>
       </View>
 
       {!isApiConfigured() ? (
-        <View style={styles.notice}>
-          <FontAwesome name="exclamation-circle" size={20} color={AppTheme.warm} />
-          <Text style={styles.noticeText}>{t('chat_no_api_key')}</Text>
+        <View style={[styles.notice, { backgroundColor: theme.warmSoft, borderColor: theme.border }]}>
+          <FontAwesome name="exclamation-circle" size={20} color={theme.warm} />
+          <Text style={[styles.noticeText, { color: theme.text }]}>{t('chat_no_api_key')}</Text>
         </View>
       ) : null}
 
@@ -150,8 +151,16 @@ export default function AssistantScreen() {
               style={[
                 styles.messageBubble,
                 item.role === 'user' ? styles.userBubble : styles.assistantBubble,
+                item.role === 'user'
+                  ? { backgroundColor: theme.accent }
+                  : { backgroundColor: theme.card, borderColor: theme.border },
               ]}>
-              <Text style={[styles.messageText, item.role === 'user' && styles.userText]}>
+              <Text
+                style={[
+                  styles.messageText,
+                  { color: theme.text },
+                  item.role === 'user' && [styles.userText, { color: theme.onAccent }],
+                ]}>
                 {item.content}
               </Text>
             </View>
@@ -161,19 +170,19 @@ export default function AssistantScreen() {
           <>
             {isLoading ? (
               <View style={styles.typingIndicator}>
-                <ActivityIndicator size="small" color={AppTheme.accent} />
-                <Text style={styles.typingText}>{t('chat_typing')}</Text>
+                <ActivityIndicator size="small" color={theme.accent} />
+                <Text style={[styles.typingText, { color: theme.textMuted }]}>{t('chat_typing')}</Text>
               </View>
             ) : null}
             {showQuickQuestions && messages.length <= 1 ? (
               <View style={styles.quickQuestionsContainer}>
-                <Text style={styles.quickQuestionsTitle}>{t('chat_quick_questions')}</Text>
+                <Text style={[styles.quickQuestionsTitle, { color: theme.text }]}>{t('chat_quick_questions')}</Text>
                 {quickQuestions.map((q) => (
                   <Pressable
                     key={q}
                     onPress={() => handleSend(q)}
-                    style={styles.quickQuestionBtn}>
-                    <Text style={styles.quickQuestionText}>{q}</Text>
+                    style={[styles.quickQuestionBtn, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                    <Text style={[styles.quickQuestionText, { color: theme.accent }]}>{q}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -182,11 +191,15 @@ export default function AssistantScreen() {
         }
       />
 
-      <View style={styles.inputContainer}>
+      <View style={[styles.inputContainer, { borderTopColor: theme.border, backgroundColor: theme.bgElevated }]}>
         <TextInput
-          style={[styles.input, { textAlign: isRTL ? 'right' : 'left' }]}
+          style={[
+            styles.input,
+            { textAlign: isRTL ? 'right' : 'left' },
+            { color: theme.text, backgroundColor: theme.card, borderColor: theme.border },
+          ]}
           placeholder={t('chat_placeholder')}
-          placeholderTextColor={AppTheme.textDim}
+          placeholderTextColor={theme.textDim}
           value={inputText}
           onChangeText={setInputText}
           multiline
@@ -196,8 +209,12 @@ export default function AssistantScreen() {
         <Pressable
           onPress={() => handleSend()}
           disabled={!inputText.trim() || isLoading}
-          style={[styles.sendBtn, (!inputText.trim() || isLoading) && styles.sendBtnDisabled]}>
-          <FontAwesome name="send" size={18} color="#fff" />
+          style={[
+            styles.sendBtn,
+            { backgroundColor: theme.accent },
+            (!inputText.trim() || isLoading) && [styles.sendBtnDisabled, { backgroundColor: theme.textDim }],
+          ]}>
+          <FontAwesome name="send" size={18} color={theme.onAccent} />
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -205,19 +222,17 @@ export default function AssistantScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  screen: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: AppTheme.border,
-    backgroundColor: AppTheme.bgElevated,
   },
   headerText: { flex: 1 },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: AppTheme.text },
-  headerSubtitle: { fontSize: 13, color: AppTheme.textMuted, marginTop: 2 },
+  headerTitle: { fontSize: 20, fontWeight: '800' },
+  headerSubtitle: { fontSize: 13, marginTop: 2 },
   clearBtn: { padding: 8 },
   notice: {
     flexDirection: 'row',
@@ -226,46 +241,38 @@ const styles = StyleSheet.create({
     margin: 12,
     padding: 12,
     borderRadius: 12,
-    backgroundColor: AppTheme.warmSoft,
     borderWidth: 1,
-    borderColor: AppTheme.border,
   },
-  noticeText: { flex: 1, color: AppTheme.text, fontSize: 13, lineHeight: 18 },
+  noticeText: { flex: 1, fontSize: 13, lineHeight: 18 },
   messageList: { paddingHorizontal: 12, paddingVertical: 12 },
   messageRow: { flexDirection: 'row', marginVertical: 4 },
   messageRowUser: { justifyContent: 'flex-end' },
   messageRowAssistant: { justifyContent: 'flex-start' },
   messageBubble: { maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16 },
-  userBubble: { backgroundColor: AppTheme.accent, borderBottomRightRadius: 4 },
+  userBubble: { borderBottomRightRadius: 4 },
   assistantBubble: {
-    backgroundColor: AppTheme.card,
     borderWidth: 1,
-    borderColor: AppTheme.border,
     borderBottomLeftRadius: 4,
   },
-  messageText: { fontSize: 15, lineHeight: 22, color: AppTheme.text },
-  userText: { color: '#fff' },
+  messageText: { fontSize: 15, lineHeight: 22 },
+  userText: {},
   typingIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
-  typingText: { color: AppTheme.textMuted, fontSize: 14, fontStyle: 'italic' },
+  typingText: { fontSize: 14, fontStyle: 'italic' },
   quickQuestionsContainer: { paddingVertical: 12, gap: 8 },
-  quickQuestionsTitle: { fontSize: 14, fontWeight: '700', color: AppTheme.text, marginBottom: 4 },
+  quickQuestionsTitle: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   quickQuestionBtn: {
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: AppTheme.border,
-    backgroundColor: AppTheme.card,
   },
-  quickQuestionText: { color: AppTheme.accent, fontSize: 14, fontWeight: '600' },
+  quickQuestionText: { fontSize: 14, fontWeight: '600' },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: AppTheme.border,
-    backgroundColor: AppTheme.bgElevated,
     gap: 8,
   },
   input: {
@@ -276,10 +283,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 15,
-    color: AppTheme.text,
-    backgroundColor: AppTheme.card,
     borderWidth: 1,
-    borderColor: AppTheme.border,
   },
   sendBtn: {
     width: 42,
@@ -287,7 +291,6 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: AppTheme.accent,
   },
-  sendBtnDisabled: { backgroundColor: AppTheme.textDim },
+  sendBtnDisabled: {},
 });

@@ -3,9 +3,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ShopListCard } from '@/components/ui/ShopListCard';
-import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getAreaById } from '@/lib/booking/areas';
 import { listShopsByTypeAndArea } from '@/lib/booking/demoShops';
 import { toggleFavoriteShop } from '@/lib/booking/favoritesStorage';
@@ -16,6 +16,7 @@ import { parseShopType } from '@/lib/booking/serviceType';
 export default function ShopsInAreaScreen() {
   const { type: rawType, areaId } = useLocalSearchParams<{ type: string; areaId: string }>();
   const { t, locale } = useI18n();
+  const theme = useAppTheme();
   const { customer } = useCustomerAuth();
   const type = parseShopType(rawType);
   const area = areaId ? getAreaById(areaId) : undefined;
@@ -54,8 +55,8 @@ export default function ShopsInAreaScreen() {
 
   if (!type || !area) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.error}>{t('service_invalid')}</Text>
+      <View style={[styles.center, { backgroundColor: theme.bg }]}>
+        <Text style={[styles.error, { color: theme.textMuted }]}>{t('service_invalid')}</Text>
       </View>
     );
   }
@@ -64,11 +65,11 @@ export default function ShopsInAreaScreen() {
   const serviceLabel = shopTypeLabel(type, locale);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.badge}>{serviceLabel}</Text>
-      <Text style={styles.title}>{areaName}</Text>
-      <Text style={styles.lead}>{t('shops_in_area_lead')}</Text>
-      <Text style={styles.phoneNote}>{t('settings_shop_phone_note')}</Text>
+    <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.badge, { color: theme.accent }]}>{serviceLabel}</Text>
+      <Text style={[styles.title, { color: theme.text }]}>{areaName}</Text>
+      <Text style={[styles.lead, { color: theme.textMuted }]}>{t('shops_in_area_lead')}</Text>
+      <Text style={[styles.phoneNote, { color: theme.textDim }]}>{t('settings_shop_phone_note')}</Text>
 
       {shops.length === 0 ? (
         <Text style={styles.empty}>{t('book_no_shops')}</Text>
@@ -76,8 +77,10 @@ export default function ShopsInAreaScreen() {
         <>
           <Pressable
             onPress={() => openAllShopsInMaps(shops, `${serviceLabel} ${areaName}`, locale).catch(linkFail)}
-            style={styles.mapsTab}>
-            <Text style={styles.mapsTabText}>Google Maps · {locale === 'ar' ? 'كل الأماكن القريبة' : 'All nearby places'}</Text>
+            style={[styles.mapsTab, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+            <Text style={[styles.mapsTabText, { color: theme.accent }]}>
+              Google Maps · {locale === 'ar' ? 'كل الأماكن القريبة' : 'All nearby places'}
+            </Text>
           </Pressable>
 
           {shops.map((shop) => (
@@ -90,7 +93,7 @@ export default function ShopsInAreaScreen() {
               typeLabel={shopTypeLabel(shop.type, locale)}
               rating={shop.rating}
               phone={shop.phone}
-              bookLabel={t('book_tap_to_book')}
+              bookLabel={shop.type === 'parts' ? t('book_tap_to_book') : t('shop_profile_open')}
               isFavorite={favoriteIds.has(shop.id)}
               onToggleFavorite={() => onToggleFavorite(shop.id)}
               onCall={() => openPhone(shop.phone).catch(linkFail)}
@@ -98,7 +101,7 @@ export default function ShopsInAreaScreen() {
               onPress={() =>
                 shop.type === 'parts'
                   ? router.push(`/parts-shop/${shop.id}` as any)
-                  : router.push({ pathname: '/book/[shopId]', params: { shopId: shop.id } })
+                  : router.push(`/shop-profile/${shop.id}` as any)
               }
             />
           ))}
@@ -109,36 +112,32 @@ export default function ShopsInAreaScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  screen: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
   center: {
     flex: 1,
-    backgroundColor: AppTheme.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  error: { color: AppTheme.textMuted },
+  error: {},
   badge: {
-    color: AppTheme.accent,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 8,
   },
-  title: { color: AppTheme.text, fontSize: 26, fontWeight: '900', marginBottom: 8 },
-  lead: { color: AppTheme.textMuted, fontSize: 15, lineHeight: 22, marginBottom: 8 },
-  phoneNote: { color: AppTheme.textDim, fontSize: 12, lineHeight: 18, marginBottom: 16 },
+  title: { fontSize: 26, fontWeight: '900', marginBottom: 8 },
+  lead: { fontSize: 15, lineHeight: 22, marginBottom: 8 },
+  phoneNote: { fontSize: 12, lineHeight: 18, marginBottom: 16 },
   mapsTab: {
-    backgroundColor: AppTheme.accentSoft,
     borderWidth: 1,
-    borderColor: AppTheme.accent,
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 10,
     alignSelf: 'flex-start',
     marginBottom: 14,
   },
-  mapsTabText: { color: AppTheme.accent, fontSize: 13, fontWeight: '800' },
-  empty: { color: AppTheme.textMuted, textAlign: 'center', marginTop: 24 },
+  mapsTabText: { fontSize: 13, fontWeight: '800' },
+  empty: { textAlign: 'center', marginTop: 24 },
 });

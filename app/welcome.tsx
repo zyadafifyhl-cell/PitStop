@@ -1,7 +1,7 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
@@ -26,10 +26,11 @@ import { isValidEgyptMobile } from '@/lib/phone';
 type LoginMode = 'customer' | 'owner';
 
 export default function WelcomeScreen() {
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
   const { preference } = useThemePreference();
-  const { login: loginCustomer, register, resetPassword, busy: customerBusy } = useCustomerAuth();
+  const { login: loginCustomer, register, resetPassword, continueAsGuest, busy: customerBusy } = useCustomerAuth();
   const { login: loginShop, busy: shopBusy } = useShopAuth();
 
   const [mode, setMode] = useState<LoginMode>('customer');
@@ -40,6 +41,18 @@ export default function WelcomeScreen() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [formMessage, setFormMessage] = useState('');
+
+  useEffect(() => {
+    if (focus === 'register') {
+      setMode('customer');
+      setIsRegister(true);
+      return;
+    }
+    if (focus === 'login') {
+      setMode('customer');
+      setIsRegister(false);
+    }
+  }, [focus]);
 
   async function onCustomerSubmit() {
     setFormMessage('');
@@ -192,6 +205,14 @@ export default function WelcomeScreen() {
               </Text>
             </Pressable>
           </View>
+          <Pressable
+            onPress={async () => {
+              await continueAsGuest();
+              router.replace('/');
+            }}
+            style={[styles.guestBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <Text style={[styles.guestBtnText, { color: theme.text }]}>{t('welcome_guest_btn')}</Text>
+          </Pressable>
 
           <View style={[styles.formBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             {mode === 'customer' ? (
@@ -258,7 +279,7 @@ export default function WelcomeScreen() {
                   <Text style={[styles.formMessage, { color: theme.warm }]}>{formMessage}</Text>
                 ) : null}
                 <Pressable onPress={toggleCustomerRegister} hitSlop={10} style={styles.switchLink}>
-                  <Text style={styles.switchText}>
+                  <Text style={[styles.switchText, { color: theme.accent }]}>
                     {isRegister ? t('customer_have_account') : t('customer_create_account')}
                   </Text>
                 </Pressable>
@@ -369,6 +390,14 @@ const styles = StyleSheet.create({
     maxWidth: 300,
   },
   modeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  guestBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  guestBtnText: { fontSize: 14, fontWeight: '700' },
   modeBtn: {
     flex: 1,
     flexDirection: 'row',

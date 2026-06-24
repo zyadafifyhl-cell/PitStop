@@ -3,7 +3,6 @@ import React from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SettingsRow } from '@/components/ui/SettingsRow';
-import { AppTheme } from '@/constants/Theme';
 import { SUPPORT } from '@/constants/support';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -18,7 +17,7 @@ export default function SettingsScreen() {
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
   const { preference, setPreference } = useThemePreference();
-  const { customer, resetPassword, verifyPassword, logout } = useCustomerAuth();
+  const { customer, isGuest, resetPassword, verifyPassword, logout } = useCustomerAuth();
   const [privacyVisible, setPrivacyVisible] = React.useState(false);
   const [privacyUnlocked, setPrivacyUnlocked] = React.useState(false);
   const [privacyPassword, setPrivacyPassword] = React.useState('');
@@ -67,7 +66,7 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
-      {customer ? (
+      {customer && !isGuest ? (
         <View style={[styles.profile, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.profileName, { color: theme.text }]}>{customer.name}</Text>
           <Text style={[styles.profileMeta, { color: theme.textMuted }]}>{customer.email}</Text>
@@ -75,20 +74,24 @@ export default function SettingsScreen() {
         </View>
       ) : null}
 
-      <Text style={[styles.section, { color: theme.text }]}>{t('settings_account_section')}</Text>
-      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <SettingsRow
-          icon="key"
-          label={t('privacy_settings_title')}
-          hint={t('privacy_settings_lead')}
-          accent={theme.accent}
-          onPress={() => {
-            setPrivacyVisible(true);
-            setPrivacyUnlocked(false);
-            setPrivacyPassword('');
-          }}
-        />
-      </View>
+      {!isGuest ? (
+        <>
+          <Text style={[styles.section, { color: theme.text }]}>{t('settings_account_section')}</Text>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <SettingsRow
+              icon="key"
+              label={t('privacy_settings_title')}
+              hint={t('privacy_settings_lead')}
+              accent={theme.accent}
+              onPress={() => {
+                setPrivacyVisible(true);
+                setPrivacyUnlocked(false);
+                setPrivacyPassword('');
+              }}
+            />
+          </View>
+        </>
+      ) : null}
 
       <Text style={[styles.section, { color: theme.text }]}>{t('settings_preferences_section')}</Text>
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -193,12 +196,22 @@ export default function SettingsScreen() {
 
       <Text style={[styles.note, { color: theme.textDim }]}>{t('settings_shop_phone_note')}</Text>
 
-      <SettingsRow
-        icon="sign-out"
-        label={t('home_sign_out')}
-        accent={theme.danger}
-        onPress={onSignOut}
-      />
+      {isGuest ? (
+        <SettingsRow
+          icon="sign-in"
+          label={t('guest_gate_sign_in')}
+          hint={t('guest_settings_sign_in_hint')}
+          accent={theme.accent}
+          onPress={() => router.push({ pathname: '/welcome', params: { focus: 'login' } })}
+        />
+      ) : (
+        <SettingsRow
+          icon="sign-out"
+          label={t('home_sign_out')}
+          accent={theme.danger}
+          onPress={onSignOut}
+        />
+      )}
 
       <Modal visible={privacyVisible} transparent animationType="fade" onRequestClose={() => setPrivacyVisible(false)}>
         <View style={styles.modalBackdrop}>
@@ -251,7 +264,7 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  screen: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
   profile: {
     marginBottom: 20,

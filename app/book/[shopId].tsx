@@ -19,6 +19,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { getSavedCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById } from '@/lib/booking/demoShops';
+import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import {
   TIME_SLOTS,
   buildScheduledIso,
@@ -28,13 +29,14 @@ import {
 import { createBooking, saveCustomerPhone } from '@/lib/booking/storage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { normalizePhoneE164 } from '@/lib/phone';
+import type { ShopExtras } from '@/lib/booking/types';
 
 export default function BookShopScreen() {
   const { shopId } = useLocalSearchParams<{ shopId: string }>();
   const colorScheme = useColorScheme();
   const palette = Colors[colorScheme ?? 'light'];
   const { t, locale, isRTL } = useI18n();
-  const { customer } = useCustomerAuth();
+  const { customer, isGuest } = useCustomerAuth();
 
   const shop = useMemo(() => (shopId ? getShopById(shopId) : undefined), [shopId]);
 
@@ -47,6 +49,7 @@ export default function BookShopScreen() {
   const [dateYmd, setDateYmd] = useState(defaultBookingDateYmd());
   const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[1]);
   const [saving, setSaving] = useState(false);
+  const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +66,18 @@ export default function BookShopScreen() {
     };
   }, [customer?.id, carType]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!shop) return;
+      const row = await getShopExtras(shop.id);
+      if (!cancelled) setShopExtras(row);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shop]);
+
   if (!shop) {
     return (
       <View style={[styles.center, { backgroundColor: palette.background }]}>
@@ -72,6 +87,10 @@ export default function BookShopScreen() {
   }
 
   async function onSubmit() {
+    if (isGuest || !customer) {
+      router.push({ pathname: '/auth-required', params: { intent: 'booking' } });
+      return;
+    }
     if (!shop) return;
     const normalizedPhone = normalizePhoneE164(phone);
     if (!normalizedPhone) {
@@ -108,8 +127,15 @@ export default function BookShopScreen() {
     }
   }
 
-  const shopName = locale === 'ar' ? shop.nameAr : shop.name;
-  const shopAddress = locale === 'ar' ? shop.addressAr : shop.address;
+  const shopName =
+    locale === 'ar'
+      ? shopExtras?.profileNameAr || shopExtras?.profileName || shop.nameAr
+      : shopExtras?.profileName || shop.name;
+  const shopAddress =
+    locale === 'ar'
+      ? shopExtras?.profileAddressAr || shopExtras?.profileAddress || shop.addressAr
+      : shopExtras?.profileAddress || shop.address;
+  const shopPhone = shopExtras?.profilePhone || shop.phone;
 
   return (
     <KeyboardAvoidingView
@@ -123,10 +149,10 @@ export default function BookShopScreen() {
 
         <View style={styles.shopContactRow}>
           <Pressable
-            onPress={() => openPhone(shop.phone).catch(() => Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')))}
+            onPress={() => openPhone(shopPhone).catch(() => Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')))}
             style={[styles.contactChip, { borderColor: palette.tint }]}>
             <Text style={[styles.contactChipText, { color: palette.tint }]}>
-              {t('book_call_shop')} · {formatPhoneDisplay(shop.phone)}
+              {t('book_call_shop')} · {formatPhoneDisplay(shopPhone)}
             </Text>
           </Pressable>
           <Pressable

@@ -89,6 +89,13 @@ export type ShopOffer = {
 
 export type ShopExtras = {
   shopId: string;
+  profileImageUrl?: string;
+  profileName?: string;
+  profileNameAr?: string;
+  profileAddress?: string;
+  profileAddressAr?: string;
+  profilePhone?: string;
+  profileEmail?: string;
   imageUrls: string[];
   servicePriceEgp?: number;
   offers: ShopOffer[];

@@ -15,13 +15,16 @@ import { normalizePhoneE164 } from '@/lib/phone';
 import { getSupabase } from '@/lib/supabase/client';
 
 const SESSION_KEY = '@pitstop/customer-session';
+const GUEST_KEY = '@pitstop/guest-session';
 type LoginResult = 'ok' | 'invalid' | 'email_not_confirmed' | 'not_configured';
 type RegisterResult = 'ok' | 'check_email' | 'email_taken' | 'invalid' | 'weak_password' | 'not_configured';
 
 type CustomerAuthContextValue = {
   ready: boolean;
   customer: Customer | null;
+  isGuest: boolean;
   busy: boolean;
+  continueAsGuest: () => Promise<void>;
   login: (email: string, password: string) => Promise<LoginResult>;
   register: (input: {
     name: string;
@@ -39,6 +42,7 @@ const CustomerAuthContext = createContext<CustomerAuthContextValue | null>(null)
 export function CustomerAuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const customerFromUser = useCallback((user: {
@@ -69,9 +73,22 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
           const { data } = await supabase.auth.getSession();
           const user = data.session?.user;
           const match = user ? customerFromUser(user) : null;
-          if (!cancelled) setCustomer(match);
+          if (!cancelled) {
+            setCustomer(match);
+            if (match) {
+              setIsGuest(false);
+              await AsyncStorage.removeItem(GUEST_KEY);
+            } else {
+              const guestSession = await AsyncStorage.getItem(GUEST_KEY);
+              setIsGuest(guestSession === '1');
+            }
+          }
         } else {
           await AsyncStorage.removeItem(SESSION_KEY);
+          if (!cancelled) {
+            const guestSession = await AsyncStorage.getItem(GUEST_KEY);
+            setIsGuest(guestSession === '1');
+          }
         }
       } catch {
         /* ignore */
@@ -88,10 +105,21 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     const supabase = getSupabase();
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCustomer(session?.user ? customerFromUser(session.user) : null);
+      const match = session?.user ? customerFromUser(session.user) : null;
+      setCustomer(match);
+      if (match) {
+        setIsGuest(false);
+        AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+      }
     });
     return () => data.subscription.unsubscribe();
   }, [customerFromUser]);
+
+  const continueAsGuest = useCallback(async () => {
+    setCustomer(null);
+    setIsGuest(true);
+    await AsyncStorage.setItem(GUEST_KEY, '1');
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     setBusy(true);
@@ -113,6 +141,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
         return 'email_not_confirmed';
       }
       await AsyncStorage.setItem(SESSION_KEY, match.id);
+      await AsyncStorage.removeItem(GUEST_KEY);
+      setIsGuest(false);
       setCustomer(match);
       return 'ok';
     } catch {
@@ -152,6 +182,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
           const match = customerFromUser(data.session.user);
           if (match) {
             await AsyncStorage.setItem(SESSION_KEY, match.id);
+            await AsyncStorage.removeItem(GUEST_KEY);
+            setIsGuest(false);
             setCustomer(match);
             return 'ok';
           }
@@ -203,13 +235,15 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
 
   const logout = useCallback(async () => {
     await AsyncStorage.removeItem(SESSION_KEY);
+    await AsyncStorage.removeItem(GUEST_KEY);
     await getSupabase()?.auth.signOut();
     setCustomer(null);
+    setIsGuest(false);
   }, []);
 
   const value = useMemo(
-    () => ({ ready, customer, busy, login, register, resetPassword, verifyPassword, logout }),
-    [ready, customer, busy, login, register, resetPassword, verifyPassword, logout],
+    () => ({ ready, customer, isGuest, busy, continueAsGuest, login, register, resetPassword, verifyPassword, logout }),
+    [ready, customer, isGuest, busy, continueAsGuest, login, register, resetPassword, verifyPassword, logout],
   );
 
   return <CustomerAuthContext.Provider value={value}>{children}</CustomerAuthContext.Provider>;

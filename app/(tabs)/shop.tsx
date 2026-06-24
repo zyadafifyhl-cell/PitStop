@@ -1,5 +1,7 @@
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -49,6 +51,8 @@ import {
   cancelShopOffer,
   getShopExtras,
   removeShopImage,
+  setShopProfileInfo,
+  setShopProfileImage,
   setShopServicePrice,
 } from '@/lib/booking/shopExtrasStorage';
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
@@ -89,7 +93,13 @@ export default function ShopScreen() {
   const [newPartImage, setNewPartImage] = useState('');
   const [ownerNotifications, setOwnerNotifications] = useState<OwnerNotification[]>([]);
   const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
-  const [newImageUrl, setNewImageUrl] = useState('');
+  const [pickingImage, setPickingImage] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileNameAr, setProfileNameAr] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
+  const [profileAddressAr, setProfileAddressAr] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
   const [newOfferTitle, setNewOfferTitle] = useState('');
   const [newOfferTitleAr, setNewOfferTitleAr] = useState('');
@@ -106,6 +116,12 @@ export default function ShopScreen() {
     const row = await getShopExtras(shop.id);
     setShopExtras(row);
     if (row.servicePriceEgp != null) setNewServicePrice(String(row.servicePriceEgp));
+    setProfileName(row.profileName ?? shop.name);
+    setProfileNameAr(row.profileNameAr ?? shop.nameAr);
+    setProfileAddress(row.profileAddress ?? shop.address);
+    setProfileAddressAr(row.profileAddressAr ?? shop.addressAr);
+    setProfilePhone(row.profilePhone ?? shop.phone);
+    setProfileEmail(row.profileEmail ?? '');
   }, [shop]);
 
   const refreshBookings = useCallback(async () => {
@@ -300,10 +316,51 @@ export default function ShopScreen() {
   }
 
   async function onAddShopImage() {
-    if (!shop || !newImageUrl.trim()) return;
-    await addShopImage(shop.id, newImageUrl);
-    setNewImageUrl('');
-    await refreshShopExtras();
+    if (!shop) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(t('shop_image_permission_title'), t('shop_image_permission_body'));
+      return;
+    }
+    setPickingImage(true);
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (picked.canceled || !picked.assets?.length) return;
+      const uri = picked.assets[0].uri;
+      if (!uri) return;
+      await addShopImage(shop.id, uri);
+      await refreshShopExtras();
+    } finally {
+      setPickingImage(false);
+    }
+  }
+
+  async function onSetProfileImage() {
+    if (!shop) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(t('shop_image_permission_title'), t('shop_image_permission_body'));
+      return;
+    }
+    setPickingImage(true);
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (picked.canceled || !picked.assets?.length) return;
+      const uri = picked.assets[0].uri;
+      if (!uri) return;
+      await setShopProfileImage(shop.id, uri);
+      await refreshShopExtras();
+    } finally {
+      setPickingImage(false);
+    }
   }
 
   async function onRemoveShopImage(imageUrl: string) {
@@ -320,6 +377,23 @@ export default function ShopScreen() {
       return;
     }
     await setShopServicePrice(shop.id, price);
+    await refreshShopExtras();
+  }
+
+  async function onSaveProfileInfo() {
+    if (!shop) return;
+    if (!profileName.trim() || !profileAddress.trim() || !profilePhone.trim()) {
+      Alert.alert(t('shop_profile_invalid_title'), t('shop_profile_invalid_body'));
+      return;
+    }
+    await setShopProfileInfo(shop.id, {
+      profileName,
+      profileNameAr,
+      profileAddress,
+      profileAddressAr,
+      profilePhone,
+      profileEmail,
+    });
     await refreshShopExtras();
   }
 
@@ -413,7 +487,10 @@ export default function ShopScreen() {
     );
   }
 
-  const shopName = locale === 'ar' ? shop.nameAr : shop.name;
+  const shopName =
+    locale === 'ar'
+      ? shopExtras?.profileNameAr || shopExtras?.profileName || shop.nameAr
+      : shopExtras?.profileName || shop.name;
   const activeOffers = (shopExtras?.offers ?? []).filter((offer) => offer.active);
   const shopManageCard = (
     <View
@@ -429,12 +506,12 @@ export default function ShopScreen() {
       </Text>
       <Text style={[styles.reportLead, { color: palette.text }]}>{t('shop_manage_lead')}</Text>
 
-      <Text style={[styles.label, { color: palette.text }]}>{t('shop_manage_image_label')}</Text>
+      <Text style={[styles.sectionTitle, { color: palette.text }]}>{t('shop_manage_profile_title')}</Text>
       <TextInput
-        placeholder={t('shop_manage_image_placeholder')}
+        placeholder={t('shop_manage_profile_name_placeholder')}
         placeholderTextColor={palette.tabIconDefault}
-        value={newImageUrl}
-        onChangeText={setNewImageUrl}
+        value={profileName}
+        onChangeText={setProfileName}
         style={[
           styles.input,
           {
@@ -444,20 +521,125 @@ export default function ShopScreen() {
           },
         ]}
       />
-      <Pressable onPress={onAddShopImage} style={[styles.primaryBtn, { backgroundColor: palette.tint }]}>
-        <Text style={styles.primaryBtnText}>{t('shop_manage_add_image')}</Text>
+      <TextInput
+        placeholder={t('shop_manage_profile_name_ar_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        value={profileNameAr}
+        onChangeText={setProfileNameAr}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <TextInput
+        placeholder={t('shop_manage_profile_phone_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        keyboardType="phone-pad"
+        value={profilePhone}
+        onChangeText={setProfilePhone}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <TextInput
+        placeholder={t('shop_manage_profile_email_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        value={profileEmail}
+        onChangeText={setProfileEmail}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <TextInput
+        placeholder={t('shop_manage_profile_address_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        value={profileAddress}
+        onChangeText={setProfileAddress}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <TextInput
+        placeholder={t('shop_manage_profile_address_ar_placeholder')}
+        placeholderTextColor={palette.tabIconDefault}
+        value={profileAddressAr}
+        onChangeText={setProfileAddressAr}
+        style={[
+          styles.input,
+          {
+            color: palette.text,
+            borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+            backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+          },
+        ]}
+      />
+      <Pressable onPress={onSaveProfileInfo} style={[styles.primaryBtn, { backgroundColor: palette.tint }]}>
+        <Text style={styles.primaryBtnText}>{t('shop_manage_save_profile')}</Text>
+      </Pressable>
+
+      <Text style={[styles.sectionTitle, { color: palette.text }]}>{t('shop_manage_image_label')}</Text>
+      {shopExtras?.profileImageUrl ? (
+        <View style={styles.profileImageWrap}>
+          <Pressable onPress={onSetProfileImage} style={styles.profileImageButton}>
+            <Image source={{ uri: shopExtras.profileImageUrl }} style={styles.profileImagePreview} contentFit="cover" />
+            <View style={styles.profileEditBadge}>
+              <FontAwesome name="pencil" size={12} color="#fff" />
+            </View>
+          </Pressable>
+          <Text style={[styles.meta, { color: palette.text }]}>{t('shop_manage_profile_image_hint')}</Text>
+        </View>
+      ) : null}
+      <Pressable
+        onPress={onSetProfileImage}
+        disabled={pickingImage}
+        style={[styles.primaryBtn, { backgroundColor: palette.tint, opacity: pickingImage ? 0.65 : 1 }]}>
+        <Text style={styles.primaryBtnText}>
+          {pickingImage ? t('shop_manage_picking_image') : t('shop_manage_set_profile_image')}
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={onAddShopImage}
+        disabled={pickingImage}
+        style={[styles.primaryBtn, { backgroundColor: palette.tint, opacity: pickingImage ? 0.65 : 1 }]}>
+        <Text style={styles.primaryBtnText}>
+          {pickingImage ? t('shop_manage_picking_image') : t('shop_manage_add_image')}
+        </Text>
       </Pressable>
       {shopExtras?.imageUrls?.length ? (
-        <View style={styles.actions}>
+        <View style={styles.shopImagesWrap}>
           {shopExtras.imageUrls.map((url) => (
-            <Pressable key={url} onPress={() => onRemoveShopImage(url)} style={[styles.actionBtn, { backgroundColor: '#dc2626' }]}>
-              <Text style={styles.actionText}>{t('shop_manage_remove_image')}</Text>
-            </Pressable>
+            <View key={url} style={styles.shopImageCard}>
+              <Image source={{ uri: url }} style={styles.shopImagePreview} contentFit="cover" />
+              <Pressable onPress={() => onRemoveShopImage(url)} style={[styles.actionBtn, { backgroundColor: '#dc2626' }]}>
+                <Text style={styles.actionText}>{t('shop_manage_remove_image')}</Text>
+              </Pressable>
+            </View>
           ))}
         </View>
       ) : null}
 
-      <Text style={[styles.label, { color: palette.text }]}>{t('shop_manage_price_label')}</Text>
+      <Text style={[styles.sectionTitle, { color: palette.text }]}>{t('shop_manage_price_label')}</Text>
       <TextInput
         placeholder={t('shop_manage_price_placeholder')}
         placeholderTextColor={palette.tabIconDefault}
@@ -477,7 +659,7 @@ export default function ShopScreen() {
         <Text style={styles.primaryBtnText}>{t('shop_manage_save_price')}</Text>
       </Pressable>
 
-      <Text style={[styles.label, { color: palette.text }]}>{t('shop_manage_offer_title')}</Text>
+      <Text style={[styles.sectionTitle, { color: palette.text }]}>{t('shop_manage_offer_title')}</Text>
       <TextInput
         placeholder={t('shop_manage_offer_title_placeholder')}
         placeholderTextColor={palette.tabIconDefault}
@@ -988,6 +1170,7 @@ const styles = StyleSheet.create({
   customRangeWrap: { marginTop: 6 },
   reportSummary: { marginTop: 12, fontSize: 13, lineHeight: 19, opacity: 0.9 },
   reportMoney: { marginTop: 6, fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  sectionTitle: { fontSize: 15, fontWeight: '700', marginTop: 16, marginBottom: 8 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 8 },
   input: {
     borderWidth: 1,
@@ -1035,6 +1218,31 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   partOwnerImage: { width: 56, height: 56, borderRadius: 8, backgroundColor: '#1f2937' },
+  profileImageWrap: { marginTop: 8, alignItems: 'flex-start', gap: 8 },
+  profileImageButton: { position: 'relative' },
+  profileImagePreview: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#1f2937' },
+  profileEditBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#111',
+    borderWidth: 1,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shopImagesWrap: { gap: 10, marginTop: 12 },
+  shopImageCard: {
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    padding: 8,
+    gap: 8,
+  },
+  shopImagePreview: { width: '100%', height: 160, borderRadius: 8, backgroundColor: '#1f2937' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   actionBtn: { borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
   actionText: { color: '#fff', fontWeight: '700', fontSize: 13 },

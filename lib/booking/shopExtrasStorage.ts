@@ -30,6 +30,13 @@ async function writeMap(map: ExtrasMap): Promise<void> {
 function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
   return {
     shopId,
+    profileImageUrl: row?.profileImageUrl,
+    profileName: row?.profileName?.trim() || undefined,
+    profileNameAr: row?.profileNameAr?.trim() || undefined,
+    profileAddress: row?.profileAddress?.trim() || undefined,
+    profileAddressAr: row?.profileAddressAr?.trim() || undefined,
+    profilePhone: row?.profilePhone?.trim() || undefined,
+    profileEmail: row?.profileEmail?.trim() || undefined,
     imageUrls: row?.imageUrls ?? [],
     servicePriceEgp: row?.servicePriceEgp,
     offers: (row?.offers ?? []).filter((offer) => offer.active && new Date(offer.validUntil).getTime() > Date.now()),
@@ -45,6 +52,44 @@ export async function getShopExtras(shopId: string): Promise<ShopExtras> {
     await writeMap(map);
   }
   return normalized;
+}
+
+export async function setShopProfileInfo(
+  shopId: string,
+  input: {
+    profileName?: string;
+    profileNameAr?: string;
+    profileAddress?: string;
+    profileAddressAr?: string;
+    profilePhone?: string;
+    profileEmail?: string;
+  },
+): Promise<ShopExtras> {
+  const map = await readMap();
+  const row = normalizeExtras(shopId, map[shopId]);
+  row.profileName = input.profileName?.trim() || undefined;
+  row.profileNameAr = input.profileNameAr?.trim() || undefined;
+  row.profileAddress = input.profileAddress?.trim() || undefined;
+  row.profileAddressAr = input.profileAddressAr?.trim() || undefined;
+  row.profilePhone = input.profilePhone?.trim() || undefined;
+  row.profileEmail = input.profileEmail?.trim() || undefined;
+  row.updatedAt = nowIso();
+  map[shopId] = row;
+  await writeMap(map);
+  return row;
+}
+
+export async function setShopProfileImage(shopId: string, imageUrl: string): Promise<ShopExtras> {
+  const clean = imageUrl.trim();
+  if (!clean) return getShopExtras(shopId);
+  const map = await readMap();
+  const row = normalizeExtras(shopId, map[shopId]);
+  row.profileImageUrl = clean;
+  row.imageUrls = [clean, ...row.imageUrls.filter((x) => x !== clean)].slice(0, 8);
+  row.updatedAt = nowIso();
+  map[shopId] = row;
+  await writeMap(map);
+  return row;
 }
 
 export async function addShopImage(shopId: string, imageUrl: string): Promise<ShopExtras> {

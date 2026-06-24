@@ -17,10 +17,10 @@ function TabBarIcon(props: {
 
 export default function TabLayout() {
   const { t, locale } = useI18n();
-  const { customer } = useCustomerAuth();
+  const { customer, isGuest } = useCustomerAuth();
   const { shop } = useShopAuth();
   const theme = useAppTheme();
-  const isCustomer = !!customer && !shop;
+  const hasCustomerArea = !shop && (!!customer || isGuest);
 
   return (
     <Tabs
@@ -31,7 +31,7 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: theme.bgElevated,
           borderTopColor: theme.border,
-          display: shop && !isCustomer ? 'none' : 'flex',
+          display: shop && !hasCustomerArea ? 'none' : 'flex',
         },
         headerStyle: { backgroundColor: theme.bgElevated },
         headerTintColor: theme.text,
@@ -44,7 +44,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_home'),
           tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
-          href: isCustomer || !shop ? undefined : null,
+          href: hasCustomerArea || !shop ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -52,7 +52,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_my_bookings'),
           tabBarIcon: ({ color }) => <TabBarIcon name="list-alt" color={color} />,
-          href: isCustomer || !shop ? undefined : null,
+          href: hasCustomerArea || !shop ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -60,7 +60,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_favorites'),
           tabBarIcon: ({ color }) => <TabBarIcon name="heart" color={color} />,
-          href: isCustomer ? undefined : null,
+          href: hasCustomerArea ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -69,7 +69,7 @@ export default function TabLayout() {
           title: t('tab_assistant'),
           tabBarIcon: ({ color }) => <TabBarIcon name="comments" color={color} />,
           headerShown: false,
-          href: isCustomer ? undefined : null,
+          href: hasCustomerArea ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -77,7 +77,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_settings'),
           tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
-          href: isCustomer ? undefined : null,
+          href: hasCustomerArea ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -85,7 +85,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_shop'),
           tabBarIcon: ({ color }) => <TabBarIcon name="briefcase" color={color} />,
-          href: shop ? undefined : isCustomer ? null : undefined,
+          href: shop ? undefined : hasCustomerArea ? null : undefined,
         }}
       />
       <Tabs.Screen name="catalog" options={{ href: null }} />

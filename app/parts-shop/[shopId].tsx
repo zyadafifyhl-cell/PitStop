@@ -11,9 +11,9 @@ import {
   View,
 } from 'react-native';
 
-import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
   buildPartsInvoiceEmailBody,
   markCustomerInvoiceEmailed,
@@ -27,7 +27,8 @@ import { formatPhoneDisplay, openEmailTo, openPhone, openShopInMaps } from '@/li
 export default function PartsShopScreen() {
   const { shopId } = useLocalSearchParams<{ shopId: string }>();
   const { t, locale } = useI18n();
-  const { customer } = useCustomerAuth();
+  const theme = useAppTheme();
+  const { customer, isGuest } = useCustomerAuth();
   const shop = useMemo(() => (shopId ? getShopById(shopId) : undefined), [shopId]);
 
   const [items, setItems] = useState<SparePartItem[]>([]);
@@ -49,8 +50,8 @@ export default function PartsShopScreen() {
 
   if (!shop || shop.type !== 'parts') {
     return (
-      <View style={styles.center}>
-        <Text style={styles.error}>{t('parts_shop_not_found')}</Text>
+      <View style={[styles.center, { backgroundColor: theme.bg }]}>
+        <Text style={[styles.error, { color: theme.textMuted }]}>{t('parts_shop_not_found')}</Text>
       </View>
     );
   }
@@ -58,6 +59,10 @@ export default function PartsShopScreen() {
   const selectedCount = Object.values(qtyMap).reduce((s, x) => s + Math.max(0, x), 0);
 
   async function onSubmitOrder() {
+    if (isGuest || !customer) {
+      router.push({ pathname: '/auth-required', params: { intent: 'purchase' } });
+      return;
+    }
     if (!customer || !shop) return;
     if (!shippingAddress.trim()) {
       Alert.alert(t('parts_shipping_missing_title'), t('parts_shipping_missing_body'));
@@ -115,43 +120,43 @@ export default function PartsShopScreen() {
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.shopName}>{locale === 'ar' ? shop.nameAr : shop.name}</Text>
-      <Text style={styles.meta}>{locale === 'ar' ? shop.addressAr : shop.address}</Text>
+    <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.shopName, { color: theme.text }]}>{locale === 'ar' ? shop.nameAr : shop.name}</Text>
+      <Text style={[styles.meta, { color: theme.textMuted }]}>{locale === 'ar' ? shop.addressAr : shop.address}</Text>
 
       <View style={styles.contactRow}>
-        <Pressable onPress={() => openPhone(shop.phone)} style={styles.contactChip}>
-          <Text style={styles.contactText}>
+        <Pressable onPress={() => openPhone(shop.phone)} style={[styles.contactChip, { borderColor: theme.accent }]}>
+          <Text style={[styles.contactText, { color: theme.accent }]}>
             {t('book_call_shop')} · {formatPhoneDisplay(shop.phone)}
           </Text>
         </Pressable>
-        <Pressable onPress={() => openShopInMaps(shop, locale)} style={styles.contactChip}>
-          <Text style={styles.contactText}>{t('book_open_maps')}</Text>
+        <Pressable onPress={() => openShopInMaps(shop, locale)} style={[styles.contactChip, { borderColor: theme.accent }]}>
+          <Text style={[styles.contactText, { color: theme.accent }]}>{t('book_open_maps')}</Text>
         </Pressable>
       </View>
 
-      <Text style={styles.sectionTitle}>{t('parts_inventory_title')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('parts_inventory_title')}</Text>
       {items.length === 0 ? (
-        <Text style={styles.empty}>{t('parts_inventory_empty')}</Text>
+        <Text style={[styles.empty, { color: theme.textMuted }]}>{t('parts_inventory_empty')}</Text>
       ) : (
         items.map((item) => {
           const qty = qtyMap[item.id] ?? 0;
           const out = item.stockQty <= 0;
           return (
-            <View key={item.id} style={styles.partCard}>
+            <View key={item.id} style={[styles.partCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
               {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.partImage} /> : null}
               <View style={{ flex: 1 }}>
-                <Text style={styles.partName}>{item.name}</Text>
-                <Text style={styles.partMeta}>
+                <Text style={[styles.partName, { color: theme.text }]}>{item.name}</Text>
+                <Text style={[styles.partMeta, { color: theme.textMuted }]}>
                   {formatEgp(item.priceEgp, locale)} · {t('parts_stock')}: {item.stockQty}
                 </Text>
                 <View style={styles.qtyRow}>
                   <Pressable
                     onPress={() => setQtyMap((p) => ({ ...p, [item.id]: Math.max(0, qty - 1) }))}
-                    style={styles.qtyBtn}>
-                    <Text style={styles.qtyBtnText}>-</Text>
+                    style={[styles.qtyBtn, { borderColor: theme.border }]}>
+                    <Text style={[styles.qtyBtnText, { color: theme.text }]}>-</Text>
                   </Pressable>
-                  <Text style={styles.qtyValue}>{qty}</Text>
+                  <Text style={[styles.qtyValue, { color: theme.text }]}>{qty}</Text>
                   <Pressable
                     onPress={() =>
                       setQtyMap((p) => ({
@@ -160,8 +165,8 @@ export default function PartsShopScreen() {
                       }))
                     }
                     disabled={out}
-                    style={[styles.qtyBtn, out && { opacity: 0.4 }]}>
-                    <Text style={styles.qtyBtnText}>+</Text>
+                    style={[styles.qtyBtn, { borderColor: theme.border }, out && { opacity: 0.4 }]}>
+                    <Text style={[styles.qtyBtnText, { color: theme.text }]}>+</Text>
                   </Pressable>
                 </View>
               </View>
@@ -170,21 +175,21 @@ export default function PartsShopScreen() {
         })
       )}
 
-      <Text style={styles.sectionTitle}>{t('parts_shipping_address_label')}</Text>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('parts_shipping_address_label')}</Text>
       <TextInput
         value={shippingAddress}
         onChangeText={setShippingAddress}
         placeholder={t('parts_shipping_address_placeholder')}
-        placeholderTextColor={AppTheme.textDim}
-        style={styles.input}
+        placeholderTextColor={theme.textDim}
+        style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.card }]}
         multiline
       />
 
       <Pressable
         onPress={onSubmitOrder}
         disabled={submitting || selectedCount === 0}
-        style={[styles.submitBtn, (submitting || selectedCount === 0) && { opacity: 0.65 }]}>
-        <Text style={styles.submitText}>
+        style={[styles.submitBtn, { backgroundColor: theme.accent }, (submitting || selectedCount === 0) && { opacity: 0.65 }]}>
+        <Text style={[styles.submitText, { color: theme.onAccent }]}>
           {submitting
             ? t('parts_order_submitting')
             : t('parts_order_submit').replace('{n}', String(selectedCount))}
@@ -195,66 +200,58 @@ export default function PartsShopScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  screen: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: AppTheme.bg },
-  error: { color: AppTheme.textMuted },
-  shopName: { color: AppTheme.text, fontSize: 24, fontWeight: '900', marginBottom: 4 },
-  meta: { color: AppTheme.textMuted, fontSize: 14, marginBottom: 14 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  error: {},
+  shopName: { fontSize: 24, fontWeight: '900', marginBottom: 4 },
+  meta: { fontSize: 14, marginBottom: 14 },
   contactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
   contactChip: {
     borderWidth: 1,
-    borderColor: AppTheme.accent,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  contactText: { color: AppTheme.accent, fontSize: 13, fontWeight: '700' },
-  sectionTitle: { color: AppTheme.text, fontSize: 16, fontWeight: '800', marginBottom: 10, marginTop: 4 },
-  empty: { color: AppTheme.textMuted, marginBottom: 20 },
+  contactText: { fontSize: 13, fontWeight: '700' },
+  sectionTitle: { fontSize: 16, fontWeight: '800', marginBottom: 10, marginTop: 4 },
+  empty: { marginBottom: 20 },
   partCard: {
     borderWidth: 1,
-    borderColor: AppTheme.border,
     borderRadius: 12,
     padding: 10,
     marginBottom: 10,
     flexDirection: 'row',
     gap: 10,
-    backgroundColor: AppTheme.card,
   },
   partImage: { width: 74, height: 74, borderRadius: 8, backgroundColor: '#1f2937' },
-  partName: { color: AppTheme.text, fontSize: 15, fontWeight: '700' },
-  partMeta: { color: AppTheme.textMuted, fontSize: 13, marginTop: 3 },
+  partName: { fontSize: 15, fontWeight: '700' },
+  partMeta: { fontSize: 13, marginTop: 3 },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   qtyBtn: {
     width: 30,
     height: 30,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: AppTheme.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  qtyBtnText: { color: AppTheme.text, fontSize: 16, fontWeight: '700' },
-  qtyValue: { color: AppTheme.text, minWidth: 22, textAlign: 'center', fontWeight: '700' },
+  qtyBtnText: { fontSize: 16, fontWeight: '700' },
+  qtyValue: { minWidth: 22, textAlign: 'center', fontWeight: '700' },
   input: {
     borderWidth: 1,
-    borderColor: AppTheme.border,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: AppTheme.text,
     fontSize: 15,
     minHeight: 80,
     textAlignVertical: 'top',
-    backgroundColor: AppTheme.card,
   },
   submitBtn: {
     marginTop: 14,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: AppTheme.accent,
   },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  submitText: { fontSize: 16, fontWeight: '800' },
 });
