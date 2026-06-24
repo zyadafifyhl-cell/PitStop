@@ -7,7 +7,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 
 export default function AuthRequiredScreen() {
-  const { intent } = useLocalSearchParams<{ intent?: string }>();
+  const { intent, returnTo } = useLocalSearchParams<{ intent?: string; returnTo?: string }>();
   const { t } = useI18n();
   const theme = useAppTheme();
   const { preference } = useThemePreference();
@@ -17,6 +17,7 @@ export default function AuthRequiredScreen() {
     preference === 'light'
       ? require('../assets/images/pitstop-logo-light.png')
       : require('../assets/images/pitstop-logo-dark.png');
+  const returnParams = returnTo ? { returnTo } : {};
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
@@ -29,13 +30,13 @@ export default function AuthRequiredScreen() {
         </Text>
 
         <Pressable
-          onPress={() => router.push({ pathname: '/welcome', params: { focus: 'login' } })}
+          onPress={() => router.push({ pathname: '/welcome', params: { focus: 'login', ...returnParams } })}
           style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
           <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('guest_gate_sign_in')}</Text>
         </Pressable>
 
         <Pressable
-          onPress={() => router.push({ pathname: '/welcome', params: { focus: 'register' } })}
+          onPress={() => router.push({ pathname: '/welcome', params: { focus: 'register', ...returnParams } })}
           style={[styles.secondaryBtn, { borderColor: theme.border }]}>
           <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('guest_gate_register')}</Text>
         </Pressable>

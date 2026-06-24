@@ -54,6 +54,7 @@ function RootStack() {
         headerTintColor: theme.text,
         headerTitleStyle: { fontWeight: '700' },
         contentStyle: { backgroundColor: theme.bg },
+        animation: 'slide_from_right',
       }}>
       <Stack.Screen name="welcome" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

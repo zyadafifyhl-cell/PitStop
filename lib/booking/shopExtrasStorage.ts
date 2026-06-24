@@ -37,6 +37,8 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     profileAddressAr: row?.profileAddressAr?.trim() || undefined,
     profilePhone: row?.profilePhone?.trim() || undefined,
     profileEmail: row?.profileEmail?.trim() || undefined,
+    winchEnabled: !!row?.winchEnabled,
+    winchPhone: row?.winchPhone?.trim() || undefined,
     imageUrls: row?.imageUrls ?? [],
     servicePriceEgp: row?.servicePriceEgp,
     offers: (row?.offers ?? []).filter((offer) => offer.active && new Date(offer.validUntil).getTime() > Date.now()),
@@ -63,6 +65,8 @@ export async function setShopProfileInfo(
     profileAddressAr?: string;
     profilePhone?: string;
     profileEmail?: string;
+    winchEnabled?: boolean;
+    winchPhone?: string;
   },
 ): Promise<ShopExtras> {
   const map = await readMap();
@@ -73,6 +77,8 @@ export async function setShopProfileInfo(
   row.profileAddressAr = input.profileAddressAr?.trim() || undefined;
   row.profilePhone = input.profilePhone?.trim() || undefined;
   row.profileEmail = input.profileEmail?.trim() || undefined;
+  row.winchEnabled = !!input.winchEnabled;
+  row.winchPhone = input.winchPhone?.trim() || undefined;
   row.updatedAt = nowIso();
   map[shopId] = row;
   await writeMap(map);

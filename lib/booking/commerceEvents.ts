@@ -2,8 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type {
   CustomerInvoice,
+  CustomerNotification,
+  CustomerNotificationKind,
   OwnerNotification,
   OwnerNotificationKind,
+  OwnerNotificationResolution,
   PartsOrder,
   PartsOrderItem,
   PartsOrderStatus,
@@ -12,9 +15,13 @@ import type {
 
 const OWNER_NOTIFICATIONS_KEY = '@pitstop/owner-notifications/v1';
 const CUSTOMER_INVOICES_KEY = '@pitstop/customer-invoices/v1';
+const CUSTOMER_NOTIFICATIONS_KEY = '@pitstop/customer-notifications/v1';
+const CUSTOMER_NOTIF_SEEN_KEY = '@pitstop/customer-notif-seen/v1';
 
 type OwnerMap = Record<string, OwnerNotification[]>;
 type InvoiceMap = Record<string, CustomerInvoice[]>;
+type CustomerNotificationMap = Record<string, CustomerNotification[]>;
+type SeenMap = Record<string, string>;
 
 function id(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -53,6 +60,34 @@ async function writeInvoiceMap(map: InvoiceMap): Promise<void> {
   await AsyncStorage.setItem(CUSTOMER_INVOICES_KEY, JSON.stringify(map));
 }
 
+async function readCustomerNotificationMap(): Promise<CustomerNotificationMap> {
+  try {
+    const raw = await AsyncStorage.getItem(CUSTOMER_NOTIFICATIONS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as CustomerNotificationMap) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeCustomerNotificationMap(map: CustomerNotificationMap): Promise<void> {
+  await AsyncStorage.setItem(CUSTOMER_NOTIFICATIONS_KEY, JSON.stringify(map));
+}
+
+async function readSeenMap(): Promise<SeenMap> {
+  try {
+    const raw = await AsyncStorage.getItem(CUSTOMER_NOTIF_SEEN_KEY);
+    const parsed = raw ? (JSON.parse(raw) as SeenMap) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeSeenMap(map: SeenMap): Promise<void> {
+  await AsyncStorage.setItem(CUSTOMER_NOTIF_SEEN_KEY, JSON.stringify(map));
+}
+
 export async function pushOwnerNotification(input: {
   shopId: string;
   kind: OwnerNotificationKind;
@@ -60,6 +95,7 @@ export async function pushOwnerNotification(input: {
   bookingId?: string;
   orderId?: string;
   shopType?: ShopType;
+  carType?: string;
   scheduledAt?: string;
   totalEgp?: number;
   partsCount?: number;
@@ -74,6 +110,7 @@ export async function pushOwnerNotification(input: {
     bookingId: input.bookingId,
     orderId: input.orderId,
     shopType: input.shopType,
+    carType: input.carType?.trim() || undefined,
     scheduledAt: input.scheduledAt,
     totalEgp: input.totalEgp,
     partsCount: input.partsCount,
@@ -81,6 +118,93 @@ export async function pushOwnerNotification(input: {
   map[input.shopId] = [row, ...(map[input.shopId] ?? [])];
   await writeOwnerMap(map);
   return row;
+}
+
+export async function resolveOwnerNotification(input: {
+  shopId: string;
+  notificationId: string;
+  resolution: OwnerNotificationResolution;
+  ownerNote?: string;
+}): Promise<void> {
+  const map = await readOwnerMap();
+  const rows = map[input.shopId] ?? [];
+  map[input.shopId] = rows.map((row) => {
+    if (row.id !== input.notificationId) return row;
+    return {
+      ...row,
+      resolution: input.resolution,
+      ownerNote: input.ownerNote?.trim() || undefined,
+      resolvedAt: new Date().toISOString(),
+    };
+  });
+  await writeOwnerMap(map);
+}
+
+export async function pushCustomerNotification(input: {
+  customerId?: string;
+  customerPhone: string;
+  kind: CustomerNotificationKind;
+  shopId: string;
+  bookingId?: string;
+  orderId?: string;
+  scheduledAt?: string;
+  ownerNote?: string;
+}): Promise<CustomerNotification> {
+  const map = await readCustomerNotificationMap();
+  const bucket = customerBucket(input.customerId, input.customerPhone);
+  const row: CustomerNotification = {
+    id: id('cust-notif'),
+    customerId: input.customerId,
+    customerPhone: input.customerPhone,
+    kind: input.kind,
+    createdAt: new Date().toISOString(),
+    shopId: input.shopId,
+    bookingId: input.bookingId,
+    orderId: input.orderId,
+    scheduledAt: input.scheduledAt,
+    ownerNote: input.ownerNote?.trim() || undefined,
+  };
+  map[bucket] = [row, ...(map[bucket] ?? [])];
+  await writeCustomerNotificationMap(map);
+  return row;
+}
+
+export async function listCustomerNotifications(input: {
+  customerId?: string;
+  customerPhone?: string;
+}): Promise<CustomerNotification[]> {
+  const map = await readCustomerNotificationMap();
+  const rows: CustomerNotification[] = [];
+  if (input.customerId?.trim()) rows.push(...(map[`id:${input.customerId.trim()}`] ?? []));
+  if (input.customerPhone?.trim()) rows.push(...(map[`phone:${input.customerPhone.trim()}`] ?? []));
+
+  const dedup = new Map<string, CustomerNotification>();
+  for (const row of rows) dedup.set(row.id, row);
+  return Array.from(dedup.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function markCustomerNotificationsSeen(input: {
+  customerId?: string;
+  customerPhone?: string;
+}): Promise<void> {
+  const bucket = customerBucket(input.customerId, input.customerPhone ?? '');
+  if (!input.customerPhone?.trim() && !input.customerId?.trim()) return;
+  const map = await readSeenMap();
+  map[bucket] = new Date().toISOString();
+  await writeSeenMap(map);
+}
+
+export async function countUnreadCustomerNotifications(input: {
+  customerId?: string;
+  customerPhone?: string;
+}): Promise<number> {
+  const rows = await listCustomerNotifications(input);
+  if (!rows.length) return 0;
+  const bucket = customerBucket(input.customerId, input.customerPhone ?? '');
+  const map = await readSeenMap();
+  const lastSeen = map[bucket];
+  if (!lastSeen) return rows.length;
+  return rows.filter((row) => row.createdAt > lastSeen).length;
 }
 
 export async function listOwnerNotificationsForShop(shopId: string): Promise<OwnerNotification[]> {

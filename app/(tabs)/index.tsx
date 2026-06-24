@@ -1,7 +1,7 @@
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
 import { AppTheme } from '@/constants/Theme';
@@ -22,6 +22,7 @@ export default function HomeScreen() {
   const [nextBooking, setNextBooking] = useState<Booking | null>(null);
   const [savedCarType, setSavedCarType] = useState('');
   const [carTypeDraft, setCarTypeDraft] = useState('');
+  const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
 
   async function onSignOut() {
     await logout();
@@ -64,12 +65,15 @@ export default function HomeScreen() {
     if (!customer) return;
     const carType = carTypeDraft.trim();
     if (!carType) {
-      Alert.alert(t('book_missing_title'), t('book_missing_car_type'));
+      setSaveNotice({ title: t('book_missing_title'), body: t('book_missing_car_type') });
       return;
     }
     await saveCarProfile(customer.id, { carType });
     setSavedCarType(carType);
-    Alert.alert(t('home_car_profile_saved'), carType);
+    setSaveNotice({
+      title: t('home_car_profile_saved'),
+      body: tp('home_car_profile_saved_body', { carType }),
+    });
   }
 
   const greeting = customer
@@ -154,12 +158,6 @@ export default function HomeScreen() {
         subtitle={t('service_parts_sub')}
         onPress={() => router.push(`/service/parts` as Href)}
       />
-      <ServiceOptionCard
-        type="winch"
-        title={t('service_winch_title')}
-        subtitle={t('service_winch_sub')}
-        onPress={() => router.push(`/service/winch` as Href)}
-      />
 
       <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_title')}</Text>
       <View style={styles.offersRow}>
@@ -177,6 +175,24 @@ export default function HomeScreen() {
         <Text style={[styles.signOutText, { color: theme.textDim }]}>{t('home_sign_out')}</Text>
       </Pressable>
       </ScrollView>
+
+      <Modal
+        visible={!!saveNotice}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSaveNotice(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{saveNotice?.title}</Text>
+            <Text style={[styles.modalBody, { color: theme.textMuted }]}>{saveNotice?.body}</Text>
+            <Pressable
+              onPress={() => setSaveNotice(null)}
+              style={[styles.modalBtnPrimary, { backgroundColor: theme.accent, marginTop: 16 }]}>
+              <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -256,4 +272,26 @@ const styles = StyleSheet.create({
   offerMeta: { color: AppTheme.textMuted, fontSize: 12, lineHeight: 17 },
   signOut: { marginTop: 20, alignItems: 'center', paddingVertical: 12 },
   signOutText: { color: AppTheme.textDim, fontSize: 14, fontWeight: '600' },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 20,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 10 },
+  modalBody: { fontSize: 15, lineHeight: 22 },
+  modalBtnPrimary: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalBtnPrimaryText: { fontSize: 15, fontWeight: '800' },
 });

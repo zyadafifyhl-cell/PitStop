@@ -1,3 +1,4 @@
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { router, type Href } from 'expo-router';
 import React from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -14,13 +15,15 @@ import {
 } from '@/lib/linking/contact';
 
 export default function SettingsScreen() {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale, setLocale, isRTL } = useI18n();
+  const isArabic = locale === 'ar';
   const theme = useAppTheme();
   const { preference, setPreference } = useThemePreference();
   const { customer, isGuest, resetPassword, verifyPassword, logout } = useCustomerAuth();
   const [privacyVisible, setPrivacyVisible] = React.useState(false);
   const [privacyUnlocked, setPrivacyUnlocked] = React.useState(false);
   const [privacyPassword, setPrivacyPassword] = React.useState('');
+  const [languageOpen, setLanguageOpen] = React.useState(false);
 
   async function safeOpen(fn: () => Promise<void>) {
     try {
@@ -95,34 +98,75 @@ export default function SettingsScreen() {
 
       <Text style={[styles.section, { color: theme.text }]}>{t('settings_preferences_section')}</Text>
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <SettingsRow
-          icon="language"
-          label={t('settings_language_english')}
-          hint={locale === 'en' ? t('settings_selected') : undefined}
-          accent={theme.accent}
-          onPress={() => setLocale('en')}
-        />
-        <SettingsRow
-          icon="language"
-          label={t('settings_language_arabic')}
-          hint={locale === 'ar' ? t('settings_selected') : undefined}
-          accent={theme.accent}
-          onPress={() => setLocale('ar')}
-        />
-        <SettingsRow
-          icon="sun-o"
-          label={t('settings_theme_light')}
-          hint={preference === 'light' ? t('settings_selected') : undefined}
-          accent={theme.accent}
-          onPress={() => setPreference('light')}
-        />
-        <SettingsRow
-          icon="moon-o"
-          label={t('settings_theme_dark')}
-          hint={preference === 'dark' ? t('settings_selected') : undefined}
-          accent={theme.accent}
-          onPress={() => setPreference('dark')}
-        />
+        <Pressable
+          onPress={() => setLanguageOpen((v) => !v)}
+          style={[styles.prefRow, styles.prefRowBorder, { borderBottomColor: theme.border }]}>
+          <View style={styles.prefTextWrap}>
+            <Text style={[styles.toggleTitle, { color: theme.text }, isArabic && styles.toggleTextRtl]}>{t('lang_heading')}</Text>
+            <Text style={[styles.toggleHint, { color: theme.textMuted }, isArabic && styles.toggleTextRtl]}>
+              {locale === 'ar' ? t('settings_language_arabic') : t('settings_language_english')}
+            </Text>
+          </View>
+          <View style={styles.prefSideSlot}>
+            <FontAwesome name={languageOpen ? 'chevron-up' : 'chevron-down'} size={12} color={theme.textDim} />
+          </View>
+        </Pressable>
+        {languageOpen ? (
+          <View style={[styles.languageDropdown, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <Pressable
+              onPress={() => {
+                setLocale('en');
+                setLanguageOpen(false);
+              }}
+              style={[styles.languageOption, locale === 'en' && { backgroundColor: theme.accentSoft }, isRTL && styles.languageOptionRtl]}>
+              <Text style={[styles.languageOptionText, { color: theme.text }]}>English</Text>
+              {locale === 'en' ? <FontAwesome name="check" size={12} color={theme.accent} /> : null}
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setLocale('ar');
+                setLanguageOpen(false);
+              }}
+              style={[styles.languageOption, locale === 'ar' && { backgroundColor: theme.accentSoft }, isRTL && styles.languageOptionRtl]}>
+              <Text style={[styles.languageOptionText, { color: theme.text }]}>العربية</Text>
+              {locale === 'ar' ? <FontAwesome name="check" size={12} color={theme.accent} /> : null}
+            </Pressable>
+          </View>
+        ) : null}
+        <View style={styles.prefRow}>
+          <View style={styles.prefTextWrap}>
+            <Text style={[styles.toggleTitle, { color: theme.text }, isArabic && styles.toggleTextRtl]}>{t('settings_theme_dark')}</Text>
+            <Text style={[styles.toggleHint, { color: theme.textMuted }, isArabic && styles.toggleTextRtl]}>
+              {preference === 'dark' ? t('settings_theme_dark') : t('settings_theme_light')}
+            </Text>
+          </View>
+          <View style={styles.prefSideSlot}>
+            <Pressable
+              onPress={() => setPreference(preference === 'dark' ? 'light' : 'dark')}
+              style={styles.themeToggleHit}
+              hitSlop={8}>
+              <View
+                style={[
+                  styles.themeToggleTrack,
+                  {
+                    backgroundColor: preference === 'dark' ? theme.accentSoft : theme.border,
+                    borderColor: theme.border,
+                    alignItems: preference === 'dark' ? 'flex-end' : 'flex-start',
+                  },
+                ]}>
+                <View
+                  style={[
+                    styles.themeToggleThumb,
+                    { backgroundColor: preference === 'dark' ? theme.accent : theme.textDim },
+                  ]}
+                />
+              </View>
+            </Pressable>
+          </View>
+        </View>
+        <Text style={[styles.toggleNote, { color: theme.textDim }, isRTL && styles.toggleTextRtl]}>
+          {t('settings_selected')}: {preference === 'dark' ? t('settings_theme_dark') : t('settings_theme_light')}
+        </Text>
       </View>
 
       <Text style={[styles.section, { color: theme.text }]}>{t('settings_support_section')}</Text>
@@ -184,13 +228,6 @@ export default function SettingsScreen() {
           hint={t('settings_see_closest')}
           accent={theme.accent}
           onPress={() => router.push('/nearby/parts' as Href)}
-        />
-        <SettingsRow
-          icon="truck"
-          label={t('service_winch_title')}
-          hint={t('settings_see_closest')}
-          accent={theme.accent}
-          onPress={() => router.push('/nearby/winch' as Href)}
         />
       </View>
 
@@ -287,6 +324,57 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 8,
   },
+  prefRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 64,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  prefRowBorder: {
+    borderBottomWidth: 1,
+  },
+  prefSideSlot: {
+    width: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  prefTextWrap: { flex: 1 },
+  languageDropdown: {
+    borderWidth: 1,
+    borderRadius: 12,
+    marginTop: 8,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  languageOption: {
+    direction: 'ltr',
+    minHeight: 46,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  languageOptionRtl: { flexDirection: 'row-reverse' },
+  languageOptionText: { fontSize: 14, fontWeight: '600' },
+  themeToggleHit: { paddingVertical: 4 },
+  themeToggleTrack: {
+    width: 46,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 2,
+    justifyContent: 'center',
+  },
+  themeToggleThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  toggleTitle: { fontSize: 15, fontWeight: '700' },
+  toggleHint: { marginTop: 2, fontSize: 12 },
+  toggleNote: { fontSize: 12, marginTop: 8, marginBottom: 4 },
+  toggleTextRtl: { textAlign: 'right' },
   note: {
     fontSize: 12,
     lineHeight: 18,

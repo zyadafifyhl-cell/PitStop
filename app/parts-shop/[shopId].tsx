@@ -23,6 +23,7 @@ import { formatEgp } from '@/lib/booking/reporting';
 import { createPartsOrder, listInventoryForShop } from '@/lib/booking/partsStorage';
 import type { SparePartItem } from '@/lib/booking/types';
 import { formatPhoneDisplay, openEmailTo, openPhone, openShopInMaps } from '@/lib/linking/contact';
+import { buildPartsReturnTo } from '@/lib/auth/returnTo';
 
 export default function PartsShopScreen() {
   const { shopId } = useLocalSearchParams<{ shopId: string }>();
@@ -60,7 +61,10 @@ export default function PartsShopScreen() {
 
   async function onSubmitOrder() {
     if (isGuest || !customer) {
-      router.push({ pathname: '/auth-required', params: { intent: 'purchase' } });
+      router.push({
+        pathname: '/auth-required',
+        params: { intent: 'purchase', returnTo: buildPartsReturnTo(String(shopId)) },
+      });
       return;
     }
     if (!customer || !shop) return;

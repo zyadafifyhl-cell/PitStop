@@ -1,15 +1,17 @@
-import { usePathname, useRouter } from 'expo-router';
+import { useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
+import { resolveReturnTo } from '@/lib/auth/returnTo';
 
-const PUBLIC_PATHS = ['/welcome', '/reset-password'];
+const PUBLIC_PATHS = ['/welcome', '/reset-password', '/auth-required'];
 
 /** Require customer or shop login before using the app. */
 export function UserAuthGate() {
   const pathname = usePathname();
   const router = useRouter();
+  const params = useGlobalSearchParams();
   const { ready: customerReady, customer, isGuest } = useCustomerAuth();
   const { ready: shopReady, shop } = useShopAuth();
 
@@ -26,10 +28,10 @@ export function UserAuthGate() {
       return;
     }
 
-    if (customer && pathname === '/welcome') {
+    if (customer && pathname === '/welcome' && !resolveReturnTo(params.returnTo)) {
       router.replace('/');
     }
-  }, [customerReady, shopReady, customer, shop, isGuest, pathname, router]);
+  }, [customerReady, shopReady, customer, shop, isGuest, pathname, router, params.returnTo]);
 
   return null;
 }

@@ -1,8 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -28,6 +30,7 @@ import {
 } from '@/lib/booking/format';
 import { createBooking, saveCustomerPhone } from '@/lib/booking/storage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
+import { buildBookReturnTo } from '@/lib/auth/returnTo';
 import { normalizePhoneE164 } from '@/lib/phone';
 import type { ShopExtras } from '@/lib/booking/types';
 
@@ -49,6 +52,7 @@ export default function BookShopScreen() {
   const [dateYmd, setDateYmd] = useState(defaultBookingDateYmd());
   const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[1]);
   const [saving, setSaving] = useState(false);
+  const [successVisible, setSuccessVisible] = useState(false);
   const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
 
   useEffect(() => {
@@ -88,7 +92,10 @@ export default function BookShopScreen() {
 
   async function onSubmit() {
     if (isGuest || !customer) {
-      router.push({ pathname: '/auth-required', params: { intent: 'booking' } });
+      router.push({
+        pathname: '/auth-required',
+        params: { intent: 'booking', returnTo: buildBookReturnTo(String(shopId)) },
+      });
       return;
     }
     if (!shop) return;
@@ -119,12 +126,15 @@ export default function BookShopScreen() {
         scheduledAt,
       });
       await saveCustomerPhone(normalizedPhone);
-      Alert.alert(t('book_success_title'), t('book_success_body'), [
-        { text: t('welcome_ok'), onPress: () => router.replace('/bookings') },
-      ]);
+      setSuccessVisible(true);
     } finally {
       setSaving(false);
     }
+  }
+
+  function onViewBookings() {
+    setSuccessVisible(false);
+    router.replace('/bookings');
   }
 
   const shopName =
@@ -255,6 +265,28 @@ export default function BookShopScreen() {
           <Text style={styles.primaryBtnText}>{saving ? t('book_saving') : t('book_submit')}</Text>
         </Pressable>
       </ScrollView>
+
+      <Modal visible={successVisible} transparent animationType="fade" onRequestClose={onViewBookings}>
+        <View style={styles.successBackdrop}>
+          <View
+            style={[
+              styles.successCard,
+              {
+                backgroundColor: colorScheme === 'dark' ? '#111' : '#fff',
+                borderColor: colorScheme === 'dark' ? '#333' : '#ddd',
+              },
+            ]}>
+            <View style={[styles.successIconWrap, { backgroundColor: palette.tint }]}>
+              <FontAwesome name="check" size={28} color="#fff" />
+            </View>
+            <Text style={[styles.successTitle, { color: palette.text }]}>{t('book_success_title')}</Text>
+            <Text style={[styles.successBody, { color: palette.tabIconDefault }]}>{t('book_success_body')}</Text>
+            <Pressable onPress={onViewBookings} style={[styles.successBtn, { backgroundColor: palette.tint }]}>
+              <Text style={styles.successBtnText}>{t('book_success_view_bookings')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -318,4 +350,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  successBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  successCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+  },
+  successIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  successTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 10 },
+  successBody: { fontSize: 15, lineHeight: 22, textAlign: 'center', marginBottom: 20 },
+  successBtn: {
+    width: '100%',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  successBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
 });

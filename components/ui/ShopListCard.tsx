@@ -68,6 +68,8 @@ export function ShopListCard({
   const resolvedAddress =
     locale === 'ar' ? extras?.profileAddressAr || extras?.profileAddress || address : extras?.profileAddress || address;
   const resolvedPhone = extras?.profilePhone || phone;
+  const winchPhone = extras?.winchPhone?.trim() || resolvedPhone;
+  const hasWinch = type === 'maintenance' && !!extras?.winchEnabled;
 
   return (
     <View style={styles.wrap}>
@@ -119,6 +121,11 @@ export function ShopListCard({
             <Text style={[styles.offerChipText, { color: theme.accent }]}>{offerLabel}</Text>
           </View>
         ) : null}
+        {hasWinch ? (
+          <View style={[styles.offerChip, { backgroundColor: theme.accentSoft }]}>
+            <Text style={[styles.offerChipText, { color: theme.accent }]}>{t('shop_profile_winch_available')}</Text>
+          </View>
+        ) : null}
         {extras?.imageUrls?.[0] ? (
           <View style={[styles.coverFrame, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
             <Image source={{ uri: extras.imageUrls[0] }} style={styles.coverImage} contentFit="contain" />
@@ -128,6 +135,10 @@ export function ShopListCard({
         {resolvedPhone ? (
           <Pressable
             onPress={() => {
+              if (hasWinch && winchPhone) {
+                openPhone(winchPhone).catch(() => {});
+                return;
+              }
               if (extras?.profilePhone) {
                 openPhone(extras.profilePhone).catch(() => {});
                 return;
@@ -136,7 +147,9 @@ export function ShopListCard({
             }}
             style={[styles.phoneRow, { backgroundColor: theme.accentSoft }]}>
             <FontAwesome name="phone" size={14} color={theme.accent} />
-            <Text style={[styles.phoneText, { color: theme.text }]}>{formatPhoneDisplay(resolvedPhone)}</Text>
+            <Text style={[styles.phoneText, { color: theme.text }]}>
+              {formatPhoneDisplay(hasWinch && winchPhone ? winchPhone : resolvedPhone)}
+            </Text>
           </Pressable>
         ) : null}
 

@@ -2,6 +2,7 @@ import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Tabs } from 'expo-router';
 
+import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -21,6 +22,7 @@ export default function TabLayout() {
   const { shop } = useShopAuth();
   const theme = useAppTheme();
   const hasCustomerArea = !shop && (!!customer || isGuest);
+  const customerHeaderRight = () => (customer && !isGuest && !shop ? <CustomerNotificationsBell /> : null);
 
   return (
     <Tabs
@@ -44,6 +46,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_home'),
           tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
+          headerRight: customerHeaderRight,
           href: hasCustomerArea || !shop ? undefined : null,
         }}
       />
@@ -52,6 +55,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_my_bookings'),
           tabBarIcon: ({ color }) => <TabBarIcon name="list-alt" color={color} />,
+          headerRight: customerHeaderRight,
           href: hasCustomerArea || !shop ? undefined : null,
         }}
       />
@@ -60,6 +64,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_favorites'),
           tabBarIcon: ({ color }) => <TabBarIcon name="heart" color={color} />,
+          headerRight: customerHeaderRight,
           href: hasCustomerArea ? undefined : null,
         }}
       />
@@ -77,6 +82,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_settings'),
           tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
+          headerRight: customerHeaderRight,
           href: hasCustomerArea ? undefined : null,
         }}
       />

@@ -6,17 +6,20 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useI18n } from '@/context/I18nContext';
+import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { getShopById } from '@/lib/booking/demoShops';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras } from '@/lib/booking/types';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
+import { buildBookReturnTo } from '@/lib/auth/returnTo';
 
 export default function ShopProfileScreen() {
   const { shopId } = useLocalSearchParams<{ shopId: string }>();
   const theme = useAppTheme();
   const { t, locale } = useI18n();
+  const { isGuest, customer } = useCustomerAuth();
   const [extras, setExtras] = useState<ShopExtras | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -52,6 +55,8 @@ export default function ShopProfileScreen() {
       ? extras?.profileAddressAr || extras?.profileAddress || shop.addressAr
       : extras?.profileAddress || shop.address;
   const phone = extras?.profilePhone || shop.phone;
+  const hasWinch = shop.type === 'maintenance' && !!extras?.winchEnabled;
+  const winchPhone = extras?.winchPhone || phone;
   const email = extras?.profileEmail;
   const profileImage = extras?.profileImageUrl || extras?.imageUrls?.[0];
   const coverImage = extras?.imageUrls?.[0] || profileImage;
@@ -96,7 +101,14 @@ export default function ShopProfileScreen() {
 
         <View style={styles.actionRow}>
           <Pressable
-            onPress={() => router.push({ pathname: '/book/[shopId]', params: { shopId: shop.id } })}
+            onPress={() =>
+              isGuest || !customer
+                ? router.push({
+                    pathname: '/auth-required',
+                    params: { intent: 'booking', returnTo: buildBookReturnTo(shop.id) },
+                  })
+                : router.push({ pathname: '/book/[shopId]', params: { shopId: shop.id } })
+            }
             style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
             <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_profile_book_now')}</Text>
           </Pressable>
@@ -138,6 +150,11 @@ export default function ShopProfileScreen() {
         <Text style={[styles.infoLine, { color: theme.textMuted }]}>
           {t('shop_profile_phone')}: {formatPhoneDisplay(phone)}
         </Text>
+        {hasWinch ? (
+          <Text style={[styles.infoLine, { color: theme.textMuted }]}>
+            {t('shop_profile_winch_available')}: {formatPhoneDisplay(winchPhone)}
+          </Text>
+        ) : null}
         {email ? (
           <Text style={[styles.infoLine, { color: theme.textMuted }]}>
             {t('shop_profile_email')}: {email}

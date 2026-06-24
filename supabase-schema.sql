@@ -161,6 +161,11 @@ for update using (
   )
 );
 
+drop policy if exists "Customers can cancel own bookings" on public.bookings;
+create policy "Customers can cancel own bookings" on public.bookings
+for update using (customer_id = auth.uid())
+with check (status = 'cancelled');
+
 drop policy if exists "Anyone can read spare parts" on public.spare_parts;
 create policy "Anyone can read spare parts" on public.spare_parts for select using (true);
 

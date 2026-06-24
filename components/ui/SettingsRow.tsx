@@ -3,6 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/Theme';
+import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 type Props = {
@@ -15,16 +16,21 @@ type Props = {
 
 export function SettingsRow({ icon, label, hint, onPress, accent = AppTheme.accent }: Props) {
   const theme = useAppTheme();
+  const { isRTL } = useI18n();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-      <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
-        <FontAwesome name={icon} size={18} color={accent} />
+      <View style={styles.sideSlot}>
+        <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
+          <FontAwesome name={icon} size={18} color={accent} />
+        </View>
       </View>
       <View style={styles.textWrap}>
-        <Text style={[styles.label, { color: theme.text }]}>{label}</Text>
-        {hint ? <Text style={[styles.hint, { color: theme.textMuted }]}>{hint}</Text> : null}
+        <Text style={[styles.label, { color: theme.text }, isRTL && styles.textRtl]}>{label}</Text>
+        {hint ? <Text style={[styles.hint, { color: theme.textMuted }, isRTL && styles.textRtl]}>{hint}</Text> : null}
       </View>
-      <FontAwesome name="chevron-right" size={14} color={theme.textDim} />
+      <View style={styles.sideSlot}>
+        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={14} color={theme.textDim} />
+      </View>
     </Pressable>
   );
 }
@@ -40,6 +46,11 @@ const styles = StyleSheet.create({
     borderBottomColor: AppTheme.border,
   },
   pressed: { opacity: 0.85 },
+  sideSlot: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   iconWrap: {
     width: 40,
     height: 40,
@@ -48,6 +59,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   textWrap: { flex: 1 },
+  textRtl: { textAlign: 'right' },
   label: { fontSize: 16, fontWeight: '600' },
   hint: { fontSize: 13, marginTop: 2 },
 });

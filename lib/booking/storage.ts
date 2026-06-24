@@ -72,6 +72,28 @@ async function writeAll(bookings: Booking[]): Promise<void> {
   await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
 }
 
+async function upsertLocalBooking(booking: Booking): Promise<void> {
+  const rows = await readAll();
+  const idx = rows.findIndex((b) => b.id === booking.id);
+  if (idx >= 0) rows[idx] = booking;
+  else rows.push(booking);
+  await writeAll(rows);
+}
+
+function mergeBookings(remote: Booking[], local: Booking[]): Booking[] {
+  const localById = new Map(local.map((row) => [row.id, row]));
+  const merged = remote.map((row) => {
+    const cached = localById.get(row.id);
+    if (!cached) return row;
+    if (cached.status === row.status) return row;
+    return { ...row, status: cached.status };
+  });
+  for (const row of local) {
+    if (!merged.some((item) => item.id === row.id)) merged.push(row);
+  }
+  return merged;
+}
+
 async function sendOwnerBookingPush(booking: Booking): Promise<void> {
   const when = new Date(booking.scheduledAt);
   const whenEn = when.toLocaleString('en-EG');
@@ -106,6 +128,7 @@ export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
 }
 
 export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
+  const localRows = (await readAll()).filter((b) => b.customerPhone === phone);
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
@@ -114,13 +137,15 @@ export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
       .eq('customer_phone', phone)
       .order('scheduled_at', { ascending: false });
 
-    if (!error && data) return (data as BookingRow[]).map(mapBookingRow);
+    if (!error && data) {
+      const remoteRows = (data as BookingRow[]).map(mapBookingRow);
+      return mergeBookings(remoteRows, localRows).sort((a, b) =>
+        b.scheduledAt.localeCompare(a.scheduledAt),
+      );
+    }
   }
 
-  const rows = await readAll();
-  return rows
-    .filter((b) => b.customerPhone === phone)
-    .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
+  return localRows.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
 }
 
 export async function createBooking(
@@ -161,12 +186,14 @@ export async function createBooking(
 
     if (!error && data) {
       const created = mapBookingRow(data as BookingRow);
+      await upsertLocalBooking(created);
       await pushOwnerNotification({
         shopId: created.shopId,
         kind: 'service_booking',
         customerPhone: created.customerPhone,
         bookingId: created.id,
         shopType: created.shopType,
+        carType: created.carType,
         scheduledAt: created.scheduledAt,
         totalEgp: created.servicePriceEgp,
       });
@@ -175,15 +202,14 @@ export async function createBooking(
     }
   }
 
-  const rows = await readAll();
-  rows.push(booking);
-  await writeAll(rows);
+  await upsertLocalBooking(booking);
   await pushOwnerNotification({
     shopId: booking.shopId,
     kind: 'service_booking',
     customerPhone: booking.customerPhone,
     bookingId: booking.id,
     shopType: booking.shopType,
+    carType: booking.carType,
     scheduledAt: booking.scheduledAt,
     totalEgp: booking.servicePriceEgp,
   });
@@ -194,7 +220,28 @@ export async function createBooking(
 export async function updateBookingStatus(
   bookingId: string,
   status: BookingStatus,
+  fallback?: Booking,
 ): Promise<Booking | null> {
+  const rows = await readAll();
+  const localIdx = rows.findIndex((b) => b.id === bookingId);
+  let updated: Booking | null = localIdx >= 0 ? { ...rows[localIdx], status } : null;
+
+  if (!updated && fallback && fallback.id === bookingId) {
+    updated = { ...fallback, status };
+  }
+
+  if (!updated) {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data } = await supabase.from('bookings').select('*').eq('id', bookingId).maybeSingle();
+      if (data) updated = { ...mapBookingRow(data as BookingRow), status };
+    }
+  }
+
+  if (!updated) return null;
+
+  await upsertLocalBooking(updated);
+
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase
@@ -202,17 +249,15 @@ export async function updateBookingStatus(
       .update({ status })
       .eq('id', bookingId)
       .select('*')
-      .single();
+      .maybeSingle();
 
-    if (!error && data) return mapBookingRow(data as BookingRow);
+    if (!error && data) {
+      updated = mapBookingRow(data as BookingRow);
+      await upsertLocalBooking(updated);
+    }
   }
 
-  const rows = await readAll();
-  const idx = rows.findIndex((b) => b.id === bookingId);
-  if (idx < 0) return null;
-  rows[idx] = { ...rows[idx], status };
-  await writeAll(rows);
-  return rows[idx];
+  return updated;
 }
 
 export async function getSavedCustomerPhone(): Promise<string | null> {

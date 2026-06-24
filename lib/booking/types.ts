@@ -96,6 +96,8 @@ export type ShopExtras = {
   profileAddressAr?: string;
   profilePhone?: string;
   profileEmail?: string;
+  winchEnabled?: boolean;
+  winchPhone?: string;
   imageUrls: string[];
   servicePriceEgp?: number;
   offers: ShopOffer[];
@@ -103,6 +105,8 @@ export type ShopExtras = {
 };
 
 export type OwnerNotificationKind = 'service_booking' | 'parts_order';
+
+export type OwnerNotificationResolution = 'approved' | 'declined';
 
 export type OwnerNotification = {
   id: string;
@@ -113,9 +117,32 @@ export type OwnerNotification = {
   orderId?: string;
   customerPhone: string;
   shopType?: ShopType;
+  carType?: string;
   scheduledAt?: string;
   totalEgp?: number;
   partsCount?: number;
+  resolution?: OwnerNotificationResolution;
+  ownerNote?: string;
+  resolvedAt?: string;
+};
+
+export type CustomerNotificationKind =
+  | 'booking_approved'
+  | 'booking_declined'
+  | 'parts_order_confirmed'
+  | 'parts_order_cancelled';
+
+export type CustomerNotification = {
+  id: string;
+  customerId?: string;
+  customerPhone: string;
+  kind: CustomerNotificationKind;
+  createdAt: string;
+  shopId: string;
+  bookingId?: string;
+  orderId?: string;
+  scheduledAt?: string;
+  ownerNote?: string;
 };
 
 export type CustomerInvoice = {

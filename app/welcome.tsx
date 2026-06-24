@@ -21,12 +21,13 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { isStrongPassword } from '@/lib/authValidation';
+import { resolveReturnTo } from '@/lib/auth/returnTo';
 import { isValidEgyptMobile } from '@/lib/phone';
 
 type LoginMode = 'customer' | 'owner';
 
 export default function WelcomeScreen() {
-  const { focus } = useLocalSearchParams<{ focus?: string }>();
+  const { focus, returnTo } = useLocalSearchParams<{ focus?: string; returnTo?: string }>();
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
   const { preference } = useThemePreference();
@@ -53,6 +54,11 @@ export default function WelcomeScreen() {
       setIsRegister(false);
     }
   }, [focus]);
+
+  function goAfterCustomerAuth() {
+    const destination = resolveReturnTo(returnTo) ?? '/';
+    router.replace(destination);
+  }
 
   async function onCustomerSubmit() {
     setFormMessage('');
@@ -89,7 +95,7 @@ export default function WelcomeScreen() {
         Alert.alert(t('customer_register_fail_title'), t('customer_register_invalid'));
         return;
       }
-      router.replace('/');
+      goAfterCustomerAuth();
       return;
     }
 
@@ -104,7 +110,7 @@ export default function WelcomeScreen() {
       Alert.alert(t('customer_login_fail_title'), t('customer_login_fail_body'));
       return;
     }
-    router.replace('/');
+    goAfterCustomerAuth();
   }
 
   async function onOwnerSubmit() {
@@ -141,6 +147,7 @@ export default function WelcomeScreen() {
   }
 
   const busy = mode === 'customer' ? customerBusy : shopBusy;
+  const ownerAccent = preference === 'light' ? theme.accent : theme.warm;
   const logoSource =
     preference === 'light'
       ? require('../assets/images/pitstop-logo-light.png')
@@ -193,7 +200,7 @@ export default function WelcomeScreen() {
               style={[
                 styles.modeBtn,
                 { backgroundColor: theme.card, borderColor: theme.border },
-                mode === 'owner' && { backgroundColor: theme.warm, borderColor: theme.warm },
+                mode === 'owner' && { backgroundColor: ownerAccent, borderColor: ownerAccent },
               ]}>
               <FontAwesome
                 name="briefcase"
@@ -205,14 +212,16 @@ export default function WelcomeScreen() {
               </Text>
             </Pressable>
           </View>
-          <Pressable
-            onPress={async () => {
-              await continueAsGuest();
-              router.replace('/');
-            }}
-            style={[styles.guestBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <Text style={[styles.guestBtnText, { color: theme.text }]}>{t('welcome_guest_btn')}</Text>
-          </Pressable>
+          {mode === 'customer' ? (
+            <Pressable
+              onPress={async () => {
+                await continueAsGuest();
+                router.replace('/');
+              }}
+              style={[styles.guestBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+              <Text style={[styles.guestBtnText, { color: theme.text }]}>{t('welcome_guest_btn')}</Text>
+            </Pressable>
+          ) : null}
 
           <View style={[styles.formBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             {mode === 'customer' ? (
@@ -314,7 +323,7 @@ export default function WelcomeScreen() {
                   disabled={busy}
                   style={[styles.submitBtn, busy && { opacity: 0.6 }]}>
                   <LinearGradient
-                    colors={[theme.warm, theme.warm]}
+                    colors={[ownerAccent, ownerAccent]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
