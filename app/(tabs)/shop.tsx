@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { createElement, useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,12 +34,15 @@ import {
   formatRangeLabel,
   normalizeBookingMoney,
   resolveCustomRange,
-  resolvePresetRange,
+  resolveLastNDaysRange,
   toYmdLocal,
-  type ReportPreset,
 } from '@/lib/booking/reporting';
 import { useShopAuth } from '@/context/ShopAuthContext';
-import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
+import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, DEFAULT_SERVICE_DURATION_MINUTES, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
+import {
+  cancelBookingReminders,
+  scheduleBookingReminders,
+} from '@/lib/booking/bookingReminders';
 import {
   addInventoryItem,
   listInventoryForShop,
@@ -56,13 +59,14 @@ import {
   removeShopImage,
   setShopProfileInfo,
   setShopProfileImage,
+  setShopSchedule,
   setShopServicePrice,
+  shopHasSavedSchedule,
 } from '@/lib/booking/shopExtrasStorage';
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
 import { registerOwnerPushToken } from '@/lib/push/shopPush';
 import type {
   Booking,
-  BookingStatus,
   OwnerNotification,
   OwnerNotificationResolution,
   PartsOrder,
@@ -70,7 +74,10 @@ import type {
   StoreItem,
 } from '@/lib/booking/types';
 
-const PRESETS: ReportPreset[] = ['2d', '3d', '7d', '30d', 'custom'];
+const webListScrollStyle =
+  Platform.OS === 'web'
+    ? ({ overflowY: 'auto' as const, overflowX: 'hidden' as const } as const)
+    : null;
 
 export default function ShopScreen() {
   const theme = useAppTheme();
@@ -80,12 +87,14 @@ export default function ShopScreen() {
   const [password, setPassword] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
-  const [reportPreset, setReportPreset] = useState<ReportPreset>('30d');
-  const [customStartYmd, setCustomStartYmd] = useState(() => {
-    const preset = resolvePresetRange('30d');
-    return toYmdLocal(preset.start);
+  const [reportStartYmd, setReportStartYmd] = useState(() => {
+    const start = new Date();
+    start.setDate(start.getDate() - 29);
+    return toYmdLocal(start);
   });
-  const [customEndYmd, setCustomEndYmd] = useState(() => toYmdLocal(new Date()));
+  const [reportEndYmd, setReportEndYmd] = useState(() => toYmdLocal(new Date()));
+  const [lastDaysInput, setLastDaysInput] = useState('30');
+  const [showHistory, setShowHistory] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [inventory, setInventory] = useState<StoreItem[]>([]);
   const [partsOrders, setPartsOrders] = useState<PartsOrder[]>([]);
@@ -103,12 +112,17 @@ export default function ShopScreen() {
   const [profileAddressAr, setProfileAddressAr] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
+  const [moreInfo, setMoreInfo] = useState('');
+  const [moreInfoAr, setMoreInfoAr] = useState('');
   const [winchEnabled, setWinchEnabled] = useState(false);
   const [winchPhone, setWinchPhone] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
   const [newOfferTitle, setNewOfferTitle] = useState('');
   const [newOfferTitleAr, setNewOfferTitleAr] = useState('');
   const [newOfferDays, setNewOfferDays] = useState('7');
+  const [workOpenTime, setWorkOpenTime] = useState(DEFAULT_WORK_OPEN);
+  const [workCloseTime, setWorkCloseTime] = useState(DEFAULT_WORK_CLOSE);
+  const [serviceDurationMinutes, setServiceDurationMinutes] = useState(String(DEFAULT_SERVICE_DURATION_MINUTES));
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
   const [decisionTarget, setDecisionTarget] = useState<{
     notification: OwnerNotification;
@@ -116,6 +130,9 @@ export default function ShopScreen() {
   } | null>(null);
   const [decisionNote, setDecisionNote] = useState('');
   const [decisionBusy, setDecisionBusy] = useState(false);
+  const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
+  const [scheduleInlineOk, setScheduleInlineOk] = useState(false);
 
   const refreshOwnerNotifications = useCallback(async () => {
     if (!shop) return;
@@ -134,8 +151,13 @@ export default function ShopScreen() {
     setProfileAddressAr(row.profileAddressAr ?? shop.addressAr);
     setProfilePhone(row.profilePhone ?? shop.phone);
     setProfileEmail(row.profileEmail ?? '');
+    setMoreInfo(row.moreInfo ?? '');
+    setMoreInfoAr(row.moreInfoAr ?? '');
     setWinchEnabled(!!row.winchEnabled);
     setWinchPhone(row.winchPhone ?? '');
+    setWorkOpenTime(row.workOpenTime ?? DEFAULT_WORK_OPEN);
+    setWorkCloseTime(row.workCloseTime ?? DEFAULT_WORK_CLOSE);
+    setServiceDurationMinutes(String(row.serviceDurationMinutes ?? DEFAULT_SERVICE_DURATION_MINUTES));
   }, [shop]);
 
   const refreshBookings = useCallback(async () => {
@@ -184,15 +206,31 @@ export default function ShopScreen() {
     }, [shop, locale]),
   );
 
-  const reportRange = useMemo(() => {
-    if (reportPreset === 'custom') return resolveCustomRange(customStartYmd, customEndYmd);
-    return resolvePresetRange(reportPreset);
-  }, [reportPreset, customStartYmd, customEndYmd]);
+  const reportRange = useMemo(
+    () => resolveCustomRange(reportStartYmd, reportEndYmd),
+    [reportStartYmd, reportEndYmd],
+  );
 
   const reportBookings = useMemo(() => {
     if (!reportRange) return [];
     return filterBookingsByRange(bookings, reportRange);
   }, [bookings, reportRange]);
+
+  const activeBookings = useMemo(
+    () =>
+      bookings
+        .filter((booking) => booking.status === 'pending')
+        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)),
+    [bookings],
+  );
+
+  const historyBookings = useMemo(
+    () =>
+      bookings
+        .filter((booking) => booking.status !== 'pending')
+        .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
+    [bookings],
+  );
 
   const financialTotals = useMemo(() => {
     return reportBookings.reduce(
@@ -225,11 +263,6 @@ export default function ShopScreen() {
   async function onLogout() {
     await logout();
     router.replace('/welcome');
-  }
-
-  async function onStatusChange(bookingId: string, status: BookingStatus) {
-    await updateBookingStatus(bookingId, status);
-    await refreshBookings();
   }
 
   async function onAddPart() {
@@ -269,6 +302,12 @@ export default function ShopScreen() {
     await refreshPartsData();
   }
 
+  function printReportPreview() {
+    if (Platform.OS !== 'web') return;
+    const iframe = document.getElementById('pitstop-report-iframe') as HTMLIFrameElement | null;
+    iframe?.contentWindow?.print();
+  }
+
   async function onGeneratePdf() {
     if (!shop) return;
     if (!reportRange) {
@@ -289,7 +328,7 @@ export default function ShopScreen() {
     setGeneratingPdf(true);
     try {
       if (Platform.OS === 'web') {
-        await Print.printAsync({ html });
+        setReportPreviewHtml(html);
         return;
       }
       const file = await Print.printToFileAsync({ html });
@@ -308,11 +347,43 @@ export default function ShopScreen() {
     }
   }
 
-  function confirmAction(bookingId: string, status: BookingStatus, title: string, body: string) {
-    Alert.alert(title, body, [
-      { text: t('alert_cancel'), style: 'cancel' },
-      { text: t('shop_confirm_action'), onPress: () => onStatusChange(bookingId, status) },
-    ]);
+  function applyLastDaysRange() {
+    const days = Number(lastDaysInput);
+    const range = resolveLastNDaysRange(days);
+    if (!range) {
+      Alert.alert(t('shop_report_invalid_range_title'), t('shop_report_days_invalid_body'));
+      return;
+    }
+    setReportStartYmd(toYmdLocal(range.start));
+    setReportEndYmd(toYmdLocal(range.end));
+  }
+
+  function renderBookingCard(item: Booking, showActions: boolean) {
+    return (
+      <View key={item.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+        <Text style={[styles.when, { color: theme.text }]}>{formatBookingDateTime(item.scheduledAt, locale)}</Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_phone_label')}: {item.customerPhone}</Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_car_type_label')}: {item.carType}</Text>
+        {item.carColor ? (
+          <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_car_color_label')}: {item.carColor}</Text>
+        ) : null}
+        <Text style={[styles.status, { color: theme.accent }]}>{bookingStatusLabel(item.status, locale)}</Text>
+        {showActions && item.status === 'pending' ? (
+          <View style={styles.actions}>
+            <Pressable
+              onPress={() => openBookingCardDecision(item, 'approved')}
+              style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+              <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('shop_action_approve')}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => openBookingCardDecision(item, 'declined')}
+              style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+              <Text style={styles.actionText}>{t('shop_action_decline')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    );
   }
 
   function partsStatusLabel(status: PartsOrder['status']) {
@@ -349,9 +420,31 @@ export default function ShopScreen() {
     [ownerNotifications, bookings],
   );
 
+  function notificationForBooking(booking: Booking): OwnerNotification {
+    return (
+      ownerNotifications.find(
+        (row) => row.kind === 'service_booking' && row.bookingId === booking.id,
+      ) ?? {
+        id: `booking-${booking.id}`,
+        shopId: shop!.id,
+        kind: 'service_booking',
+        createdAt: booking.createdAt,
+        bookingId: booking.id,
+        customerPhone: booking.customerPhone,
+        shopType: booking.shopType,
+        carType: booking.carType,
+        scheduledAt: booking.scheduledAt,
+      }
+    );
+  }
+
   function openBookingDecision(notification: OwnerNotification, resolution: OwnerNotificationResolution) {
     setDecisionNote('');
     setDecisionTarget({ notification, resolution });
+  }
+
+  function openBookingCardDecision(booking: Booking, resolution: OwnerNotificationResolution) {
+    openBookingDecision(notificationForBooking(booking), resolution);
   }
 
   async function submitBookingDecision() {
@@ -363,12 +456,15 @@ export default function ShopScreen() {
       if (!bookingId) return;
       const status = resolution === 'approved' ? 'confirmed' : 'cancelled';
       await updateBookingStatus(bookingId, status);
-      await resolveOwnerNotification({
-        shopId: shop.id,
-        notificationId: notification.id,
-        resolution,
-        ownerNote: decisionNote.trim() || undefined,
-      });
+      const storedNotification = ownerNotifications.find((row) => row.id === notification.id);
+      if (storedNotification) {
+        await resolveOwnerNotification({
+          shopId: shop.id,
+          notificationId: notification.id,
+          resolution,
+          ownerNote: decisionNote.trim() || undefined,
+        });
+      }
       const booking = bookings.find((row) => row.id === bookingId);
       await pushCustomerNotification({
         customerId: booking?.customerId,
@@ -379,6 +475,19 @@ export default function ShopScreen() {
         scheduledAt: notification.scheduledAt ?? booking?.scheduledAt,
         ownerNote: decisionNote.trim() || undefined,
       });
+      const scheduledAt = notification.scheduledAt ?? booking?.scheduledAt;
+      if (resolution === 'approved' && scheduledAt) {
+        await scheduleBookingReminders({
+          bookingId,
+          shopId: shop.id,
+          customerId: booking?.customerId,
+          customerPhone: notification.customerPhone,
+          scheduledAt,
+          locale,
+        });
+      } else {
+        await cancelBookingReminders(bookingId);
+      }
       setDecisionTarget(null);
       setDecisionNote('');
       await refreshBookings();
@@ -528,15 +637,57 @@ export default function ShopScreen() {
     await refreshShopExtras();
   }
 
+  function showSaveNotice(title: string, body: string) {
+    setSaveNotice({ title, body });
+  }
+
   async function onSaveServicePrice() {
     if (!shop) return;
     const price = Number(newServicePrice);
     if (Number.isNaN(price) || price < 0) {
-      Alert.alert(t('shop_price_invalid_title'), t('shop_price_invalid_body'));
+      showSaveNotice(t('shop_price_invalid_title'), t('shop_price_invalid_body'));
       return;
     }
     await setShopServicePrice(shop.id, price);
     await refreshShopExtras();
+    showSaveNotice(t('shop_price_saved_title'), t('shop_price_saved_body'));
+  }
+
+  async function onSaveSchedule() {
+    if (!shop) return;
+    const open = normalizeTimeHm(workOpenTime);
+    const close = normalizeTimeHm(workCloseTime);
+    const duration = Number(serviceDurationMinutes);
+    if (!open || !close || Number.isNaN(duration) || duration < 15) {
+      setScheduleInlineOk(false);
+      showSaveNotice(t('shop_schedule_invalid_title'), t('shop_schedule_invalid_body'));
+      return;
+    }
+    if (hmToMinutesCloseBeforeOpen(open, close)) {
+      setScheduleInlineOk(false);
+      showSaveNotice(t('shop_schedule_invalid_title'), t('shop_schedule_close_before_open'));
+      return;
+    }
+    const saved = await setShopSchedule(shop.id, {
+      workOpenTime: open,
+      workCloseTime: close,
+      serviceDurationMinutes: duration,
+    });
+    setWorkOpenTime(saved.workOpenTime ?? open);
+    setWorkCloseTime(saved.workCloseTime ?? close);
+    setServiceDurationMinutes(String(saved.serviceDurationMinutes ?? duration));
+    setShopExtras(saved);
+    setScheduleInlineOk(true);
+    showSaveNotice(
+      t('shop_schedule_saved_title'),
+      `${t('shop_schedule_saved_body')}\n\n${formatShopScheduleLine(open, close, duration, locale)}`,
+    );
+  }
+
+  function hmToMinutesCloseBeforeOpen(open: string, close: string): boolean {
+    const o = open.split(':').map(Number);
+    const c = close.split(':').map(Number);
+    return c[0] * 60 + c[1] <= o[0] * 60 + o[1];
   }
 
   async function onSaveProfileInfo() {
@@ -552,6 +703,8 @@ export default function ShopScreen() {
       profileAddressAr,
       profilePhone,
       profileEmail,
+      moreInfo,
+      moreInfoAr,
       winchEnabled: shop.type === 'maintenance' ? winchEnabled : false,
       winchPhone: shop.type === 'maintenance' ? winchPhone : undefined,
     });
@@ -671,6 +824,23 @@ export default function ShopScreen() {
         <TextInput placeholder={t('shop_manage_profile_email_placeholder')} placeholderTextColor={theme.textDim} keyboardType="email-address" autoCapitalize="none" value={profileEmail} onChangeText={setProfileEmail} style={fieldStyle} />
         <TextInput placeholder={t('shop_manage_profile_address_placeholder')} placeholderTextColor={theme.textDim} value={profileAddress} onChangeText={setProfileAddress} style={fieldStyle} />
         <TextInput placeholder={t('shop_manage_profile_address_ar_placeholder')} placeholderTextColor={theme.textDim} value={profileAddressAr} onChangeText={setProfileAddressAr} style={fieldStyle} />
+        <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('shop_manage_more_info_title')}</Text>
+        <TextInput
+          placeholder={t('shop_manage_more_info_placeholder')}
+          placeholderTextColor={theme.textDim}
+          value={moreInfo}
+          onChangeText={setMoreInfo}
+          multiline
+          style={[fieldStyle, styles.noteInput]}
+        />
+        <TextInput
+          placeholder={t('shop_manage_more_info_ar_placeholder')}
+          placeholderTextColor={theme.textDim}
+          value={moreInfoAr}
+          onChangeText={setMoreInfoAr}
+          multiline
+          style={[fieldStyle, styles.noteInput]}
+        />
         {shop.type === 'maintenance' ? (
           <>
             <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('shop_manage_winch_title')}</Text>
@@ -679,7 +849,7 @@ export default function ShopScreen() {
                 <Text style={[styles.chipBtnText, { color: winchEnabled ? theme.onAccent : theme.text }]}>{t('shop_manage_winch_enable')}</Text>
               </Pressable>
               <Pressable onPress={() => setWinchEnabled(false)} style={[styles.chipBtn, { backgroundColor: !winchEnabled ? theme.accent : theme.bgElevated, borderColor: theme.border }]}>
-                <Text style={[styles.chipBtnText, { color: !winchEnabled ? theme.onAccent : theme.text }]}>{t('shop_action_cancel')}</Text>
+                <Text style={[styles.chipBtnText, { color: !winchEnabled ? theme.onAccent : theme.text }]}>{t('shop_manage_winch_disable')}</Text>
               </Pressable>
             </View>
             <TextInput placeholder={t('shop_manage_winch_phone_placeholder')} placeholderTextColor={theme.textDim} keyboardType="phone-pad" value={winchPhone} onChangeText={setWinchPhone} editable={winchEnabled} style={[fieldStyle, { opacity: winchEnabled ? 1 : 0.55 }]} />
@@ -717,6 +887,36 @@ export default function ShopScreen() {
         </Pressable>
       </OwnerSectionCard>
 
+      {!isStoreShopType(shop.type) ? (
+        <OwnerSectionCard theme={theme} title={t('shop_manage_schedule_title')} subtitle={t('shop_manage_schedule_lead')}>
+          <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 8 }]}>{t('shop_manage_time_format_hint')}</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_open_label')}</Text>
+          <TextInput placeholder="12:00" placeholderTextColor={theme.textDim} value={workOpenTime} onChangeText={(v) => { setWorkOpenTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
+          <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_close_label')}</Text>
+          <TextInput placeholder="22:00" placeholderTextColor={theme.textDim} value={workCloseTime} onChangeText={(v) => { setWorkCloseTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
+          <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_duration_label')}</Text>
+          <TextInput placeholder="30" placeholderTextColor={theme.textDim} keyboardType="numeric" value={serviceDurationMinutes} onChangeText={(v) => { setServiceDurationMinutes(v); setScheduleInlineOk(false); }} style={fieldStyle} />
+          {shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime && shopExtras.serviceDurationMinutes ? (
+            <Text style={[styles.meta, { color: theme.accent, marginBottom: 8 }]}>
+              {formatShopScheduleLine(
+                shopExtras.workOpenTime,
+                shopExtras.workCloseTime,
+                shopExtras.serviceDurationMinutes,
+                locale,
+              )}
+            </Text>
+          ) : null}
+          {scheduleInlineOk ? (
+            <Text style={[styles.meta, { color: theme.accent, fontWeight: '800', marginBottom: 8 }]}>
+              ✓ {t('shop_schedule_saved_customer_hint')}
+            </Text>
+          ) : null}
+          <Pressable onPress={onSaveSchedule} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_save_schedule')}</Text>
+          </Pressable>
+        </OwnerSectionCard>
+      ) : null}
+
       <OwnerSectionCard theme={theme} title={t('shop_manage_offer_title')}>
         <TextInput placeholder={t('shop_manage_offer_title_placeholder')} placeholderTextColor={theme.textDim} value={newOfferTitle} onChangeText={setNewOfferTitle} style={fieldStyle} />
         <TextInput placeholder={t('shop_manage_offer_title_ar_placeholder')} placeholderTextColor={theme.textDim} value={newOfferTitleAr} onChangeText={setNewOfferTitleAr} style={fieldStyle} />
@@ -735,20 +935,6 @@ export default function ShopScreen() {
         ) : null}
       </OwnerSectionCard>
     </>
-  );
-
-  const pendingOwnerNotifications = ownerNotifications.filter(
-    (row) => row.kind === 'service_booking' && notificationStatus(row) === 'pending',
-  );
-
-  const notificationsSection = (
-    <OwnerSectionCard theme={theme} title={t('shop_notifications_title')}>
-      {pendingOwnerNotifications.length === 0 ? (
-        <Text style={[styles.meta, { color: theme.textMuted }]}>{t('shop_notifications_empty')}</Text>
-      ) : (
-        pendingOwnerNotifications.slice(0, 6).map((notification) => renderOwnerNotificationRow(notification))
-      )}
-    </OwnerSectionCard>
   );
 
   const ownerModals = (
@@ -828,6 +1014,49 @@ export default function ShopScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={!!reportPreviewHtml}
+        animationType="slide"
+        onRequestClose={() => setReportPreviewHtml(null)}>
+        <View style={[styles.reportModalScreen, { backgroundColor: theme.bg }]}>
+          <View style={[styles.reportModalHeader, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <Pressable onPress={() => setReportPreviewHtml(null)} style={styles.reportModalBtn}>
+              <Text style={{ color: theme.text, fontWeight: '700' }}>{t('shop_report_close')}</Text>
+            </Pressable>
+            <Text style={[styles.reportModalTitle, { color: theme.text }]} numberOfLines={1}>
+              {t('shop_report_title')}
+            </Text>
+            <Pressable onPress={printReportPreview} style={styles.reportModalBtn}>
+              <Text style={{ color: theme.accent, fontWeight: '800' }}>{t('shop_report_save_pdf')}</Text>
+            </Pressable>
+          </View>
+          <View style={styles.reportIframeWrap}>
+            {Platform.OS === 'web' && reportPreviewHtml
+              ? createElement('iframe', {
+                  id: 'pitstop-report-iframe',
+                  srcDoc: reportPreviewHtml,
+                  style: { width: '100%', height: '100%', border: 'none', display: 'block', backgroundColor: '#ffffff' },
+                  title: 'PitStop report',
+                })
+              : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!saveNotice} transparent animationType="fade" onRequestClose={() => setSaveNotice(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{saveNotice?.title}</Text>
+            <Text style={[styles.meta, { color: theme.textMuted }]}>{saveNotice?.body}</Text>
+            <Pressable
+              onPress={() => setSaveNotice(null)}
+              style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 16 }]}>
+              <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 
@@ -837,7 +1066,6 @@ export default function ShopScreen() {
         <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.page}>
         {ownerProfileHero}
         {ownerManageSections}
-        {notificationsSection}
 
         <OwnerSectionCard theme={theme} title={t('parts_owner_inventory_title')} subtitle={t('parts_owner_dashboard_lead')}>
           <TextInput placeholder={t('parts_owner_part_name_placeholder')} placeholderTextColor={theme.textDim} value={newPartName} onChangeText={setNewPartName} style={fieldStyle} />
@@ -920,65 +1148,47 @@ export default function ShopScreen() {
       <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.page}>
       {ownerProfileHero}
       {ownerManageSections}
-      {notificationsSection}
 
       <OwnerSectionCard theme={theme} title={t('shop_dashboard_lead')} subtitle={t('shop_report_lead')}>
-        <View style={styles.presetRow}>
-          {PRESETS.map((preset) => {
-            const active = preset === reportPreset;
-            return (
-              <Pressable
-                key={preset}
-                onPress={() => setReportPreset(preset)}
-                style={[
-                  styles.presetChip,
-                  {
-                    backgroundColor: active ? theme.accent : 'transparent',
-                    borderColor: active ? theme.accent : theme.border,
-                  },
-                ]}>
-                <Text style={{ color: active ? theme.onAccent : theme.text, fontWeight: '700', fontSize: 12 }}>
-                  {preset === '2d'
-                    ? t('shop_report_last_2_days')
-                    : preset === '3d'
-                      ? t('shop_report_last_3_days')
-                      : preset === '7d'
-                        ? t('shop_report_last_week')
-                        : preset === '30d'
-                          ? t('shop_report_last_month')
-                          : t('shop_report_custom')}
-                </Text>
-              </Pressable>
-            );
-          })}
+        <View style={styles.customRangeWrap}>
+          <BookingDatePicker
+            valueYmd={reportStartYmd}
+            onChangeYmd={setReportStartYmd}
+            locale={locale}
+            label={t('shop_report_start_date')}
+            pickHint={t('book_date_pick_hint')}
+            minimumDate={new Date('2020-01-01T00:00:00')}
+            borderColor={theme.border}
+            backgroundColor={theme.bgElevated}
+            textColor={theme.text}
+          />
+          <BookingDatePicker
+            valueYmd={reportEndYmd}
+            onChangeYmd={setReportEndYmd}
+            locale={locale}
+            label={t('shop_report_end_date')}
+            pickHint={t('book_date_pick_hint')}
+            minimumDate={new Date('2020-01-01T00:00:00')}
+            borderColor={theme.border}
+            backgroundColor={theme.bgElevated}
+            textColor={theme.text}
+          />
         </View>
 
-        {reportPreset === 'custom' ? (
-          <View style={styles.customRangeWrap}>
-            <BookingDatePicker
-              valueYmd={customStartYmd}
-              onChangeYmd={setCustomStartYmd}
-              locale={locale}
-              label={t('shop_report_start_date')}
-              pickHint={t('book_date_pick_hint')}
-              minimumDate={new Date('2020-01-01T00:00:00')}
-              borderColor={theme.border}
-              backgroundColor={theme.bgElevated}
-              textColor={theme.text}
-            />
-            <BookingDatePicker
-              valueYmd={customEndYmd}
-              onChangeYmd={setCustomEndYmd}
-              locale={locale}
-              label={t('shop_report_end_date')}
-              pickHint={t('book_date_pick_hint')}
-              minimumDate={new Date('2020-01-01T00:00:00')}
-              borderColor={theme.border}
-              backgroundColor={theme.bgElevated}
-              textColor={theme.text}
-            />
-          </View>
-        ) : null}
+        <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('shop_report_last_n_days')}</Text>
+        <View style={styles.lastDaysRow}>
+          <TextInput
+            value={lastDaysInput}
+            onChangeText={setLastDaysInput}
+            keyboardType="number-pad"
+            placeholder={t('shop_report_days_placeholder')}
+            placeholderTextColor={theme.textDim}
+            style={[fieldStyle, styles.lastDaysInput]}
+          />
+          <Pressable onPress={applyLastDaysRange} style={[styles.secondaryBtn, { borderColor: theme.border, marginTop: 8 }]}>
+            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('shop_report_apply_days')}</Text>
+          </Pressable>
+        </View>
 
         <Text style={[styles.reportSummary, { color: theme.textMuted }]}>
           {reportRange
@@ -1001,50 +1211,59 @@ export default function ShopScreen() {
           disabled={generatingPdf || !reportRange}
           style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: generatingPdf || !reportRange ? 0.65 : 1 }]}>
           <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
-            {generatingPdf ? t('shop_report_generating') : t('shop_report_generate_pdf')}
+            {generatingPdf
+              ? t('shop_report_generating')
+              : Platform.OS === 'web'
+                ? t('shop_report_view_report')
+                : t('shop_report_generate_pdf')}
           </Text>
         </Pressable>
+
+        {reportRange && reportBookings.length > 0 ? (
+          Platform.OS === 'web' ? (
+            <View style={[styles.reportPreviewScroll, webListScrollStyle]}>
+              {reportBookings.map((item) => renderBookingCard(item, false))}
+            </View>
+          ) : (
+            <ScrollView style={styles.reportPreviewScroll} nestedScrollEnabled contentContainerStyle={styles.reportPreviewContent}>
+              {reportBookings.map((item) => renderBookingCard(item, false))}
+            </ScrollView>
+          )
+        ) : null}
       </OwnerSectionCard>
 
-      <OwnerSectionCard theme={theme} title={t('shop_report_title')}>
+      <OwnerSectionCard theme={theme} title={t('shop_active_requests_title')} subtitle={t('shop_active_requests_lead')}>
         {loadingBookings ? (
           <ActivityIndicator color={theme.accent} />
-        ) : reportBookings.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textMuted }]}>{t('shop_report_no_bookings')}</Text>
+        ) : activeBookings.length === 0 ? (
+          <Text style={[styles.empty, { color: theme.textMuted }]}>{t('shop_active_requests_empty')}</Text>
         ) : (
-          reportBookings.map((item) => (
-            <View key={item.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-              <Text style={[styles.when, { color: theme.text }]}>{formatBookingDateTime(item.scheduledAt, locale)}</Text>
-              <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_phone_label')}: {item.customerPhone}</Text>
-              <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_car_type_label')}: {item.carType}</Text>
-              {item.carColor ? (
-                <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_car_color_label')}: {item.carColor}</Text>
-              ) : null}
-              <Text style={[styles.status, { color: theme.accent }]}>{bookingStatusLabel(item.status, locale)}</Text>
-              {item.status !== 'cancelled' && item.status !== 'done' ? (
-                <View style={styles.actions}>
-                  {item.status === 'pending' ? (
-                    <Pressable
-                      onPress={() => confirmAction(item.id, 'confirmed', t('shop_confirm_booking_title'), t('shop_confirm_booking_body'))}
-                      style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                      <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('shop_action_confirm')}</Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    onPress={() => confirmAction(item.id, 'cancelled', t('shop_cancel_booking_title'), t('shop_cancel_booking_body'))}
-                    style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                    <Text style={styles.actionText}>{t('shop_action_cancel')}</Text>
-                  </Pressable>
-                  {item.status === 'confirmed' ? (
-                    <Pressable onPress={() => onStatusChange(item.id, 'done')} style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                      <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('shop_action_done')}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
-          ))
+          activeBookings.map((item) => renderBookingCard(item, true))
         )}
+      </OwnerSectionCard>
+
+      <OwnerSectionCard theme={theme} title={t('shop_booking_history_title')}>
+        <Pressable onPress={() => setShowHistory((value) => !value)} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
+          <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
+            {showHistory ? t('shop_booking_history_hide') : t('shop_booking_history_show')}
+            {historyBookings.length ? ` (${historyBookings.length})` : ''}
+          </Text>
+        </Pressable>
+        {showHistory ? (
+          loadingBookings ? (
+            <ActivityIndicator color={theme.accent} style={{ marginTop: 12 }} />
+          ) : historyBookings.length === 0 ? (
+            <Text style={[styles.empty, { color: theme.textMuted, marginTop: 12 }]}>{t('shop_booking_history_empty')}</Text>
+          ) : Platform.OS === 'web' ? (
+            <View style={[styles.historyScroll, webListScrollStyle]}>
+              {historyBookings.map((item) => renderBookingCard(item, false))}
+            </View>
+          ) : (
+            <ScrollView style={styles.historyScroll} nestedScrollEnabled contentContainerStyle={styles.reportPreviewContent}>
+              {historyBookings.map((item) => renderBookingCard(item, false))}
+            </ScrollView>
+          )
+        ) : null}
       </OwnerSectionCard>
       </ScrollView>
       {ownerModals}
@@ -1092,6 +1311,24 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   customRangeWrap: { marginTop: 6 },
+  lastDaysRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  lastDaysInput: { flex: 1, minWidth: 120, marginTop: 0 },
+  reportPreviewScroll: { maxHeight: 320, marginTop: 12 },
+  historyScroll: { maxHeight: 280, marginTop: 12 },
+  reportPreviewContent: { paddingBottom: 4 },
+  reportModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    gap: 8,
+  },
+  reportModalTitle: { flex: 1, fontSize: 16, fontWeight: '800', textAlign: 'center' },
+  reportModalBtn: { paddingVertical: 8, paddingHorizontal: 4, minWidth: 84 },
+  reportModalScreen: { flex: 1 },
+  reportIframeWrap: { flex: 1, minHeight: 0 },
   reportSummary: { marginTop: 12, fontSize: 13, lineHeight: 19 },
   reportMoney: { marginTop: 6, fontSize: 13, lineHeight: 19, fontWeight: '800' },
   empty: { textAlign: 'center' },

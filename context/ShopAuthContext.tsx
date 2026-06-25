@@ -5,11 +5,14 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import {
   getShopByOwnerEmail,
+  hydrateCatalogCache,
+  isCatalogReady,
   refreshCatalog,
 } from '@/lib/booking/catalogRepository';
 import type { Shop } from '@/lib/booking/types';
@@ -32,7 +35,12 @@ type ShopAuthContextValue = {
 const ShopAuthContext = createContext<ShopAuthContextValue | null>(null);
 
 async function resolveShopForEmail(email: string): Promise<Shop | null> {
-  await refreshCatalog();
+  if (!isCatalogReady()) {
+    await hydrateCatalogCache();
+  }
+  if (!isCatalogReady()) {
+    await refreshCatalog();
+  }
   return getShopByOwnerEmail(email) ?? null;
 }
 
@@ -40,6 +48,7 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [shop, setShop] = useState<Shop | null>(null);
   const [busy, setBusy] = useState(false);
+  const signingOutRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +68,7 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           const saved = await AsyncStorage.getItem('@pitstop/shop-session');
           if (saved) {
-            await refreshCatalog();
+            if (!isCatalogReady()) await hydrateCatalogCache();
             const match = getShopByOwnerEmail(saved);
             if (match && !cancelled) setShop(match);
           }
@@ -79,6 +88,7 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
     const supabase = getSupabase();
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (signingOutRef.current) return;
       if (event === 'SIGNED_OUT' || !session?.user?.email) {
         setShop(null);
         await AsyncStorage.removeItem('@pitstop/shop-session');
@@ -124,9 +134,14 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    signingOutRef.current = true;
     setShop(null);
-    await AsyncStorage.removeItem('@pitstop/shop-session');
-    await getSupabase()?.auth.signOut();
+    try {
+      await AsyncStorage.removeItem('@pitstop/shop-session');
+      await getSupabase()?.auth.signOut();
+    } finally {
+      signingOutRef.current = false;
+    }
   }, []);
 
   const value = useMemo(

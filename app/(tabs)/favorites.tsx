@@ -17,7 +17,7 @@ export default function FavoritesScreen() {
   const { t, locale } = useI18n();
   const theme = useAppTheme();
   const { customer } = useCustomerAuth();
-  const { ready: catalogReady } = useShopCatalog();
+  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const [shopIds, setShopIds] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {

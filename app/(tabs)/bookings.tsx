@@ -14,11 +14,11 @@ import {
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { listCustomerInvoices } from '@/lib/booking/commerceEvents';
+import { listCustomerInvoices, clearCustomerInvoices } from '@/lib/booking/commerceEvents';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
-import { listBookingsForPhone, updateBookingStatus } from '@/lib/booking/storage';
+import { clearCustomerBookingHistory, listBookingsForPhone, updateBookingStatus } from '@/lib/booking/storage';
 import type { Booking, CustomerInvoice } from '@/lib/booking/types';
 
 export default function MyBookingsScreen() {
@@ -31,6 +31,9 @@ export default function MyBookingsScreen() {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Booking | null>(null);
   const [cancelSuccessVisible, setCancelSuccessVisible] = useState(false);
+  const [eraseConfirmVisible, setEraseConfirmVisible] = useState(false);
+  const [erasing, setErasing] = useState(false);
+  const [eraseSuccessVisible, setEraseSuccessVisible] = useState(false);
 
   const refreshBookings = useCallback(async () => {
     if (!customer?.phone) {
@@ -103,6 +106,24 @@ export default function MyBookingsScreen() {
       setCancellingId(null);
     }
   }
+
+  async function confirmEraseHistory() {
+    if (!customer?.phone) return;
+    setErasing(true);
+    try {
+      await Promise.all([
+        clearCustomerBookingHistory({ phone: customer.phone, customerId: customer.id }),
+        clearCustomerInvoices({ customerId: customer.id, customerPhone: customer.phone }),
+      ]);
+      setEraseConfirmVisible(false);
+      await refreshBookings();
+      setEraseSuccessVisible(true);
+    } finally {
+      setErasing(false);
+    }
+  }
+
+  const hasHistory = bookings.length > 0 || invoices.length > 0;
 
   function partsStatusLabel(status: CustomerInvoice['status']): string {
     if (status === 'pending') return t('parts_status_pending');
@@ -208,6 +229,65 @@ export default function MyBookingsScreen() {
         </>
       )}
 
+      {customer?.phone && hasHistory && !busy ? (
+        <Pressable
+          onPress={() => setEraseConfirmVisible(true)}
+          style={[styles.eraseBtn, { borderColor: theme.danger, opacity: erasing ? 0.6 : 1 }]}>
+          <Text style={[styles.eraseBtnText, { color: theme.danger }]}>
+            {erasing ? t('book_saving') : t('bookings_erase_history')}
+          </Text>
+        </Pressable>
+      ) : null}
+
+      <Modal
+        visible={eraseConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !erasing && setEraseConfirmVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('bookings_erase_history_title')}</Text>
+            <Text style={[styles.modalBody, { color: theme.textMuted }]}>{t('bookings_erase_history_body')}</Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setEraseConfirmVisible(false)}
+                disabled={erasing}
+                style={[styles.modalBtnSecondary, { borderColor: theme.border }]}>
+                <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('alert_cancel')}</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmEraseHistory}
+                disabled={erasing}
+                style={[
+                  styles.modalBtnPrimary,
+                  { backgroundColor: theme.danger, opacity: erasing ? 0.65 : 1 },
+                ]}>
+                <Text style={styles.modalBtnPrimaryText}>
+                  {erasing ? t('book_saving') : t('bookings_erase_history_confirm')}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={eraseSuccessVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEraseSuccessVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('bookings_erase_history_success')}</Text>
+            <Pressable
+              onPress={() => setEraseSuccessVisible(false)}
+              style={[styles.modalBtnPrimary, { backgroundColor: theme.accent, marginTop: 16 }]}>
+              <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={!!cancelTarget}
         transparent
@@ -284,6 +364,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   cancelBtnText: { fontSize: 14, fontWeight: '800' },
+  eraseBtn: {
+    marginTop: 24,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  eraseBtnText: { fontSize: 14, fontWeight: '800' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',

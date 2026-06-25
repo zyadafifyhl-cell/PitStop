@@ -7,6 +7,15 @@ export type DateRange = {
   end: Date;
 };
 
+export function resolveLastNDaysRange(days: number, now = new Date()): DateRange | null {
+  const safeDays = Math.floor(days);
+  if (!Number.isFinite(safeDays) || safeDays < 1 || safeDays > 366) return null;
+  const end = endOfDay(now);
+  const start = startOfDay(now);
+  start.setDate(start.getDate() - (safeDays - 1));
+  return { start, end };
+}
+
 function startOfDay(d: Date): Date {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -164,18 +173,58 @@ export function buildOwnerReportHtml(params: {
 <html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
 <head>
   <meta charset="utf-8" />
+  <meta name="color-scheme" content="light" />
   <title>${isAr ? 'فاتورة/تقرير الحجوزات' : 'Bookings Invoice/Report'}</title>
   <style>
-    body { font-family: Arial, sans-serif; color: #111827; padding: 24px; }
-    h1 { margin: 0 0 8px; font-size: 24px; }
-    .muted { color: #6b7280; font-size: 13px; margin-bottom: 14px; }
-    .grid { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 8px; margin-bottom: 18px; }
-    .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; }
-    .label { color: #6b7280; font-size: 12px; }
-    .value { font-weight: 700; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px; font-size: 12px; text-align: ${isAr ? 'right' : 'left'}; }
-    th { background: #f3f4f6; }
+    :root { color-scheme: light; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      height: auto;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: #ffffff !important;
+      color: #111827 !important;
+    }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; font-weight: 800; color: #111827 !important; }
+    .muted { color: #4b5563 !important; font-size: 13px; margin-bottom: 14px; line-height: 1.6; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 10px; margin-bottom: 18px; }
+    .card {
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: #f9fafb !important;
+    }
+    .label { color: #6b7280 !important; font-size: 12px; font-weight: 600; }
+    .value { font-weight: 800; margin-top: 4px; font-size: 18px; color: #111827 !important; }
+    .table-wrap { width: 100%; overflow-x: auto; margin-top: 10px; border: 1px solid #d1d5db; border-radius: 10px; }
+    table { width: 100%; min-width: 760px; border-collapse: collapse; background: #ffffff !important; }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 10px 8px;
+      font-size: 12px;
+      text-align: ${isAr ? 'right' : 'left'};
+      white-space: nowrap;
+      color: #111827 !important;
+    }
+    th {
+      background: #f3f4f6 !important;
+      color: #111827 !important;
+      font-weight: 800;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    tbody tr:nth-child(even) td { background: #f9fafb !important; }
+    tbody tr:nth-child(odd) td { background: #ffffff !important; }
+    @media print {
+      html, body, table, td, th, .card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
   </style>
 </head>
 <body>
@@ -198,6 +247,7 @@ export function buildOwnerReportHtml(params: {
     <div class="card"><div class="label">${isAr ? 'صافي المحل' : 'Owner net'}</div><div class="value">${formatEgp(totals.net, locale)}</div></div>
   </div>
 
+  <div class="table-wrap">
   <table>
     <thead>
       <tr>
@@ -216,6 +266,7 @@ export function buildOwnerReportHtml(params: {
       ${rows || `<tr><td colspan="9">${isAr ? 'لا توجد حجوزات في هذه الفترة' : 'No bookings for this period'}</td></tr>`}
     </tbody>
   </table>
+</div>
 </body>
 </html>`;
 }

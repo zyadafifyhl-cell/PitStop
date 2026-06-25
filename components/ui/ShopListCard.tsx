@@ -1,7 +1,8 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -50,18 +51,19 @@ export function ShopListCard({
   const accent = theme.accent;
   const [extras, setExtras] = useState<ShopExtras | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const row = await getShopExtras(shopId);
-      if (!cancelled) setExtras(row);
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const refreshExtras = useCallback(async () => {
+    const row = await getShopExtras(shopId);
+    setExtras(row);
   }, [shopId]);
 
-  const topOffer = extras?.offers?.[0];
+  useFocusEffect(
+    useCallback(() => {
+      refreshExtras();
+    }, [refreshExtras]),
+  );
+
+  const activeOffers = (extras?.offers ?? []).filter((offer) => offer.active);
+  const topOffer = activeOffers[0];
   const profileImage = extras?.profileImageUrl || extras?.imageUrls?.[0];
   const offerLabel = topOffer ? (locale === 'ar' ? (topOffer.titleAr || topOffer.title) : topOffer.title) : null;
   const resolvedName = locale === 'ar' ? extras?.profileNameAr || extras?.profileName || name : extras?.profileName || name;
@@ -114,7 +116,16 @@ export function ShopListCard({
           </View>
         </View>
         {extras?.servicePriceEgp != null ? (
-          <Text style={[styles.priceMeta, { color: theme.accent }]}>{t('shop_card_price_from')}</Text>
+          <Text style={[styles.priceMeta, { color: theme.accent }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
+        ) : null}
+        {activeOffers.length > 0 ? (
+          <Pressable
+            onPress={() => router.push(`/shop-profile/${shopId}`)}
+            style={styles.offersLink}>
+            <Text style={[styles.offersLinkText, { color: theme.accent }]}>
+              {t('shop_card_available_offers')} →
+            </Text>
+          </Pressable>
         ) : null}
         {offerLabel ? (
           <View style={[styles.offerChip, { backgroundColor: theme.accentSoft }]}>
@@ -200,6 +211,8 @@ const styles = StyleSheet.create({
   name: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
   address: { fontSize: 14, lineHeight: 20 },
   priceMeta: { fontSize: 13, fontWeight: '700', marginTop: 8 },
+  offersLink: { marginTop: 8, alignSelf: 'flex-start' },
+  offersLinkText: { fontSize: 14, fontWeight: '800' },
   offerChip: {
     marginTop: 8,
     alignSelf: 'flex-start',

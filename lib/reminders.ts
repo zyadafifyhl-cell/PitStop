@@ -23,10 +23,13 @@ if (areLocalNotificationsSupported()) {
   });
 }
 
-export async function ensureAndroidChannel(channelName = 'Maintenance reminders') {
+export async function ensureAndroidChannel(
+  channelName = 'Maintenance reminders',
+  channelId = WEEKLY_CHANNEL_ID,
+) {
   if (!areLocalNotificationsSupported()) return;
   if (Notifications.setNotificationChannelAsync) {
-    await Notifications.setNotificationChannelAsync(WEEKLY_CHANNEL_ID, {
+    await Notifications.setNotificationChannelAsync(channelId, {
       name: channelName,
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 250, 250, 250],

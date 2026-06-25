@@ -9,26 +9,51 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
+import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { getSavedCarProfile, saveCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { listBookingsForPhone } from '@/lib/booking/storage';
-import type { Booking } from '@/lib/booking/types';
+import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
+import { listAllShopExtras } from '@/lib/booking/shopExtrasStorage';
+import { listShopsByType } from '@/lib/booking/catalogRepository';
 
 export default function HomeScreen() {
   const { t, tp, locale } = useI18n();
   const theme = useAppTheme();
   const { preference } = useThemePreference();
-  const { customer, logout } = useCustomerAuth();
-  const { ready: catalogReady } = useShopCatalog();
+  const { customer, isGuest } = useCustomerAuth();
+  const { signOut, busy: signingOut } = useAppSignOut();
+  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const [nextBooking, setNextBooking] = useState<Booking | null>(null);
   const [savedCarType, setSavedCarType] = useState('');
   const [carTypeDraft, setCarTypeDraft] = useState('');
   const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
+  const [liveOffers, setLiveOffers] = useState<
+    Array<{ shopId: string; shopName: string; shopType: ShopType; offer: ShopOffer }>
+  >([]);
+
+  const loadLiveOffers = useCallback(async () => {
+    if (!catalogReady) return;
+    const extrasRows = await listAllShopExtras();
+    const extrasByShop = new Map(extrasRows.map((row) => [row.shopId, row]));
+    const cards: Array<{ shopId: string; shopName: string; shopType: ShopType; offer: ShopOffer }> = [];
+
+    for (const shopType of ['wash', 'maintenance'] as ShopType[]) {
+      for (const shop of listShopsByType(shopType)) {
+        const extras = extrasByShop.get(shop.id);
+        if (!extras?.offers.length) continue;
+        const shopName = locale === 'ar' ? shop.nameAr : shop.name;
+        for (const offer of extras.offers) {
+          cards.push({ shopId: shop.id, shopName, shopType, offer });
+        }
+      }
+    }
+    setLiveOffers(cards.slice(0, 8));
+  }, [catalogReady, catalogVersion, locale]);
 
   async function onSignOut() {
-    await logout();
-    router.replace('/welcome');
+    await signOut();
   }
 
   const refreshHomeData = useCallback(async () => {
@@ -60,7 +85,8 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       refreshHomeData();
-    }, [refreshHomeData]),
+      loadLiveOffers();
+    }, [refreshHomeData, loadLiveOffers]),
   );
 
   async function onSaveCarProfile() {
@@ -169,20 +195,34 @@ export default function HomeScreen() {
       />
 
       <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_title')}</Text>
-      <View style={styles.offersRow}>
-        <Pressable onPress={() => router.push('/service/wash' as Href)} style={[styles.offerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.offerTitle, { color: theme.text }]}>{t('home_offer_wash_title')}</Text>
-          <Text style={[styles.offerMeta, { color: theme.textMuted }]}>{t('home_offer_wash_body')}</Text>
-        </Pressable>
-        <Pressable onPress={() => router.push('/service/maintenance' as Href)} style={[styles.offerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.offerTitle, { color: theme.text }]}>{t('home_offer_maintenance_title')}</Text>
-          <Text style={[styles.offerMeta, { color: theme.textMuted }]}>{t('home_offer_maintenance_body')}</Text>
-        </Pressable>
-      </View>
+      {liveOffers.length === 0 ? (
+        <Text style={[styles.offerMeta, { color: theme.textMuted, marginBottom: 8 }]}>{t('home_offers_empty')}</Text>
+      ) : (
+        <View style={styles.offersRow}>
+          {liveOffers.map(({ shopId, shopName, shopType, offer }) => (
+            <Pressable
+              key={offer.id}
+              onPress={() => router.push(`/shop-profile/${shopId}` as Href)}
+              style={[styles.offerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.offerEyebrow, { color: theme.accent }]}>{shopTypeLabel(shopType, locale)}</Text>
+              <Text style={[styles.offerTitle, { color: theme.text }]} numberOfLines={2}>
+                {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
+              </Text>
+              <Text style={[styles.offerMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                {shopName}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
-      <Pressable onPress={onSignOut} style={styles.signOut}>
-        <Text style={[styles.signOutText, { color: theme.textDim }]}>{t('home_sign_out')}</Text>
-      </Pressable>
+      {(customer || isGuest) ? (
+        <Pressable onPress={onSignOut} disabled={signingOut} style={styles.signOut}>
+          <Text style={[styles.signOutText, { color: theme.textDim, opacity: signingOut ? 0.5 : 1 }]}>
+            {t('home_sign_out')}
+          </Text>
+        </Pressable>
+      ) : null}
       </ScrollView>
 
       <Modal
@@ -278,6 +318,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   offerTitle: { color: AppTheme.text, fontSize: 14, fontWeight: '900', marginBottom: 6 },
+  offerEyebrow: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },
   offerMeta: { color: AppTheme.textMuted, fontSize: 12, lineHeight: 17 },
   signOut: { marginTop: 20, alignItems: 'center', paddingVertical: 12 },
   signOutText: { color: AppTheme.textDim, fontSize: 14, fontWeight: '600' },

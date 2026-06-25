@@ -25,7 +25,7 @@ export default function NearbyScreen() {
   const { type: rawType } = useLocalSearchParams<{ type: string }>();
   const { t, locale } = useI18n();
   const theme = useAppTheme();
-  const { ready: catalogReady } = useShopCatalog();
+  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const type = parseShopType(rawType);
   const [loading, setLoading] = useState(true);
   const [locationDenied, setLocationDenied] = useState(false);
@@ -53,7 +53,7 @@ export default function NearbyScreen() {
     }
     setShops(listShopsSortedByDistance(type, lat, lng));
     setLoading(false);
-  }, [type, catalogReady]);
+  }, [type, catalogReady, catalogVersion]);
 
   useEffect(() => {
     if (catalogReady) load();

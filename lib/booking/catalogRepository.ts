@@ -1,5 +1,10 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import type { Area, Shop, ShopType } from '@/lib/booking/types';
 import { getSupabase } from '@/lib/supabase/client';
+
+const CATALOG_CACHE_KEY = '@pitstop/catalog/v1';
+const FETCH_TIMEOUT_MS = 5000;
 
 type AreaRow = {
   id: string;
@@ -28,6 +33,57 @@ let areasCache: Area[] = [];
 let shopsCache: Shop[] = [];
 let catalogReady = false;
 let loadPromise: Promise<void> | null = null;
+let cacheHydrated = false;
+
+type CatalogCachePayload = {
+  areas: Area[];
+  shops: Shop[];
+  savedAt: string;
+};
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error('catalog_fetch_timeout')), ms);
+    }),
+  ]);
+}
+
+async function loadCatalogFromStorage(): Promise<boolean> {
+  if (cacheHydrated) return catalogReady;
+  cacheHydrated = true;
+  try {
+    const raw = await AsyncStorage.getItem(CATALOG_CACHE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as CatalogCachePayload;
+    if (!Array.isArray(parsed.areas) || !Array.isArray(parsed.shops)) return false;
+    areasCache = parsed.areas;
+    shopsCache = parsed.shops;
+    catalogReady = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function saveCatalogToStorage(): Promise<void> {
+  try {
+    const payload: CatalogCachePayload = {
+      areas: areasCache,
+      shops: shopsCache,
+      savedAt: new Date().toISOString(),
+    };
+    await AsyncStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore cache write errors */
+  }
+}
+
+/** Load last saved catalog so screens can render before network finishes. */
+export async function hydrateCatalogCache(): Promise<boolean> {
+  return loadCatalogFromStorage();
+}
 
 function mapAreaRow(row: AreaRow): Area {
   return {
@@ -128,34 +184,41 @@ export async function refreshCatalog(): Promise<void> {
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
+    await loadCatalogFromStorage();
+
     const supabase = getSupabase();
     if (!supabase) {
-      areasCache = [];
-      shopsCache = [];
       catalogReady = true;
       return;
     }
 
-    const [areasRes, shopsRes] = await Promise.all([
-      supabase.from('areas').select('*').order('name'),
-      supabase.from('shops').select('*').order('name'),
-    ]);
+    try {
+      const [areasRes, shopsRes] = await withTimeout(
+        Promise.all([
+          supabase.from('areas').select('*').order('name'),
+          supabase.from('shops').select('*').order('name'),
+        ]),
+        FETCH_TIMEOUT_MS,
+      );
 
-    if (areasRes.error) {
-      console.warn('Failed to load areas from Supabase:', areasRes.error.message);
-      areasCache = [];
-    } else {
-      areasCache = ((areasRes.data ?? []) as AreaRow[]).map(mapAreaRow);
+      if (areasRes.error) {
+        console.warn('Failed to load areas from Supabase:', areasRes.error.message);
+      } else {
+        areasCache = ((areasRes.data ?? []) as AreaRow[]).map(mapAreaRow);
+      }
+
+      if (shopsRes.error) {
+        console.warn('Failed to load shops from Supabase:', shopsRes.error.message);
+      } else {
+        shopsCache = ((shopsRes.data ?? []) as ShopRow[]).map(mapShopRow);
+      }
+
+      await saveCatalogToStorage();
+    } catch (error) {
+      console.warn('Catalog refresh failed:', error);
+    } finally {
+      catalogReady = true;
     }
-
-    if (shopsRes.error) {
-      console.warn('Failed to load shops from Supabase:', shopsRes.error.message);
-      shopsCache = [];
-    } else {
-      shopsCache = ((shopsRes.data ?? []) as ShopRow[]).map(mapShopRow);
-    }
-
-    catalogReady = true;
   })();
 
   try {
@@ -164,3 +227,6 @@ export async function refreshCatalog(): Promise<void> {
     loadPromise = null;
   }
 }
+
+// Start reading persisted catalog as early as possible (before React mounts).
+void loadCatalogFromStorage();

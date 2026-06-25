@@ -101,10 +101,20 @@ export type ShopExtras = {
   profileAddressAr?: string;
   profilePhone?: string;
   profileEmail?: string;
+  moreInfo?: string;
+  moreInfoAr?: string;
   winchEnabled?: boolean;
   winchPhone?: string;
   imageUrls: string[];
   servicePriceEgp?: number;
+  /** Daily opening time HH:mm (e.g. 12:00). */
+  workOpenTime?: string;
+  /** Daily closing time HH:mm (e.g. 22:00). */
+  workCloseTime?: string;
+  /** Minutes per booking slot (e.g. 30 for car wash). */
+  serviceDurationMinutes?: number;
+  /** Set when owner saves working hours — customer booking uses these slots. */
+  scheduleSavedAt?: string;
   offers: ShopOffer[];
   updatedAt: string;
 };
@@ -134,6 +144,7 @@ export type OwnerNotification = {
 export type CustomerNotificationKind =
   | 'booking_approved'
   | 'booking_declined'
+  | 'booking_reminder'
   | 'parts_order_confirmed'
   | 'parts_order_cancelled';
 
@@ -148,6 +159,8 @@ export type CustomerNotification = {
   orderId?: string;
   scheduledAt?: string;
   ownerNote?: string;
+  /** Minutes before appointment (booking_reminder only). */
+  reminderMinutesBefore?: number;
 };
 
 export type CustomerInvoice = {

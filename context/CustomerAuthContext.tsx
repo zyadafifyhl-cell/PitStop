@@ -6,6 +6,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -14,7 +15,6 @@ import type { Customer } from '@/lib/booking/customers';
 import {
   getShopByOwnerEmail,
   isShopOwnerEmailRemote,
-  refreshCatalog,
 } from '@/lib/booking/catalogRepository';
 import { normalizePhoneE164 } from '@/lib/phone';
 import { getSupabase } from '@/lib/supabase/client';
@@ -49,6 +49,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [busy, setBusy] = useState(false);
+  const signingOutRef = useRef(false);
 
   type AuthUser = {
     id: string;
@@ -122,6 +123,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     const supabase = getSupabase();
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (signingOutRef.current) return;
       const match = session?.user ? await resolveCustomerFromUser(session.user) : null;
       setCustomer(match);
       if (match) {
@@ -152,7 +154,6 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
         if (message.includes('email not confirmed')) return 'email_not_confirmed';
         return 'invalid';
       }
-      await refreshCatalog();
       const match = data.user ? await resolveCustomerFromUser(data.user) : null;
       if (!match) {
         await supabase.auth.signOut();
@@ -253,10 +254,15 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   );
 
   const logout = useCallback(async () => {
+    signingOutRef.current = true;
     setCustomer(null);
     setIsGuest(false);
-    await AsyncStorage.multiRemove([SESSION_KEY, GUEST_KEY]);
-    await getSupabase()?.auth.signOut();
+    try {
+      await AsyncStorage.multiRemove([SESSION_KEY, GUEST_KEY]);
+      await getSupabase()?.auth.signOut();
+    } finally {
+      signingOutRef.current = false;
+    }
   }, []);
 
   const value = useMemo(

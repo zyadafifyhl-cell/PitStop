@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
   coverImage: { width: '100%', height: 160 },
   notifBtn: {
     position: 'absolute',
-    left: 12,
+    right: 12,
     top: 12,
     width: 40,
     height: 40,

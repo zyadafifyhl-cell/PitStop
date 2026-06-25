@@ -21,14 +21,14 @@ export default function ShopProfileScreen() {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
   const { isGuest, customer } = useCustomerAuth();
-  const { ready: catalogReady } = useShopCatalog();
+  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const [extras, setExtras] = useState<ShopExtras | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
 
   const shop = useMemo(
     () => (catalogReady && shopId ? getShopById(shopId) : undefined),
-    [catalogReady, shopId],
+    [catalogReady, catalogVersion, shopId],
   );
 
   const refreshExtras = useCallback(async () => {
@@ -174,6 +174,15 @@ export default function ShopProfileScreen() {
             {t('shop_profile_price')}: {formatEgp(extras.servicePriceEgp, locale)}
           </Text>
         ) : null}
+        {(() => {
+          const moreInfoText =
+            locale === 'ar'
+              ? extras?.moreInfoAr || extras?.moreInfo
+              : extras?.moreInfo || extras?.moreInfoAr;
+          return moreInfoText ? (
+            <Text style={[styles.infoLine, { color: theme.text, marginTop: 8 }]}>{moreInfoText}</Text>
+          ) : null;
+        })()}
         {offers.length ? (
           <View style={{ marginTop: 8, gap: 6 }}>
             {offers.map((offer) => (

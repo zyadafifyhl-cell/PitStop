@@ -7,6 +7,8 @@ type Locale = 'en' | 'ar';
 type NotificationMessages = {
   bookingApproved: string;
   bookingDeclined: string;
+  bookingReminderHour: string;
+  bookingReminderSoon: string;
   partsConfirmed: string;
   partsDeclined: string;
 };
@@ -28,6 +30,13 @@ export function formatCustomerNotificationLine(
   if (notification.kind === 'booking_declined') {
     return messages.bookingDeclined.replace('{shop}', shopName).replace('{when}', when);
   }
+  if (notification.kind === 'booking_reminder') {
+    const mins = notification.reminderMinutesBefore ?? 30;
+    if (mins >= 60) {
+      return messages.bookingReminderHour.replace('{shop}', shopName).replace('{when}', when);
+    }
+    return messages.bookingReminderSoon.replace('{shop}', shopName).replace('{when}', when);
+  }
   if (notification.kind === 'parts_order_confirmed') {
     return messages.partsConfirmed.replace('{shop}', shopName);
   }
@@ -35,5 +44,13 @@ export function formatCustomerNotificationLine(
 }
 
 export function customerNotificationIsApproved(notification: CustomerNotification): boolean {
-  return notification.kind === 'booking_approved' || notification.kind === 'parts_order_confirmed';
+  return (
+    notification.kind === 'booking_approved' ||
+    notification.kind === 'parts_order_confirmed' ||
+    notification.kind === 'booking_reminder'
+  );
+}
+
+export function customerNotificationIsReminder(notification: CustomerNotification): boolean {
+  return notification.kind === 'booking_reminder';
 }

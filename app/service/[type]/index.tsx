@@ -15,7 +15,7 @@ import { openAllShopsInMaps } from '@/lib/linking/contact';
 export default function PickAreaScreen() {
   const { type: rawType } = useLocalSearchParams<{ type: string }>();
   const { t, locale } = useI18n();
-  const { ready: catalogReady } = useShopCatalog();
+  const { ready: catalogReady, refreshing: catalogRefreshing, version: catalogVersion } = useShopCatalog();
   const theme = useAppTheme();
   const type = parseShopType(rawType);
 
@@ -23,12 +23,12 @@ export default function PickAreaScreen() {
     if (!catalogReady || !type) return [];
     const withShops = new Set(listAreasWithShops(type));
     return listAreas().filter((a) => withShops.has(a.id));
-  }, [catalogReady, type]);
+  }, [catalogReady, catalogVersion, type]);
 
   const shops = useMemo(() => {
     if (!catalogReady || !type) return [];
     return listShopsByType(type);
-  }, [catalogReady, type]);
+  }, [catalogReady, catalogVersion, type]);
 
   if (!type) {
     return (
@@ -44,7 +44,7 @@ export default function PickAreaScreen() {
       <Text style={[styles.title, { color: theme.text }]}>{t('area_pick_title')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>{t('area_pick_lead')}</Text>
 
-      {!catalogReady ? (
+      {!catalogReady || (catalogRefreshing && areas.length === 0) ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       ) : areas.length === 0 ? (
         <Text style={[styles.empty, { color: theme.textMuted }]}>{t('area_no_shops')}</Text>

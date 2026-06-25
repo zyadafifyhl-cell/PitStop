@@ -32,10 +32,10 @@ export default function PartsShopScreen() {
   const { t, locale } = useI18n();
   const theme = useAppTheme();
   const { customer, isGuest } = useCustomerAuth();
-  const { ready: catalogReady } = useShopCatalog();
+  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const shop = useMemo(
     () => (catalogReady && shopId ? getShopById(shopId) : undefined),
-    [catalogReady, shopId],
+    [catalogReady, catalogVersion, shopId],
   );
 
   const [items, setItems] = useState<StoreItem[]>([]);

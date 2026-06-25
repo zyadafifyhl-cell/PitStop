@@ -111,6 +111,7 @@ async function sendOwnerBookingPush(booking: Booking): Promise<void> {
 
 export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
   const supabase = getSupabase();
+  let rows: Booking[] = [];
   if (supabase) {
     const { data, error } = await supabase
       .from('bookings')
@@ -118,13 +119,20 @@ export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
       .eq('shop_id', shopId)
       .order('scheduled_at', { ascending: true });
 
-    if (!error && data) return (data as BookingRow[]).map(mapBookingRow);
+    if (!error && data) rows = (data as BookingRow[]).map(mapBookingRow);
   }
 
-  const rows = await readAll();
-  return rows
-    .filter((b) => b.shopId === shopId)
-    .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+  if (rows.length === 0) {
+    const localRows = await readAll();
+    rows = localRows.filter((b) => b.shopId === shopId);
+  } else {
+    const localRows = (await readAll()).filter((b) => b.shopId === shopId);
+    rows = mergeBookings(rows, localRows);
+  }
+
+  const dedup = new Map<string, Booking>();
+  for (const row of rows) dedup.set(row.id, row);
+  return [...dedup.values()].sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
 }
 
 export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
@@ -270,4 +278,24 @@ export async function getSavedCustomerPhone(): Promise<string | null> {
 
 export async function saveCustomerPhone(phone: string): Promise<void> {
   await AsyncStorage.setItem(CUSTOMER_PHONE_KEY, phone);
+}
+
+export async function clearCustomerBookingHistory(input: {
+  phone: string;
+  customerId?: string;
+}): Promise<void> {
+  const normalizedPhone = input.phone.trim();
+  const rows = await readAll();
+  const kept = rows.filter((booking) => {
+    if (booking.customerPhone.trim() === normalizedPhone) return false;
+    if (input.customerId && booking.customerId === input.customerId) return false;
+    return true;
+  });
+  await writeAll(kept);
+
+  const supabase = getSupabase();
+  if (supabase && input.customerId && isUuid(input.customerId)) {
+    const { error } = await supabase.from('bookings').delete().eq('customer_id', input.customerId);
+    if (error) console.warn('Failed to delete remote bookings:', error.message);
+  }
 }

@@ -8,6 +8,7 @@ import { SUPPORT } from '@/constants/support';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
+import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import {
   openSupportEmail,
   openSupportPhone,
@@ -19,7 +20,8 @@ export default function SettingsScreen() {
   const isArabic = locale === 'ar';
   const theme = useAppTheme();
   const { preference, setPreference } = useThemePreference();
-  const { customer, isGuest, resetPassword, verifyPassword, logout } = useCustomerAuth();
+  const { customer, isGuest, resetPassword, verifyPassword } = useCustomerAuth();
+  const { signOut, busy: signingOut } = useAppSignOut();
   const [privacyVisible, setPrivacyVisible] = React.useState(false);
   const [privacyUnlocked, setPrivacyUnlocked] = React.useState(false);
   const [privacyPassword, setPrivacyPassword] = React.useState('');
@@ -34,8 +36,7 @@ export default function SettingsScreen() {
   }
 
   async function onSignOut() {
-    await logout();
-    router.replace('/welcome');
+    await signOut();
   }
 
   async function onResetPassword() {

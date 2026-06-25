@@ -197,6 +197,10 @@ create policy "Customers can cancel own bookings" on public.bookings
 for update using (customer_id = auth.uid())
 with check (status = 'cancelled');
 
+drop policy if exists "Customers can delete own bookings" on public.bookings;
+create policy "Customers can delete own bookings" on public.bookings
+for delete using (customer_id = auth.uid());
+
 drop policy if exists "Anyone can read store" on public.store;
 create policy "Anyone can read store" on public.store for select using (true);
 

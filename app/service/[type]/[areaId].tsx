@@ -20,7 +20,7 @@ export default function ShopsInAreaScreen() {
   const { t, locale } = useI18n();
   const theme = useAppTheme();
   const { customer } = useCustomerAuth();
-  const { ready: catalogReady } = useShopCatalog();
+  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const type = parseShopType(rawType);
   const area = areaId && catalogReady ? getAreaById(areaId) : undefined;
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
@@ -28,7 +28,7 @@ export default function ShopsInAreaScreen() {
   const shops = useMemo(() => {
     if (!catalogReady || !type || !areaId) return [];
     return listShopsByTypeAndArea(type, areaId);
-  }, [catalogReady, type, areaId]);
+  }, [catalogReady, catalogVersion, type, areaId]);
 
   const loadFavorites = useCallback(async () => {
     if (!customer) {

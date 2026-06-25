@@ -149,6 +149,7 @@ export async function pushCustomerNotification(input: {
   orderId?: string;
   scheduledAt?: string;
   ownerNote?: string;
+  reminderMinutesBefore?: number;
 }): Promise<CustomerNotification> {
   const map = await readCustomerNotificationMap();
   const bucket = customerBucket(input.customerId, input.customerPhone);
@@ -163,6 +164,7 @@ export async function pushCustomerNotification(input: {
     orderId: input.orderId,
     scheduledAt: input.scheduledAt,
     ownerNote: input.ownerNote?.trim() || undefined,
+    reminderMinutesBefore: input.reminderMinutesBefore,
   };
   map[bucket] = [row, ...(map[bucket] ?? [])];
   await writeCustomerNotificationMap(map);
@@ -254,6 +256,21 @@ export async function listCustomerInvoices(input: {
     dedup.set(row.id, row);
   }
   return Array.from(dedup.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function clearCustomerInvoices(input: {
+  customerId?: string;
+  customerPhone?: string;
+}): Promise<void> {
+  const map = await readInvoiceMap();
+  const next: InvoiceMap = { ...map };
+  if (input.customerId?.trim()) {
+    delete next[`id:${input.customerId.trim()}`];
+  }
+  if (input.customerPhone?.trim()) {
+    delete next[`phone:${input.customerPhone.trim()}`];
+  }
+  await writeInvoiceMap(next);
 }
 
 export async function updateCustomerInvoiceOrderStatus(

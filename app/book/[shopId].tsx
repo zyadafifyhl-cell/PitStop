@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -22,11 +22,12 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { getSavedCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById } from '@/lib/booking/catalogRepository';
-import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
+import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
 import {
-  TIME_SLOTS,
   buildScheduledIso,
+  buildShopTimeSlots,
   defaultBookingDateYmd,
+  formatShopScheduleLine,
   shopTypeLabel,
 } from '@/lib/booking/format';
 import { createBooking, saveCustomerPhone } from '@/lib/booking/storage';
@@ -41,11 +42,11 @@ export default function BookShopScreen() {
   const palette = Colors[colorScheme ?? 'light'];
   const { t, locale, isRTL } = useI18n();
   const { customer, isGuest } = useCustomerAuth();
-  const { ready: catalogReady } = useShopCatalog();
+  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
 
   const shop = useMemo(
     () => (catalogReady && shopId ? getShopById(shopId) : undefined),
-    [catalogReady, shopId],
+    [catalogReady, catalogVersion, shopId],
   );
 
   const defaultPhone = customer?.phone.replace('+20', '0') ?? '';
@@ -55,7 +56,7 @@ export default function BookShopScreen() {
   const [editingSavedCar, setEditingSavedCar] = useState(false);
   const [carColor, setCarColor] = useState('');
   const [dateYmd, setDateYmd] = useState(defaultBookingDateYmd());
-  const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[1]);
+  const [timeSlot, setTimeSlot] = useState('');
   const [saving, setSaving] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
   const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
@@ -86,6 +87,42 @@ export default function BookShopScreen() {
       cancelled = true;
     };
   }, [shop]);
+
+  const refreshShopExtras = useCallback(async () => {
+    if (!shop) return;
+    const row = await getShopExtras(shop.id);
+    setShopExtras(row);
+  }, [shop]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshShopExtras();
+    }, [refreshShopExtras]),
+  );
+
+  const hasOwnerSchedule = shopHasSavedSchedule(shopExtras);
+
+  const timeSlots = useMemo(() => {
+    if (!hasOwnerSchedule || !shopExtras?.workOpenTime || !shopExtras.workCloseTime || !shopExtras.serviceDurationMinutes) {
+      return [];
+    }
+    return buildShopTimeSlots(
+      shopExtras.workOpenTime,
+      shopExtras.workCloseTime,
+      shopExtras.serviceDurationMinutes,
+      dateYmd,
+    );
+  }, [hasOwnerSchedule, shopExtras, dateYmd]);
+
+  useEffect(() => {
+    if (!timeSlots.length) {
+      setTimeSlot('');
+      return;
+    }
+    if (!timeSlot || !timeSlots.includes(timeSlot)) {
+      setTimeSlot(timeSlots[0]);
+    }
+  }, [timeSlots, timeSlot]);
 
   if (!shop) {
     return (
@@ -239,33 +276,52 @@ export default function BookShopScreen() {
           textColor={palette.text}
         />
 
+        {hasOwnerSchedule && shopExtras?.workOpenTime && shopExtras.workCloseTime && shopExtras.serviceDurationMinutes ? (
+          <Text style={[styles.scheduleHint, { color: palette.tabIconDefault }]}>
+            {formatShopScheduleLine(
+              shopExtras.workOpenTime,
+              shopExtras.workCloseTime,
+              shopExtras.serviceDurationMinutes,
+              locale,
+            )}
+          </Text>
+        ) : (
+          <Text style={[styles.scheduleHint, { color: palette.tabIconDefault }]}>{t('book_no_shop_hours')}</Text>
+        )}
+
         <Text style={[styles.label, { color: palette.text }]}>{t('book_time_label')}</Text>
-        <View style={[styles.slots, isRTL && styles.slotsRtl]}>
-          {TIME_SLOTS.map((slot) => {
-            const active = slot === timeSlot;
-            return (
-              <Pressable
-                key={slot}
-                onPress={() => setTimeSlot(slot)}
-                style={[
-                  styles.slot,
-                  {
-                    backgroundColor: active ? palette.tint : colorScheme === 'dark' ? '#1c1c1e' : '#f0f4f8',
-                    borderColor: active ? palette.tint : colorScheme === 'dark' ? '#444' : '#ddd',
-                  },
-                ]}>
-                <Text style={{ color: active ? '#fff' : palette.text, fontWeight: '600' }}>{slot}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {!hasOwnerSchedule ? (
+          <Text style={[styles.meta, { color: palette.tabIconDefault }]}>{t('book_no_shop_hours')}</Text>
+        ) : timeSlots.length === 0 ? (
+          <Text style={[styles.meta, { color: palette.tabIconDefault }]}>{t('book_no_slots')}</Text>
+        ) : (
+          <View style={[styles.slots, isRTL && styles.slotsRtl]}>
+            {timeSlots.map((slot) => {
+              const active = slot === timeSlot;
+              return (
+                <Pressable
+                  key={slot}
+                  onPress={() => setTimeSlot(slot)}
+                  style={[
+                    styles.slot,
+                    {
+                      backgroundColor: active ? palette.tint : colorScheme === 'dark' ? '#1c1c1e' : '#f0f4f8',
+                      borderColor: active ? palette.tint : colorScheme === 'dark' ? '#444' : '#ddd',
+                    },
+                  ]}>
+                  <Text style={{ color: active ? '#fff' : palette.text, fontWeight: '600' }}>{slot}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         <Pressable
           onPress={onSubmit}
-          disabled={saving}
+          disabled={saving || !timeSlot}
           style={[
             styles.primaryBtn,
-            { backgroundColor: palette.tint, opacity: saving ? 0.65 : 1 },
+            { backgroundColor: palette.tint, opacity: saving || !timeSlot ? 0.65 : 1 },
           ]}>
           <Text style={styles.primaryBtnText}>{saving ? t('book_saving') : t('book_submit')}</Text>
         </Pressable>
@@ -321,6 +377,7 @@ const styles = StyleSheet.create({
   },
   contactChipText: { fontSize: 13, fontWeight: '700' },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 10 },
+  scheduleHint: { fontSize: 13, lineHeight: 19, marginBottom: 4, marginTop: 4 },
   savedCarCard: {
     borderWidth: 1,
     borderRadius: 12,

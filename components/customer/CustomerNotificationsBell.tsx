@@ -11,8 +11,10 @@ import {
   listCustomerNotifications,
   markCustomerNotificationsSeen,
 } from '@/lib/booking/commerceEvents';
+import { processDueBookingReminders } from '@/lib/booking/bookingReminders';
 import {
   customerNotificationIsApproved,
+  customerNotificationIsReminder,
   formatCustomerNotificationLine,
 } from '@/lib/booking/customerNotificationText';
 import type { CustomerNotification } from '@/lib/booking/types';
@@ -26,6 +28,7 @@ export function CustomerNotificationsBell() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   const refresh = useCallback(async () => {
+    await processDueBookingReminders();
     if (!customer?.phone && !customer?.id) {
       setNotifications([]);
       setUnreadCount(0);
@@ -62,6 +65,8 @@ export function CustomerNotificationsBell() {
   const notificationMessages = {
     bookingApproved: t('customer_notification_booking_approved'),
     bookingDeclined: t('customer_notification_booking_declined'),
+    bookingReminderHour: t('customer_notification_booking_reminder_hour'),
+    bookingReminderSoon: t('customer_notification_booking_reminder_soon'),
     partsConfirmed: t('customer_notification_parts_confirmed'),
     partsDeclined: t('customer_notification_parts_declined'),
   };
@@ -91,6 +96,7 @@ export function CustomerNotificationsBell() {
               ) : (
                 notifications.map((notification) => {
                   const approved = customerNotificationIsApproved(notification);
+                  const isReminder = customerNotificationIsReminder(notification);
                   return (
                     <View
                       key={notification.id}
@@ -113,9 +119,11 @@ export function CustomerNotificationsBell() {
                               fontSize: 11,
                               fontWeight: '800',
                             }}>
-                            {approved
-                              ? t('customer_notification_status_approved')
-                              : t('customer_notification_status_declined')}
+                            {isReminder
+                              ? t('customer_notification_status_reminder')
+                              : approved
+                                ? t('customer_notification_status_approved')
+                                : t('customer_notification_status_declined')}
                           </Text>
                         </View>
                       </View>
