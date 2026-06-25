@@ -1,15 +1,17 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ShopListCard } from '@/components/ui/ShopListCard';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getAreaById } from '@/lib/booking/areas';
-import { listShopsByTypeAndArea } from '@/lib/booking/demoShops';
+import { listShopsByTypeAndArea } from '@/lib/booking/catalogRepository';
 import { toggleFavoriteShop } from '@/lib/booking/favoritesStorage';
 import { shopTypeLabel } from '@/lib/booking/format';
+import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { openAllShopsInMaps, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { parseShopType } from '@/lib/booking/serviceType';
 
@@ -18,14 +20,15 @@ export default function ShopsInAreaScreen() {
   const { t, locale } = useI18n();
   const theme = useAppTheme();
   const { customer } = useCustomerAuth();
+  const { ready: catalogReady } = useShopCatalog();
   const type = parseShopType(rawType);
-  const area = areaId ? getAreaById(areaId) : undefined;
+  const area = areaId && catalogReady ? getAreaById(areaId) : undefined;
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
 
   const shops = useMemo(() => {
-    if (!type || !areaId) return [];
+    if (!catalogReady || !type || !areaId) return [];
     return listShopsByTypeAndArea(type, areaId);
-  }, [type, areaId]);
+  }, [catalogReady, type, areaId]);
 
   const loadFavorites = useCallback(async () => {
     if (!customer) {
@@ -53,7 +56,19 @@ export default function ShopsInAreaScreen() {
     await loadFavorites();
   }
 
-  if (!type || !area) {
+  if (!type || !catalogReady) {
+    return (
+      <View style={[styles.center, { backgroundColor: theme.bg }]}>
+        {!catalogReady ? (
+          <ActivityIndicator color={theme.accent} />
+        ) : (
+          <Text style={[styles.error, { color: theme.textMuted }]}>{t('service_invalid')}</Text>
+        )}
+      </View>
+    );
+  }
+
+  if (!area) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
         <Text style={[styles.error, { color: theme.textMuted }]}>{t('service_invalid')}</Text>
@@ -93,13 +108,13 @@ export default function ShopsInAreaScreen() {
               typeLabel={shopTypeLabel(shop.type, locale)}
               rating={shop.rating}
               phone={shop.phone}
-              bookLabel={shop.type === 'parts' ? t('book_tap_to_book') : t('shop_profile_open')}
+              bookLabel={isStoreShopType(shop.type) ? t('book_tap_to_book') : t('shop_profile_open')}
               isFavorite={favoriteIds.has(shop.id)}
               onToggleFavorite={() => onToggleFavorite(shop.id)}
               onCall={() => openPhone(shop.phone).catch(linkFail)}
               onOpenMaps={() => openShopInMaps(shop, locale).catch(linkFail)}
               onPress={() =>
-                shop.type === 'parts'
+                isStoreShopType(shop.type)
                   ? router.push(`/parts-shop/${shop.id}` as any)
                   : router.push(`/shop-profile/${shop.id}` as any)
               }

@@ -1,12 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AreaCard } from '@/components/ui/AreaCard';
 import { useI18n } from '@/context/I18nContext';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { DEMO_AREAS } from '@/lib/booking/areas';
-import { countShopsByTypeAndArea, listAreasWithShops, listShopsByType } from '@/lib/booking/demoShops';
+import { listAreas } from '@/lib/booking/areas';
+import { countShopsByTypeAndArea, listAreasWithShops, listShopsByType } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { parseShopType } from '@/lib/booking/serviceType';
 import { openAllShopsInMaps } from '@/lib/linking/contact';
@@ -14,19 +15,20 @@ import { openAllShopsInMaps } from '@/lib/linking/contact';
 export default function PickAreaScreen() {
   const { type: rawType } = useLocalSearchParams<{ type: string }>();
   const { t, locale } = useI18n();
+  const { ready: catalogReady } = useShopCatalog();
   const theme = useAppTheme();
   const type = parseShopType(rawType);
 
   const areas = useMemo(() => {
-    if (!type) return [];
+    if (!catalogReady || !type) return [];
     const withShops = new Set(listAreasWithShops(type));
-    return DEMO_AREAS.filter((a) => withShops.has(a.id));
-  }, [type]);
+    return listAreas().filter((a) => withShops.has(a.id));
+  }, [catalogReady, type]);
 
   const shops = useMemo(() => {
-    if (!type) return [];
+    if (!catalogReady || !type) return [];
     return listShopsByType(type);
-  }, [type]);
+  }, [catalogReady, type]);
 
   if (!type) {
     return (
@@ -42,7 +44,9 @@ export default function PickAreaScreen() {
       <Text style={[styles.title, { color: theme.text }]}>{t('area_pick_title')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>{t('area_pick_lead')}</Text>
 
-      {areas.length === 0 ? (
+      {!catalogReady ? (
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
+      ) : areas.length === 0 ? (
         <Text style={[styles.empty, { color: theme.textMuted }]}>{t('area_no_shops')}</Text>
       ) : (
         <>

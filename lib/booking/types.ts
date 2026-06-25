@@ -1,4 +1,6 @@
-export type ShopType = 'maintenance' | 'wash' | 'parts' | 'winch';
+export type ShopType = 'maintenance' | 'wash' | 'parts' | 'accessories' | 'winch';
+
+export type StoreCategory = 'parts' | 'accessories';
 
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'done';
 
@@ -14,7 +16,6 @@ export type Shop = {
   latitude: number;
   longitude: number;
   ownerEmail: string;
-  ownerPassword: string;
   rating?: number;
 };
 
@@ -43,9 +44,10 @@ export type Area = {
   cityAr: string;
 };
 
-export type SparePartItem = {
+export type StoreItem = {
   id: string;
   shopId: string;
+  category: StoreCategory;
   name: string;
   imageUrl?: string;
   priceEgp: number;
@@ -53,6 +55,9 @@ export type SparePartItem = {
   createdAt: string;
   updatedAt: string;
 };
+
+/** @deprecated Use StoreItem */
+export type SparePartItem = StoreItem;
 
 export type PartsOrderStatus = 'pending' | 'confirmed' | 'cancelled' | 'shipped';
 

@@ -7,7 +7,8 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
-import { getShopById } from '@/lib/booking/demoShops';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
+import { getShopById } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
@@ -20,11 +21,15 @@ export default function ShopProfileScreen() {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
   const { isGuest, customer } = useCustomerAuth();
+  const { ready: catalogReady } = useShopCatalog();
   const [extras, setExtras] = useState<ShopExtras | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
 
-  const shop = useMemo(() => (shopId ? getShopById(shopId) : undefined), [shopId]);
+  const shop = useMemo(
+    () => (catalogReady && shopId ? getShopById(shopId) : undefined),
+    [catalogReady, shopId],
+  );
 
   const refreshExtras = useCallback(async () => {
     if (!shop) return;
@@ -55,7 +60,8 @@ export default function ShopProfileScreen() {
       ? extras?.profileAddressAr || extras?.profileAddress || shop.addressAr
       : extras?.profileAddress || shop.address;
   const phone = extras?.profilePhone || shop.phone;
-  const hasWinch = shop.type === 'maintenance' && !!extras?.winchEnabled;
+  const hasWinch =
+    (shop.type === 'maintenance' || shop.type === 'winch') && !!extras?.winchEnabled;
   const winchPhone = extras?.winchPhone || phone;
   const email = extras?.profileEmail;
   const profileImage = extras?.profileImageUrl || extras?.imageUrls?.[0];

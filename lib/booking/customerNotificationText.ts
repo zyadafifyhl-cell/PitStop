@@ -1,4 +1,4 @@
-import { getShopById } from '@/lib/booking/demoShops';
+import { getShopById } from '@/lib/booking/catalogRepository';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import type { CustomerNotification } from '@/lib/booking/types';
 

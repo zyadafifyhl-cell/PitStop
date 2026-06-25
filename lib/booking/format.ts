@@ -17,6 +17,7 @@ export function formatBookingDateTime(iso: string, locale: Locale): string {
 export function shopTypeLabel(type: ShopType, locale: Locale): string {
   if (type === 'wash') return locale === 'ar' ? 'غسيل' : 'Car wash';
   if (type === 'parts') return locale === 'ar' ? 'قطع غيار' : 'Spare parts';
+  if (type === 'accessories') return locale === 'ar' ? 'إكسسوارات' : 'Accessories';
   if (type === 'winch') return locale === 'ar' ? 'ونش' : 'Winch';
   return locale === 'ar' ? 'صيانة' : 'Maintenance';
 }

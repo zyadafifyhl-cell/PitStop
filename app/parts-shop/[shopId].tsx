@@ -13,15 +13,17 @@ import {
 
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
   buildPartsInvoiceEmailBody,
   markCustomerInvoiceEmailed,
 } from '@/lib/booking/commerceEvents';
-import { getShopById } from '@/lib/booking/demoShops';
+import { getShopById } from '@/lib/booking/catalogRepository';
 import { formatEgp } from '@/lib/booking/reporting';
 import { createPartsOrder, listInventoryForShop } from '@/lib/booking/partsStorage';
-import type { SparePartItem } from '@/lib/booking/types';
+import { isStoreShopType, storeCategoryForShopType } from '@/lib/booking/storeCatalog';
+import type { StoreItem } from '@/lib/booking/types';
 import { formatPhoneDisplay, openEmailTo, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildPartsReturnTo } from '@/lib/auth/returnTo';
 
@@ -30,18 +32,24 @@ export default function PartsShopScreen() {
   const { t, locale } = useI18n();
   const theme = useAppTheme();
   const { customer, isGuest } = useCustomerAuth();
-  const shop = useMemo(() => (shopId ? getShopById(shopId) : undefined), [shopId]);
+  const { ready: catalogReady } = useShopCatalog();
+  const shop = useMemo(
+    () => (catalogReady && shopId ? getShopById(shopId) : undefined),
+    [catalogReady, shopId],
+  );
 
-  const [items, setItems] = useState<SparePartItem[]>([]);
+  const [items, setItems] = useState<StoreItem[]>([]);
   const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
   const [shippingAddress, setShippingAddress] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const storeCategory = shop ? storeCategoryForShopType(shop.type) : null;
+
   const refresh = useCallback(async () => {
-    if (!shop) return;
-    const rows = await listInventoryForShop(shop.id);
+    if (!shop || !storeCategory) return;
+    const rows = await listInventoryForShop(shop.id, storeCategory);
     setItems(rows);
-  }, [shop]);
+  }, [shop, storeCategory]);
 
   useFocusEffect(
     useCallback(() => {
@@ -49,7 +57,7 @@ export default function PartsShopScreen() {
     }, [refresh]),
   );
 
-  if (!shop || shop.type !== 'parts') {
+  if (!shop || !isStoreShopType(shop.type) || !storeCategory) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
         <Text style={[styles.error, { color: theme.textMuted }]}>{t('parts_shop_not_found')}</Text>
@@ -67,7 +75,7 @@ export default function PartsShopScreen() {
       });
       return;
     }
-    if (!customer || !shop) return;
+    if (!customer || !shop || !storeCategory) return;
     if (!shippingAddress.trim()) {
       Alert.alert(t('parts_shipping_missing_title'), t('parts_shipping_missing_body'));
       return;
@@ -84,6 +92,7 @@ export default function PartsShopScreen() {
     try {
       const result = await createPartsOrder({
         shopId: shop.id,
+        storeCategory,
         customerId: customer.id,
         customerEmail: customer.email,
         customerPhone: customer.phone,

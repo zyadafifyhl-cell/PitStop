@@ -1,5 +1,5 @@
 import type { Shop, ShopType } from '@/lib/booking/types';
-import { listShopsByType } from '@/lib/booking/demoShops';
+import { listShopsByType } from '@/lib/booking/catalogRepository';
 
 export type ShopWithDistance = Shop & { distanceKm: number | null };
 

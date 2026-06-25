@@ -7,9 +7,10 @@ import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { getSavedCarProfile, saveCarProfile } from '@/lib/booking/carProfileStorage';
-import { getShopById } from '@/lib/booking/demoShops';
+import { getShopById } from '@/lib/booking/catalogRepository';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { listBookingsForPhone } from '@/lib/booking/storage';
 import type { Booking } from '@/lib/booking/types';
@@ -19,6 +20,7 @@ export default function HomeScreen() {
   const theme = useAppTheme();
   const { preference } = useThemePreference();
   const { customer, logout } = useCustomerAuth();
+  const { ready: catalogReady } = useShopCatalog();
   const [nextBooking, setNextBooking] = useState<Booking | null>(null);
   const [savedCarType, setSavedCarType] = useState('');
   const [carTypeDraft, setCarTypeDraft] = useState('');
@@ -79,7 +81,8 @@ export default function HomeScreen() {
   const greeting = customer
     ? tp('home_greeting_named', { name: customer.name.split(' ')[0] ?? customer.name })
     : t('home_greeting');
-  const nextBookingShop = nextBooking ? getShopById(nextBooking.shopId) : undefined;
+  const nextBookingShop =
+    catalogReady && nextBooking ? getShopById(nextBooking.shopId) : undefined;
   const nextBookingShopName = nextBookingShop
     ? locale === 'ar'
       ? nextBookingShop.nameAr
@@ -157,6 +160,12 @@ export default function HomeScreen() {
         title={t('service_parts_title')}
         subtitle={t('service_parts_sub')}
         onPress={() => router.push(`/service/parts` as Href)}
+      />
+      <ServiceOptionCard
+        type="accessories"
+        title={t('service_accessories_title')}
+        subtitle={t('service_accessories_sub')}
+        onPress={() => router.push(`/service/accessories` as Href)}
       />
 
       <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_title')}</Text>

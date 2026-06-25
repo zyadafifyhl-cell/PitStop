@@ -11,6 +11,11 @@ import React, {
 
 import { isStrongPassword } from '@/lib/authValidation';
 import type { Customer } from '@/lib/booking/customers';
+import {
+  getShopByOwnerEmail,
+  isShopOwnerEmailRemote,
+  refreshCatalog,
+} from '@/lib/booking/catalogRepository';
 import { normalizePhoneE164 } from '@/lib/phone';
 import { getSupabase } from '@/lib/supabase/client';
 
@@ -45,13 +50,16 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   const [isGuest, setIsGuest] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const customerFromUser = useCallback((user: {
+  type AuthUser = {
     id: string;
     email?: string;
     email_confirmed_at?: string | null;
     user_metadata?: Record<string, unknown>;
-  }): Customer | null => {
+  };
+
+  const customerFromUser = useCallback((user: AuthUser, skipOwnerCheck = false): Customer | null => {
     if (!user.email || !user.email_confirmed_at) return null;
+    if (!skipOwnerCheck && getShopByOwnerEmail(user.email)) return null;
     const metadata = user.user_metadata ?? {};
     const name = typeof metadata.name === 'string' && metadata.name.trim() ? metadata.name.trim() : user.email;
     const phone = typeof metadata.phone === 'string' ? metadata.phone : '';
@@ -64,6 +72,15 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     };
   }, []);
 
+  const resolveCustomerFromUser = useCallback(
+    async (user: AuthUser): Promise<Customer | null> => {
+      if (!user.email || !user.email_confirmed_at) return null;
+      if (await isShopOwnerEmailRemote(user.email)) return null;
+      return customerFromUser(user, true);
+    },
+    [customerFromUser],
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -72,7 +89,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
         if (supabase) {
           const { data } = await supabase.auth.getSession();
           const user = data.session?.user;
-          const match = user ? customerFromUser(user) : null;
+          const match = user ? await resolveCustomerFromUser(user) : null;
           if (!cancelled) {
             setCustomer(match);
             if (match) {
@@ -99,13 +116,13 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     return () => {
       cancelled = true;
     };
-  }, [customerFromUser]);
+  }, [resolveCustomerFromUser]);
 
   useEffect(() => {
     const supabase = getSupabase();
     if (!supabase) return;
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      const match = session?.user ? customerFromUser(session.user) : null;
+    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const match = session?.user ? await resolveCustomerFromUser(session.user) : null;
       setCustomer(match);
       if (match) {
         setIsGuest(false);
@@ -113,7 +130,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       }
     });
     return () => data.subscription.unsubscribe();
-  }, [customerFromUser]);
+  }, [resolveCustomerFromUser]);
 
   const continueAsGuest = useCallback(async () => {
     setCustomer(null);
@@ -135,10 +152,12 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
         if (message.includes('email not confirmed')) return 'email_not_confirmed';
         return 'invalid';
       }
-      const match = data.user ? customerFromUser(data.user) : null;
+      await refreshCatalog();
+      const match = data.user ? await resolveCustomerFromUser(data.user) : null;
       if (!match) {
         await supabase.auth.signOut();
-        return 'email_not_confirmed';
+        if (data.user && !data.user.email_confirmed_at) return 'email_not_confirmed';
+        return 'invalid';
       }
       await AsyncStorage.setItem(SESSION_KEY, match.id);
       await AsyncStorage.removeItem(GUEST_KEY);
@@ -150,7 +169,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     } finally {
       setBusy(false);
     }
-  }, [customerFromUser]);
+  }, [customerFromUser, resolveCustomerFromUser]);
 
   const register = useCallback(
     async (input: { name: string; email: string; phone: string; password: string }) => {
@@ -234,11 +253,10 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   );
 
   const logout = useCallback(async () => {
-    await AsyncStorage.removeItem(SESSION_KEY);
-    await AsyncStorage.removeItem(GUEST_KEY);
-    await getSupabase()?.auth.signOut();
     setCustomer(null);
     setIsGuest(false);
+    await AsyncStorage.multiRemove([SESSION_KEY, GUEST_KEY]);
+    await getSupabase()?.auth.signOut();
   }, []);
 
   const value = useMemo(

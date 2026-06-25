@@ -8,20 +8,33 @@ import React, {
   useState,
 } from 'react';
 
-import { authenticateShopOwner, getShopByOwnerEmail } from '@/lib/booking/demoShops';
+import {
+  getShopByOwnerEmail,
+  refreshCatalog,
+} from '@/lib/booking/catalogRepository';
 import type { Shop } from '@/lib/booking/types';
+import { getSupabase } from '@/lib/supabase/client';
 
-const SESSION_KEY = '@pitstop/shop-session';
+export type ShopLoginResult =
+  | 'ok'
+  | 'invalid_credentials'
+  | 'shop_not_found'
+  | 'not_configured';
 
 type ShopAuthContextValue = {
   ready: boolean;
   shop: Shop | null;
   busy: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<ShopLoginResult>;
   logout: () => Promise<void>;
 };
 
 const ShopAuthContext = createContext<ShopAuthContextValue | null>(null);
+
+async function resolveShopForEmail(email: string): Promise<Shop | null> {
+  await refreshCatalog();
+  return getShopByOwnerEmail(email) ?? null;
+}
 
 export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -32,10 +45,24 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const saved = await AsyncStorage.getItem(SESSION_KEY);
-        if (!cancelled && saved) {
-          const match = getShopByOwnerEmail(saved);
-          if (match) setShop(match);
+        const supabase = getSupabase();
+        if (supabase) {
+          const { data } = await supabase.auth.getSession();
+          const email = data.session?.user?.email;
+          if (email) {
+            const match = await resolveShopForEmail(email);
+            if (match && !cancelled) {
+              setShop(match);
+              await AsyncStorage.setItem('@pitstop/shop-session', match.ownerEmail);
+            }
+          }
+        } else {
+          const saved = await AsyncStorage.getItem('@pitstop/shop-session');
+          if (saved) {
+            await refreshCatalog();
+            const match = getShopByOwnerEmail(saved);
+            if (match && !cancelled) setShop(match);
+          }
         }
       } catch {
         /* ignore */
@@ -48,22 +75,58 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session?.user?.email) {
+        setShop(null);
+        await AsyncStorage.removeItem('@pitstop/shop-session');
+        return;
+      }
+      const match = await resolveShopForEmail(session.user.email);
+      if (match) {
+        setShop(match);
+        await AsyncStorage.setItem('@pitstop/shop-session', match.ownerEmail);
+      } else {
+        setShop(null);
+        await AsyncStorage.removeItem('@pitstop/shop-session');
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     setBusy(true);
     try {
-      const match = authenticateShopOwner(email, password);
-      if (!match) return false;
-      await AsyncStorage.setItem(SESSION_KEY, match.ownerEmail);
+      const normalized = email.trim().toLowerCase();
+      const supabase = getSupabase();
+      if (!supabase) return 'not_configured';
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: normalized,
+        password: password.trim(),
+      });
+      if (error) return 'invalid_credentials';
+
+      const match = await resolveShopForEmail(normalized);
+      if (!match) {
+        await supabase.auth.signOut();
+        return 'shop_not_found';
+      }
+
+      await AsyncStorage.setItem('@pitstop/shop-session', match.ownerEmail);
       setShop(match);
-      return true;
+      return 'ok';
     } finally {
       setBusy(false);
     }
   }, []);
 
   const logout = useCallback(async () => {
-    await AsyncStorage.removeItem(SESSION_KEY);
     setShop(null);
+    await AsyncStorage.removeItem('@pitstop/shop-session');
+    await getSupabase()?.auth.signOut();
   }, []);
 
   const value = useMemo(

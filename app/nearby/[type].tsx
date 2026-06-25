@@ -14,8 +14,10 @@ import {
 import { ShopListCard } from '@/components/ui/ShopListCard';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { formatDistance, listShopsSortedByDistance } from '@/lib/booking/nearby';
 import { shopTypeLabel } from '@/lib/booking/format';
+import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { parseShopType } from '@/lib/booking/serviceType';
 import { openAllShopsInMaps, openPhone, openShopInMaps } from '@/lib/linking/contact';
 
@@ -23,13 +25,14 @@ export default function NearbyScreen() {
   const { type: rawType } = useLocalSearchParams<{ type: string }>();
   const { t, locale } = useI18n();
   const theme = useAppTheme();
+  const { ready: catalogReady } = useShopCatalog();
   const type = parseShopType(rawType);
   const [loading, setLoading] = useState(true);
   const [locationDenied, setLocationDenied] = useState(false);
   const [shops, setShops] = useState<ReturnType<typeof listShopsSortedByDistance>>([]);
 
   const load = useCallback(async () => {
-    if (!type) return;
+    if (!type || !catalogReady) return;
     setLoading(true);
     let lat: number | null = null;
     let lng: number | null = null;
@@ -50,11 +53,11 @@ export default function NearbyScreen() {
     }
     setShops(listShopsSortedByDistance(type, lat, lng));
     setLoading(false);
-  }, [type]);
+  }, [type, catalogReady]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (catalogReady) load();
+  }, [catalogReady, load]);
 
   if (!type) {
     return (
@@ -103,7 +106,7 @@ export default function NearbyScreen() {
               rating={shop.rating}
               phone={shop.phone}
               distanceLabel={formatDistance(shop.distanceKm, locale)}
-              bookLabel={shop.type === 'parts' ? t('book_tap_to_book') : t('shop_profile_open')}
+              bookLabel={isStoreShopType(shop.type) ? t('book_tap_to_book') : t('shop_profile_open')}
               onCall={() =>
                 openPhone(shop.phone).catch(() =>
                   Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')),
@@ -115,7 +118,7 @@ export default function NearbyScreen() {
                 )
               }
               onPress={() =>
-                shop.type === 'parts'
+                isStoreShopType(shop.type)
                   ? router.push(`/parts-shop/${shop.id}` as any)
                   : router.push(`/shop-profile/${shop.id}` as any)
               }

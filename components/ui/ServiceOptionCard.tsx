@@ -18,6 +18,7 @@ const ICONS: Record<ShopType, React.ComponentProps<typeof FontAwesome>['name']> 
   maintenance: 'wrench',
   wash: 'tint',
   parts: 'cogs',
+  accessories: 'shopping-bag',
   winch: 'truck',
 };
 

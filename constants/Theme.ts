@@ -52,5 +52,6 @@ export const SERVICE_COLORS = {
   maintenance: DarkAppTheme.accent,
   wash: DarkAppTheme.warm,
   parts: DarkAppTheme.green,
+  accessories: DarkAppTheme.warm,
   winch: '#C7C7C7',
 } as const;

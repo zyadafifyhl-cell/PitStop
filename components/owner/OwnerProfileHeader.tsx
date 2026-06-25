@@ -109,8 +109,10 @@ export function OwnerProfileHeader({
             style={[styles.heroBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
             <Text style={[styles.heroBtnText, { color: theme.text }]}>{profileEditLabel}</Text>
           </Pressable>
-          <Pressable onPress={onLogout} style={[styles.heroBtn, { borderColor: theme.border }]}>
-            <Text style={[styles.heroBtnText, { color: theme.accent }]}>{logoutLabel}</Text>
+          <Pressable
+            onPress={onLogout}
+            style={[styles.heroBtn, styles.logoutBtn, { borderColor: theme.danger }]}>
+            <Text style={[styles.heroBtnText, { color: theme.danger }]}>{logoutLabel}</Text>
           </Pressable>
         </View>
       </View>
@@ -203,4 +205,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroBtnText: { fontSize: 13, fontWeight: '800' },
+  logoutBtn: { backgroundColor: 'rgba(239, 68, 68, 0.12)' },
 });

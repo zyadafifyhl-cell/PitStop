@@ -47,6 +47,7 @@ import {
   updateInventoryStock,
   updatePartsOrderStatus,
 } from '@/lib/booking/partsStorage';
+import { isStoreShopType, storeCategoryForShopType } from '@/lib/booking/storeCatalog';
 import {
   addShopImage,
   addShopOffer,
@@ -66,7 +67,7 @@ import type {
   OwnerNotificationResolution,
   PartsOrder,
   ShopExtras,
-  SparePartItem,
+  StoreItem,
 } from '@/lib/booking/types';
 
 const PRESETS: ReportPreset[] = ['2d', '3d', '7d', '30d', 'custom'];
@@ -86,7 +87,7 @@ export default function ShopScreen() {
   });
   const [customEndYmd, setCustomEndYmd] = useState(() => toYmdLocal(new Date()));
   const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [inventory, setInventory] = useState<SparePartItem[]>([]);
+  const [inventory, setInventory] = useState<StoreItem[]>([]);
   const [partsOrders, setPartsOrders] = useState<PartsOrder[]>([]);
   const [loadingParts, setLoadingParts] = useState(false);
   const [newPartName, setNewPartName] = useState('');
@@ -146,11 +147,13 @@ export default function ShopScreen() {
   }, [shop]);
 
   const refreshPartsData = useCallback(async () => {
-    if (!shop || shop.type !== 'parts') return;
+    if (!shop) return;
+    const category = storeCategoryForShopType(shop.type);
+    if (!category) return;
     setLoadingParts(true);
     try {
       const [invRows, orderRows] = await Promise.all([
-        listInventoryForShop(shop.id),
+        listInventoryForShop(shop.id, category),
         listPartsOrdersForShop(shop.id),
       ]);
       setInventory(invRows);
@@ -165,7 +168,7 @@ export default function ShopScreen() {
       if (!shop) return;
       refreshOwnerNotifications();
       refreshShopExtras();
-      if (shop.type === 'parts') refreshPartsData();
+      if (isStoreShopType(shop.type)) refreshPartsData();
       else refreshBookings();
     }, [shop, refreshBookings, refreshPartsData, refreshOwnerNotifications, refreshShopExtras]),
   );
@@ -205,8 +208,16 @@ export default function ShopScreen() {
   }, [reportBookings]);
 
   async function onLogin() {
-    const ok = await login(email, password);
-    if (!ok) {
+    const result = await login(email, password);
+    if (result === 'invalid_credentials') {
+      Alert.alert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
+      return;
+    }
+    if (result === 'shop_not_found') {
+      Alert.alert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
+      return;
+    }
+    if (result !== 'ok') {
       Alert.alert(t('shop_login_fail_title'), t('shop_login_fail_body'));
     }
   }
@@ -222,14 +233,16 @@ export default function ShopScreen() {
   }
 
   async function onAddPart() {
-    if (!shop || shop.type !== 'parts') return;
+    if (!shop) return;
+    const category = storeCategoryForShopType(shop.type);
+    if (!category) return;
     const price = Number(newPartPrice);
     const stock = Number(newPartStock);
     if (!newPartName.trim() || Number.isNaN(price) || price < 0 || Number.isNaN(stock) || stock < 0) {
       Alert.alert(t('parts_owner_invalid_part_title'), t('parts_owner_invalid_part_body'));
       return;
     }
-    await addInventoryItem(shop.id, {
+    await addInventoryItem(shop.id, category, {
       name: newPartName,
       priceEgp: price,
       stockQty: stock,
@@ -243,13 +256,15 @@ export default function ShopScreen() {
   }
 
   async function onAdjustStock(partId: string, delta: number) {
-    if (!shop || shop.type !== 'parts') return;
-    await updateInventoryStock(shop.id, partId, delta);
+    if (!shop) return;
+    const category = storeCategoryForShopType(shop.type);
+    if (!category) return;
+    await updateInventoryStock(shop.id, category, partId, delta);
     await refreshPartsData();
   }
 
   async function onPartsOrderStatusChange(orderId: string, status: PartsOrder['status']) {
-    if (!shop || shop.type !== 'parts') return;
+    if (!shop || !isStoreShopType(shop.type)) return;
     await updatePartsOrderStatus(shop.id, orderId, status);
     await refreshPartsData();
   }
@@ -816,7 +831,7 @@ export default function ShopScreen() {
     </>
   );
 
-  if (shop.type === 'parts') {
+  if (isStoreShopType(shop.type)) {
     return (
       <>
         <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.page}>

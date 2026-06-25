@@ -19,8 +19,9 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { getSavedCarProfile } from '@/lib/booking/carProfileStorage';
-import { getShopById } from '@/lib/booking/demoShops';
+import { getShopById } from '@/lib/booking/catalogRepository';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import {
   TIME_SLOTS,
@@ -40,8 +41,12 @@ export default function BookShopScreen() {
   const palette = Colors[colorScheme ?? 'light'];
   const { t, locale, isRTL } = useI18n();
   const { customer, isGuest } = useCustomerAuth();
+  const { ready: catalogReady } = useShopCatalog();
 
-  const shop = useMemo(() => (shopId ? getShopById(shopId) : undefined), [shopId]);
+  const shop = useMemo(
+    () => (catalogReady && shopId ? getShopById(shopId) : undefined),
+    [catalogReady, shopId],
+  );
 
   const defaultPhone = customer?.phone.replace('+20', '0') ?? '';
   const [phone, setPhone] = useState(defaultPhone);

@@ -6,12 +6,12 @@ import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import 'react-native-reanimated';
 
+import { AppBootstrap } from '@/components/AppBootstrap';
 import { AuthGate } from '@/components/AuthGate';
-import { ShopAuthGate } from '@/components/ShopAuthGate';
-import { UserAuthGate } from '@/components/UserAuthGate';
 import { AuthProvider } from '@/context/AuthContext';
 import { I18nProvider, useI18n } from '@/context/I18nContext';
 import { ShopAuthProvider } from '@/context/ShopAuthContext';
+import { ShopCatalogProvider } from '@/context/ShopCatalogContext';
 import { CustomerAuthProvider } from '@/context/CustomerAuthContext';
 import { ThemePreferenceProvider, useThemePreference } from '@/context/ThemePreferenceContext';
 
@@ -32,10 +32,6 @@ export default function RootLayout() {
   useEffect(() => {
     if (error) throw error;
   }, [error]);
-
-  useEffect(() => {
-    if (loaded) SplashScreen.hideAsync();
-  }, [loaded]);
 
   if (!loaded) return null;
 
@@ -97,18 +93,18 @@ function RootLayoutWithTheme() {
   return (
     <ThemeProvider value={navTheme}>
       <I18nProvider>
-        <CustomerAuthProvider>
-          <AuthProvider>
-            <ShopAuthProvider>
-              <>
-                <AuthGate />
-                <UserAuthGate />
-                <ShopAuthGate />
-                <RootStack />
-              </>
-            </ShopAuthProvider>
-          </AuthProvider>
-        </CustomerAuthProvider>
+        <ShopCatalogProvider>
+          <CustomerAuthProvider>
+            <AuthProvider>
+              <ShopAuthProvider>
+                <AppBootstrap>
+                  <AuthGate />
+                  <RootStack />
+                </AppBootstrap>
+              </ShopAuthProvider>
+            </AuthProvider>
+          </CustomerAuthProvider>
+        </ShopCatalogProvider>
       </I18nProvider>
     </ThemeProvider>
   );

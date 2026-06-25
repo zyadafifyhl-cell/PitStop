@@ -15,7 +15,7 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listCustomerInvoices } from '@/lib/booking/commerceEvents';
-import { getShopById } from '@/lib/booking/demoShops';
+import { getShopById } from '@/lib/booking/catalogRepository';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { listBookingsForPhone, updateBookingStatus } from '@/lib/booking/storage';

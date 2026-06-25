@@ -115,8 +115,16 @@ export default function WelcomeScreen() {
 
   async function onOwnerSubmit() {
     setFormMessage('');
-    const ok = await loginShop(email, password);
-    if (!ok) {
+    const result = await loginShop(email, password);
+    if (result === 'invalid_credentials') {
+      Alert.alert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
+      return;
+    }
+    if (result === 'shop_not_found') {
+      Alert.alert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
+      return;
+    }
+    if (result !== 'ok') {
       Alert.alert(t('shop_login_fail_title'), t('shop_login_fail_body'));
       return;
     }

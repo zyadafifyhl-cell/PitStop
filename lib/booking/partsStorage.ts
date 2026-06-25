@@ -5,17 +5,35 @@ import {
   pushOwnerNotification,
   updateCustomerInvoiceOrderStatus,
 } from '@/lib/booking/commerceEvents';
-import { DEMO_SHOPS } from '@/lib/booking/demoShops';
 import { formatEgp } from '@/lib/booking/reporting';
-import type { PartsOrder, PartsOrderItem, PartsOrderStatus, SparePartItem } from '@/lib/booking/types';
+import type {
+  PartsOrder,
+  PartsOrderItem,
+  PartsOrderStatus,
+  StoreCategory,
+  StoreItem,
+} from '@/lib/booking/types';
 import { sendShopPushForPartsOrder } from '@/lib/push/shopPush';
+import { getSupabase } from '@/lib/supabase/client';
 
-const INVENTORY_KEY = '@pitstop/parts-inventory/v1';
+const INVENTORY_KEY = '@pitstop/store-inventory/v1';
 const ORDERS_KEY = '@pitstop/parts-orders/v1';
 const PLATFORM_FEE_RATE = 0.08;
 
-type InventoryMap = Record<string, SparePartItem[]>;
+type InventoryMap = Record<string, StoreItem[]>;
 type OrderMap = Record<string, PartsOrder[]>;
+
+type StoreRow = {
+  id: string;
+  shop_id: string;
+  category: StoreCategory;
+  name: string;
+  image_url: string | null;
+  price_egp: number | string;
+  stock_qty: number;
+  created_at: string;
+  updated_at: string;
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -25,43 +43,18 @@ function id(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function defaultSeedForShop(shopId: string): SparePartItem[] {
-  const ts = nowIso();
-  return [
-    {
-      id: id('part'),
-      shopId,
-      name: 'Engine Oil 5W-30',
-      priceEgp: 450,
-      stockQty: 12,
-      imageUrl:
-        'https://images.unsplash.com/photo-1545060894-4f8e5f343ee8?auto=format&fit=crop&w=600&q=60',
-      createdAt: ts,
-      updatedAt: ts,
-    },
-    {
-      id: id('part'),
-      shopId,
-      name: 'Brake Pads Front',
-      priceEgp: 780,
-      stockQty: 8,
-      imageUrl:
-        'https://images.unsplash.com/photo-1625047509248-ec889cbff17f?auto=format&fit=crop&w=600&q=60',
-      createdAt: ts,
-      updatedAt: ts,
-    },
-    {
-      id: id('part'),
-      shopId,
-      name: 'Air Filter',
-      priceEgp: 220,
-      stockQty: 16,
-      imageUrl:
-        'https://images.unsplash.com/photo-1635776062124-d379bfcba9f0?auto=format&fit=crop&w=600&q=60',
-      createdAt: ts,
-      updatedAt: ts,
-    },
-  ];
+function mapStoreRow(row: StoreRow): StoreItem {
+  return {
+    id: row.id,
+    shopId: row.shop_id,
+    category: row.category,
+    name: row.name,
+    imageUrl: row.image_url ?? undefined,
+    priceEgp: Number(row.price_egp),
+    stockQty: row.stock_qty,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 async function readInventoryMap(): Promise<InventoryMap> {
@@ -94,34 +87,72 @@ async function writeOrderMap(map: OrderMap): Promise<void> {
   await AsyncStorage.setItem(ORDERS_KEY, JSON.stringify(map));
 }
 
-async function ensureSeededInventory(map: InventoryMap): Promise<InventoryMap> {
-  let changed = false;
-  for (const shop of DEMO_SHOPS) {
-    if (shop.type !== 'parts') continue;
-    if (!Array.isArray(map[shop.id]) || map[shop.id].length === 0) {
-      map[shop.id] = defaultSeedForShop(shop.id);
-      changed = true;
-    }
+async function fetchStoreFromSupabase(
+  shopId: string,
+  category: StoreCategory,
+): Promise<StoreItem[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('store')
+    .select('*')
+    .eq('shop_id', shopId)
+    .eq('category', category)
+    .order('name');
+
+  if (error) {
+    console.warn('Failed to load store from Supabase:', error.message);
+    return null;
   }
-  if (changed) await writeInventoryMap(map);
-  return map;
+
+  return ((data ?? []) as StoreRow[]).map(mapStoreRow);
 }
 
-export async function listInventoryForShop(shopId: string): Promise<SparePartItem[]> {
-  const map = await ensureSeededInventory(await readInventoryMap());
-  const rows = map[shopId] ?? [];
-  return rows.slice().sort((a, b) => a.name.localeCompare(b.name));
+export async function listInventoryForShop(
+  shopId: string,
+  category: StoreCategory,
+): Promise<StoreItem[]> {
+  const remote = await fetchStoreFromSupabase(shopId, category);
+  if (remote) return remote;
+
+  const map = await readInventoryMap();
+  return (map[shopId] ?? [])
+    .filter((row) => row.category === category)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function addInventoryItem(
   shopId: string,
+  category: StoreCategory,
   input: { name: string; priceEgp: number; stockQty: number; imageUrl?: string },
-): Promise<SparePartItem> {
-  const map = await ensureSeededInventory(await readInventoryMap());
+): Promise<StoreItem> {
   const ts = nowIso();
-  const row: SparePartItem = {
-    id: id('part'),
+  const supabase = getSupabase();
+
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('store')
+      .insert({
+        shop_id: shopId,
+        category,
+        name: input.name.trim(),
+        price_egp: Math.max(0, Math.round(input.priceEgp * 100) / 100),
+        stock_qty: Math.max(0, Math.floor(input.stockQty)),
+        image_url: input.imageUrl?.trim() || null,
+      })
+      .select('*')
+      .single();
+
+    if (!error && data) return mapStoreRow(data as StoreRow);
+  }
+
+  const map = await readInventoryMap();
+  const row: StoreItem = {
+    id: id('store'),
     shopId,
+    category,
     name: input.name.trim(),
     priceEgp: Math.max(0, Math.round(input.priceEgp * 100) / 100),
     stockQty: Math.max(0, Math.floor(input.stockQty)),
@@ -136,12 +167,29 @@ export async function addInventoryItem(
 
 export async function updateInventoryStock(
   shopId: string,
-  partId: string,
+  category: StoreCategory,
+  itemId: string,
   delta: number,
-): Promise<SparePartItem | null> {
-  const map = await ensureSeededInventory(await readInventoryMap());
+): Promise<StoreItem | null> {
+  const supabase = getSupabase();
+  const remoteRows = supabase ? await fetchStoreFromSupabase(shopId, category) : null;
+  const current = remoteRows?.find((row) => row.id === itemId);
+
+  if (supabase && current) {
+    const nextQty = Math.max(0, current.stockQty + delta);
+    const { data, error } = await supabase
+      .from('store')
+      .update({ stock_qty: nextQty, updated_at: nowIso() })
+      .eq('id', itemId)
+      .select('*')
+      .maybeSingle();
+
+    if (!error && data) return mapStoreRow(data as StoreRow);
+  }
+
+  const map = await readInventoryMap();
   const rows = map[shopId] ?? [];
-  const idx = rows.findIndex((r) => r.id === partId);
+  const idx = rows.findIndex((r) => r.id === itemId && r.category === category);
   if (idx < 0) return null;
   const nextQty = Math.max(0, rows[idx].stockQty + delta);
   rows[idx] = { ...rows[idx], stockQty: nextQty, updatedAt: nowIso() };
@@ -173,14 +221,14 @@ export async function updatePartsOrderStatus(
 
 export async function createPartsOrder(input: {
   shopId: string;
+  storeCategory: StoreCategory;
   customerId?: string;
   customerEmail?: string;
   customerPhone: string;
   shippingAddress: string;
   items: Array<{ partId: string; qty: number }>;
 }): Promise<{ order?: PartsOrder; error?: string }> {
-  const inventoryMap = await ensureSeededInventory(await readInventoryMap());
-  const shopRows = inventoryMap[input.shopId] ?? [];
+  const shopRows = await listInventoryForShop(input.shopId, input.storeCategory);
   if (!shopRows.length) return { error: 'No inventory found for this shop.' };
 
   const orderItems: PartsOrderItem[] = [];
@@ -206,20 +254,10 @@ export async function createPartsOrder(input: {
   const platformFeeEgp = Math.round(subtotalEgp * PLATFORM_FEE_RATE * 100) / 100;
   const totalEgp = Math.round((subtotalEgp + platformFeeEgp) * 100) / 100;
 
-  // Decrement inventory stock.
-  const nextRows = shopRows.map((row) => {
-    const line = orderItems.find((x) => x.partId === row.id);
-    if (!line) return row;
-    return {
-      ...row,
-      stockQty: Math.max(0, row.stockQty - line.qty),
-      updatedAt: nowIso(),
-    };
-  });
-  inventoryMap[input.shopId] = nextRows;
-  await writeInventoryMap(inventoryMap);
+  for (const line of orderItems) {
+    await updateInventoryStock(input.shopId, input.storeCategory, line.partId, -line.qty);
+  }
 
-  // Save order.
   const orderMap = await readOrderMap();
   const order: PartsOrder = {
     id: id('porder'),
