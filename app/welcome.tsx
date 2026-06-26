@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -24,6 +24,8 @@ import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContex
 import { isStrongPassword } from '@/lib/authValidation';
 import { isValidEgyptMobile } from '@/lib/phone';
 import { addCustomerVehicle } from '@/lib/booking/vehicleStorage';
+import { resolveReturnTo } from '@/lib/auth/returnTo';
+import { userAlert } from '@/lib/ui/userAlert';
 
 const SESSION_KEY = '@pitstop/customer-session';
 
@@ -36,7 +38,8 @@ function newVehicleDraft(): RegisterVehicleDraft {
 type LoginMode = 'customer' | 'owner';
 
 export default function WelcomeScreen() {
-  const { focus } = useLocalSearchParams<{ focus?: string; returnTo?: string }>();
+  const { focus, returnTo } = useLocalSearchParams<{ focus?: string; returnTo?: string }>();
+  const router = useRouter();
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
   const { effectivePreference } = useThemePreference();
@@ -126,28 +129,34 @@ export default function WelcomeScreen() {
       return;
     }
     if (ok !== 'ok') {
-      setFormMessage(ok === 'not_configured' ? t('customer_supabase_not_configured') : t('customer_login_fail_body'));
-      Alert.alert(t('customer_login_fail_title'), t('customer_login_fail_body'));
+      const message = ok === 'not_configured' ? t('customer_supabase_not_configured') : t('customer_login_fail_body');
+      setFormMessage(message);
+      userAlert(t('customer_login_fail_title'), message);
       return;
     }
+    setFormMessage(t('customer_login_success'));
+    router.replace(resolveReturnTo(returnTo) ?? '/');
   }
 
   async function onOwnerSubmit() {
     setFormMessage('');
     const result = await loginShop(email, password);
     if (result === 'invalid_credentials') {
-      Alert.alert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
+      setFormMessage(t('shop_login_auth_fail_body'));
+      userAlert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
       return;
     }
     if (result === 'shop_not_found') {
-      Alert.alert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
+      setFormMessage(t('shop_login_shop_not_found_body'));
+      userAlert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
       return;
     }
     if (result !== 'ok') {
-      Alert.alert(t('shop_login_fail_title'), t('shop_login_fail_body'));
+      setFormMessage(t('shop_login_fail_body'));
+      userAlert(t('shop_login_fail_title'), t('shop_login_fail_body'));
       return;
     }
-    // AppBootstrap redirects to /shop when shop auth state updates.
+    router.replace('/shop');
   }
 
   async function onForgotPassword() {
@@ -184,6 +193,7 @@ export default function WelcomeScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <LinearGradient
+        pointerEvents="none"
         colors={locale === 'ar' ? [theme.bgElevated, theme.bg, theme.bg] : [theme.bgElevated, theme.bg, theme.bg]}
         style={StyleSheet.absoluteFill}
       />
@@ -337,11 +347,12 @@ export default function WelcomeScreen() {
                   disabled={busy}
                   style={[styles.submitBtn, busy && { opacity: 0.6 }]}>
                   <LinearGradient
+                    pointerEvents="none"
                     colors={[theme.accent, theme.accent]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
-                    <Text style={[styles.submitText, { color: theme.onAccent }]}>
+                    <Text pointerEvents="none" style={[styles.submitText, { color: theme.onAccent }]}>
                       {busy
                         ? t('cloud_busy')
                         : isRegister
@@ -389,13 +400,17 @@ export default function WelcomeScreen() {
                   disabled={busy}
                   style={[styles.submitBtn, busy && { opacity: 0.6 }]}>
                   <LinearGradient
+                    pointerEvents="none"
                     colors={[ownerAccent, ownerAccent]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
-                    <Text style={[styles.submitText, { color: theme.onAccent }]}>{t('shop_login_btn')}</Text>
+                    <Text pointerEvents="none" style={[styles.submitText, { color: theme.onAccent }]}>{t('shop_login_btn')}</Text>
                   </LinearGradient>
                 </Pressable>
+                {formMessage ? (
+                  <Text style={[styles.formMessage, { color: theme.warm }]}>{formMessage}</Text>
+                ) : null}
                 <Text style={[styles.demoHint, { color: theme.textDim }]}>{t('shop_demo_accounts')}</Text>
               </>
             )}

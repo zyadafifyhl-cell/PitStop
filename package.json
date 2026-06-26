@@ -3,10 +3,10 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "(kill-port 8082 || echo Port 8082 already free) && expo start --web --port 8082"
+    "start": "expo start --offline",
+    "android": "expo start --android --offline",
+    "ios": "expo start --ios --offline",
+    "web": "(kill-port 8082 || echo Port 8082 already free) && expo start --web --port 8082 --offline"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

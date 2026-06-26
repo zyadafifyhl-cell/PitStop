@@ -41,6 +41,7 @@ import { createBooking, listBookingsForShop, saveCustomerPhone } from '@/lib/boo
 import { getPrimaryVehicle } from '@/lib/booking/vehicleStorage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
+import { userAlert } from '@/lib/ui/userAlert';
 import { normalizePhoneE164 } from '@/lib/phone';
 import type { Booking, ShopExtras } from '@/lib/booking/types';
 
@@ -177,16 +178,16 @@ export default function BookShopScreen() {
     if (!shop) return;
     const normalizedPhone = normalizePhoneE164(phone);
     if (!normalizedPhone) {
-      Alert.alert(t('auth_phone_invalid_title'), t('auth_phone_invalid_body'));
+      userAlert(t('auth_phone_invalid_title'), t('auth_phone_invalid_body'));
       return;
     }
     if (!carType.trim()) {
-      Alert.alert(t('book_missing_title'), t('book_missing_car_type'));
+      userAlert(t('book_missing_title'), t('book_missing_car_type'));
       return;
     }
     const scheduledAt = buildScheduledIso(dateYmd, timeSlot);
     if (!scheduledAt) {
-      Alert.alert(t('book_missing_title'), t('book_invalid_datetime'));
+      userAlert(t('book_missing_title'), t('book_invalid_datetime'));
       return;
     }
 
@@ -215,6 +216,9 @@ export default function BookShopScreen() {
       });
       await saveCustomerPhone(normalizedPhone);
       setSuccessVisible(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('book_submit_fail_body');
+      userAlert(t('book_submit_fail_title'), message);
     } finally {
       setSaving(false);
     }

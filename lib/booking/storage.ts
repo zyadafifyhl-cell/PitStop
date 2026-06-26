@@ -248,6 +248,9 @@ export async function createBooking(
       await sendOwnerBookingPush(created);
       return created;
     }
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 
   await upsertLocalBooking(booking);

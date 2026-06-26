@@ -40,6 +40,7 @@ import {
 } from '@/lib/booking/reporting';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
+import { userAlert } from '@/lib/ui/userAlert';
 import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, DEFAULT_SERVICE_DURATION_MINUTES, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
 import {
   cancelBookingReminders,
@@ -255,15 +256,15 @@ export default function ShopScreen() {
   async function onLogin() {
     const result = await login(email, password);
     if (result === 'invalid_credentials') {
-      Alert.alert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
+      userAlert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
       return;
     }
     if (result === 'shop_not_found') {
-      Alert.alert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
+      userAlert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
       return;
     }
     if (result !== 'ok') {
-      Alert.alert(t('shop_login_fail_title'), t('shop_login_fail_body'));
+      userAlert(t('shop_login_fail_title'), t('shop_login_fail_body'));
     }
   }
 

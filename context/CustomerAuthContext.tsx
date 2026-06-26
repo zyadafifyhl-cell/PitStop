@@ -152,10 +152,16 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     try {
       const supabase = getSupabase();
       if (!supabase) return 'not_configured';
-      const { data, error } = await supabase.auth.signInWithPassword({
+
+      const authPromise = supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password,
       });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('timeout')), 20000);
+      });
+
+      const { data, error } = await Promise.race([authPromise, timeoutPromise]);
       if (error) {
         const message = error.message.toLowerCase();
         if (message.includes('email not confirmed')) return 'email_not_confirmed';
@@ -173,7 +179,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       setHasSession(true);
       setCustomer(match);
       return 'ok';
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === 'timeout') return 'not_configured';
       return 'invalid';
     } finally {
       setBusy(false);
