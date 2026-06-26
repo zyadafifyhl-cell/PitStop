@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
-import { shopTypeLabel } from '@/lib/booking/format';
+import { formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
+import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
 import { sendShopPushForBooking } from '@/lib/push/shopPush';
 import { getSupabase } from '@/lib/supabase/client';
 
@@ -12,6 +13,22 @@ const PLATFORM_FEE_RATE = 0.12;
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+async function notifyWashOwnerBooking(
+  booking: Booking,
+  kind: 'new_booking' | 'cancelled_booking',
+): Promise<void> {
+  if (booking.shopType !== 'wash') return;
+  const when = formatBookingDateTime(booking.scheduledAt, 'en');
+  await pushWashCenterNotification({
+    shopId: booking.shopId,
+    branchId: booking.branchId,
+    kind,
+    title: kind === 'new_booking' ? 'New booking request' : 'Booking cancelled',
+    body: `${booking.customerPhone} · ${booking.carType} · ${when}`,
+    bookingId: booking.id,
+  });
 }
 
 function defaultServicePriceEgp(shopType: Booking['shopType']): number {
@@ -205,6 +222,7 @@ export async function createBooking(
         scheduledAt: created.scheduledAt,
         totalEgp: created.servicePriceEgp,
       });
+      await notifyWashOwnerBooking(created, 'new_booking');
       await sendOwnerBookingPush(created);
       return created;
     }
@@ -221,6 +239,7 @@ export async function createBooking(
     scheduledAt: booking.scheduledAt,
     totalEgp: booking.servicePriceEgp,
   });
+  await notifyWashOwnerBooking(booking, 'new_booking');
   await sendOwnerBookingPush(booking);
   return booking;
 }
@@ -229,13 +248,15 @@ export async function updateBookingStatus(
   bookingId: string,
   status: BookingStatus,
   fallback?: Booking,
+  patch?: Partial<Pick<Booking, 'ownerRejectionNote'>>,
 ): Promise<Booking | null> {
   const rows = await readAll();
   const localIdx = rows.findIndex((b) => b.id === bookingId);
-  let updated: Booking | null = localIdx >= 0 ? { ...rows[localIdx], status } : null;
+  const previousStatus = localIdx >= 0 ? rows[localIdx].status : fallback?.status;
+  let updated: Booking | null = localIdx >= 0 ? { ...rows[localIdx], status, ...patch } : null;
 
   if (!updated && fallback && fallback.id === bookingId) {
-    updated = { ...fallback, status };
+    updated = { ...fallback, status, ...patch };
   }
 
   if (!updated) {
@@ -265,7 +286,36 @@ export async function updateBookingStatus(
     }
   }
 
+  if (updated && status === 'cancelled' && previousStatus !== 'cancelled') {
+    await notifyWashOwnerBooking(updated, 'cancelled_booking');
+  }
+
   return updated;
+}
+
+export async function deleteBookingForShop(shopId: string, bookingId: string): Promise<boolean> {
+  const rows = await readAll();
+  const target = rows.find((b) => b.id === bookingId && b.shopId === shopId);
+  if (!target) return false;
+  await writeAll(rows.filter((b) => b.id !== bookingId));
+
+  const supabase = getSupabase();
+  if (supabase && isUuid(bookingId)) {
+    await supabase.from('bookings').delete().eq('id', bookingId).eq('shop_id', shopId);
+  }
+  return true;
+}
+
+export async function clearShopBookingHistory(shopId: string): Promise<number> {
+  const rows = await readAll();
+  const removed = rows.filter((b) => b.shopId === shopId);
+  await writeAll(rows.filter((b) => b.shopId !== shopId));
+
+  const supabase = getSupabase();
+  if (supabase) {
+    await supabase.from('bookings').delete().eq('shop_id', shopId);
+  }
+  return removed.length;
 }
 
 export async function getSavedCustomerPhone(): Promise<string | null> {

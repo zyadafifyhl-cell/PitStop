@@ -26,6 +26,14 @@ export default function SettingsScreen() {
   const [privacyUnlocked, setPrivacyUnlocked] = React.useState(false);
   const [privacyPassword, setPrivacyPassword] = React.useState('');
   const [languageOpen, setLanguageOpen] = React.useState(false);
+  const [termsVisible, setTermsVisible] = React.useState(false);
+
+  const themeLabel =
+    preference === 'system'
+      ? t('settings_theme_system')
+      : preference === 'dark'
+        ? t('settings_theme_dark')
+        : t('settings_theme_light');
 
   async function safeOpen(fn: () => Promise<void>) {
     try {
@@ -93,12 +101,25 @@ export default function SettingsScreen() {
                 setPrivacyPassword('');
               }}
             />
+            <SettingsRow
+              icon="car"
+              label={t('settings_vehicle_management')}
+              hint={t('settings_vehicles')}
+              accent={theme.accent}
+              onPress={() => router.push('/settings/vehicles' as Href)}
+            />
           </View>
         </>
       ) : null}
 
       <Text style={[styles.section, { color: theme.text }]}>{t('settings_preferences_section')}</Text>
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <SettingsRow
+          icon="file-text-o"
+          label={t('settings_terms')}
+          accent={theme.accent}
+          onPress={() => setTermsVisible(true)}
+        />
         <Pressable
           onPress={() => setLanguageOpen((v) => !v)}
           style={[styles.prefRow, styles.prefRowBorder, { borderBottomColor: theme.border }]}>
@@ -136,37 +157,35 @@ export default function SettingsScreen() {
         ) : null}
         <View style={styles.prefRow}>
           <View style={styles.prefTextWrap}>
-            <Text style={[styles.toggleTitle, { color: theme.text }, isArabic && styles.toggleTextRtl]}>{t('settings_theme_dark')}</Text>
+            <Text style={[styles.toggleTitle, { color: theme.text }, isArabic && styles.toggleTextRtl]}>
+              {t('settings_preferences_section')}
+            </Text>
             <Text style={[styles.toggleHint, { color: theme.textMuted }, isArabic && styles.toggleTextRtl]}>
-              {preference === 'dark' ? t('settings_theme_dark') : t('settings_theme_light')}
+              {themeLabel}
             </Text>
           </View>
-          <View style={styles.prefSideSlot}>
+        </View>
+        <View style={styles.themeOptions}>
+          {(['light', 'dark', 'system'] as const).map((option) => (
             <Pressable
-              onPress={() => setPreference(preference === 'dark' ? 'light' : 'dark')}
-              style={styles.themeToggleHit}
-              hitSlop={8}>
-              <View
-                style={[
-                  styles.themeToggleTrack,
-                  {
-                    backgroundColor: preference === 'dark' ? theme.accentSoft : theme.border,
-                    borderColor: theme.border,
-                    alignItems: preference === 'dark' ? 'flex-end' : 'flex-start',
-                  },
-                ]}>
-                <View
-                  style={[
-                    styles.themeToggleThumb,
-                    { backgroundColor: preference === 'dark' ? theme.accent : theme.textDim },
-                  ]}
-                />
-              </View>
+              key={option}
+              onPress={() => setPreference(option)}
+              style={[
+                styles.themeOption,
+                { borderColor: theme.border, backgroundColor: preference === option ? theme.accentSoft : theme.bgElevated },
+              ]}>
+              <Text style={[styles.themeOptionText, { color: preference === option ? theme.accent : theme.text }]}>
+                {option === 'light'
+                  ? t('settings_theme_light')
+                  : option === 'dark'
+                    ? t('settings_theme_dark')
+                    : t('settings_theme_system')}
+              </Text>
             </Pressable>
-          </View>
+          ))}
         </View>
         <Text style={[styles.toggleNote, { color: theme.textDim }, isRTL && styles.toggleTextRtl]}>
-          {t('settings_selected')}: {preference === 'dark' ? t('settings_theme_dark') : t('settings_theme_light')}
+          {t('settings_selected')}: {themeLabel}
         </Text>
       </View>
 
@@ -250,6 +269,24 @@ export default function SettingsScreen() {
           onPress={onSignOut}
         />
       )}
+
+      <Modal visible={termsVisible} transparent animationType="fade" onRequestClose={() => setTermsVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('settings_terms')}</Text>
+            <ScrollView style={styles.termsScroll}>
+              <Text style={[styles.termsBody, { color: theme.textMuted }]}>
+                {locale === 'ar'
+                  ? 'باستخدام PitStop، فإنك توافق على استخدام التطبيق لحجز الخدمات والتواصل مع المحلات. البيانات التجريبية محفوظة محلياً على جهازك. قد تتغير الشروط مع التحديثات المستقبلية.'
+                  : 'By using PitStop, you agree to use the app for booking services and communicating with shops. Demo data is stored locally on your device. Terms may change with future updates.'}
+              </Text>
+            </ScrollView>
+            <Pressable onPress={() => setTermsVisible(false)} style={[styles.modalCloseBtn, { borderColor: theme.border }]}>
+              <Text style={[styles.modalCloseText, { color: theme.textMuted }]}>{t('welcome_ok')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={privacyVisible} transparent animationType="fade" onRequestClose={() => setPrivacyVisible(false)}>
         <View style={styles.modalBackdrop}>
@@ -358,20 +395,17 @@ const styles = StyleSheet.create({
   },
   languageOptionRtl: { flexDirection: 'row-reverse' },
   languageOptionText: { fontSize: 14, fontWeight: '600' },
-  themeToggleHit: { paddingVertical: 4 },
-  themeToggleTrack: {
-    width: 46,
-    height: 28,
-    borderRadius: 14,
+  themeOptions: { flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 4 },
+  themeOption: {
+    flex: 1,
     borderWidth: 1,
-    paddingHorizontal: 2,
-    justifyContent: 'center',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
   },
-  themeToggleThumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-  },
+  themeOptionText: { fontSize: 12, fontWeight: '700' },
+  termsScroll: { maxHeight: 260, marginBottom: 8 },
+  termsBody: { fontSize: 14, lineHeight: 22 },
   toggleTitle: { fontSize: 15, fontWeight: '700' },
   toggleHint: { marginTop: 2, fontSize: 12 },
   toggleNote: { fontSize: 12, marginTop: 8, marginBottom: 4 },

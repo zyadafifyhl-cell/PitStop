@@ -1,6 +1,6 @@
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
@@ -21,7 +21,7 @@ import { listShopsByType } from '@/lib/booking/catalogRepository';
 export default function HomeScreen() {
   const { t, tp, locale } = useI18n();
   const theme = useAppTheme();
-  const { preference } = useThemePreference();
+  const { effectivePreference } = useThemePreference();
   const { customer, isGuest } = useCustomerAuth();
   const { signOut, busy: signingOut } = useAppSignOut();
   const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
@@ -32,6 +32,44 @@ export default function HomeScreen() {
   const [liveOffers, setLiveOffers] = useState<
     Array<{ shopId: string; shopName: string; shopType: ShopType; offer: ShopOffer }>
   >([]);
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
+
+  const serviceCards = useMemo(
+    () =>
+      [
+        {
+          type: 'maintenance' as const,
+          title: t('service_maintenance_title'),
+          subtitle: t('service_maintenance_sub'),
+          href: '/service/maintenance' as Href,
+        },
+        {
+          type: 'wash' as const,
+          title: t('service_wash_title'),
+          subtitle: t('service_wash_sub'),
+          href: '/service/wash' as Href,
+        },
+        {
+          type: 'parts' as const,
+          title: t('service_parts_title'),
+          subtitle: t('service_parts_sub'),
+          href: '/service/parts' as Href,
+        },
+        {
+          type: 'accessories' as const,
+          title: t('service_accessories_title'),
+          subtitle: t('service_accessories_sub'),
+          href: '/service/accessories' as Href,
+        },
+      ].filter((card) => {
+        if (serviceFilter === 'wash' && card.type !== 'wash') return false;
+        const q = serviceSearch.trim().toLowerCase();
+        if (!q) return true;
+        return card.title.toLowerCase().includes(q) || card.subtitle.toLowerCase().includes(q);
+      }),
+    [t, serviceSearch, serviceFilter],
+  );
 
   const loadLiveOffers = useCallback(async () => {
     if (!catalogReady) return;
@@ -115,7 +153,7 @@ export default function HomeScreen() {
       : nextBookingShop.name
     : nextBooking?.shopId;
   const backgroundLogo =
-    preference === 'light'
+    effectivePreference === 'light'
       ? require('../../assets/images/pitstop-logo-light.png')
       : require('../../assets/images/pitstop-logo-dark.png');
 
@@ -124,7 +162,7 @@ export default function HomeScreen() {
       <View pointerEvents="none" style={styles.backgroundLogoWrap}>
         <Image
           source={backgroundLogo}
-          style={[styles.backgroundLogo, { opacity: preference === 'light' ? 0.045 : 0.06 }]}
+          style={[styles.backgroundLogo, { opacity: effectivePreference === 'light' ? 0.045 : 0.06 }]}
           resizeMode="contain"
           accessibilityIgnoresInvertColors
         />
@@ -169,36 +207,59 @@ export default function HomeScreen() {
       <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
 
-      <ServiceOptionCard
-        type="maintenance"
-        title={t('service_maintenance_title')}
-        subtitle={t('service_maintenance_sub')}
-        onPress={() => router.push(`/service/maintenance` as Href)}
-      />
-      <ServiceOptionCard
-        type="wash"
-        title={t('service_wash_title')}
-        subtitle={t('service_wash_sub')}
-        onPress={() => router.push(`/service/wash` as Href)}
-      />
-      <ServiceOptionCard
-        type="parts"
-        title={t('service_parts_title')}
-        subtitle={t('service_parts_sub')}
-        onPress={() => router.push(`/service/parts` as Href)}
-      />
-      <ServiceOptionCard
-        type="accessories"
-        title={t('service_accessories_title')}
-        subtitle={t('service_accessories_sub')}
-        onPress={() => router.push(`/service/accessories` as Href)}
+      <TextInput
+        value={serviceSearch}
+        onChangeText={setServiceSearch}
+        placeholder={t('home_search_placeholder')}
+        placeholderTextColor={theme.textDim}
+        style={[styles.searchInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
       />
 
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_title')}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
+        {(
+          [
+            { id: 'all' as const, label: t('home_filter_all') },
+            { id: 'wash' as const, label: t('home_filter_wash') },
+          ] as const
+        ).map((chip) => (
+          <Pressable
+            key={chip.id}
+            onPress={() => setServiceFilter(chip.id)}
+            style={[
+              styles.filterChip,
+              { borderColor: theme.border, backgroundColor: theme.bgElevated },
+              serviceFilter === chip.id && { backgroundColor: theme.accent, borderColor: theme.accent },
+            ]}>
+            <Text
+              style={[
+                styles.filterChipText,
+                { color: serviceFilter === chip.id ? theme.onAccent : theme.textMuted },
+              ]}>
+              {chip.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {serviceCards.map((card) => (
+        <ServiceOptionCard
+          key={card.type}
+          type={card.type}
+          title={card.title}
+          subtitle={card.subtitle}
+          onPress={() => router.push(card.href)}
+        />
+      ))}
+
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_carousel')}</Text>
+      <Text style={[styles.offerMeta, { color: theme.textMuted, marginBottom: 10 }]}>{t('home_offers_title')}</Text>
       {liveOffers.length === 0 ? (
         <Text style={[styles.offerMeta, { color: theme.textMuted, marginBottom: 8 }]}>{t('home_offers_empty')}</Text>
       ) : (
-        <View style={styles.offersRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.offersCarousel}>
           {liveOffers.map(({ shopId, shopName, shopType, offer }) => (
             <Pressable
               key={offer.id}
@@ -213,7 +274,7 @@ export default function HomeScreen() {
               </Text>
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
       )}
 
       {(customer || isGuest) ? (
@@ -308,9 +369,25 @@ const styles = StyleSheet.create({
   },
   profileSaveText: { fontSize: 13, fontWeight: '800' },
   sectionTitle: { color: AppTheme.text, fontSize: 20, fontWeight: '900', marginTop: 6, marginBottom: 12 },
-  offersRow: { flexDirection: 'row', gap: 10 },
+  searchInput: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 15,
+    marginBottom: 10,
+  },
+  filtersRow: { gap: 8, paddingBottom: 14 },
+  filterChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  filterChipText: { fontSize: 13, fontWeight: '800' },
+  offersCarousel: { gap: 12, paddingBottom: 4 },
   offerCard: {
-    flex: 1,
+    width: 220,
     backgroundColor: AppTheme.card,
     borderWidth: 1,
     borderColor: AppTheme.border,

@@ -25,9 +25,11 @@ export function shopTypeLabel(type: ShopType, locale: Locale): string {
 export function bookingStatusLabel(status: BookingStatus, locale: Locale): string {
   const map: Record<BookingStatus, { en: string; ar: string }> = {
     pending: { en: 'Pending', ar: 'قيد الانتظار' },
-    confirmed: { en: 'Confirmed', ar: 'مؤكد' },
+    confirmed: { en: 'Accepted', ar: 'مقبول' },
+    in_progress: { en: 'In progress', ar: 'جاري التنفيذ' },
+    done: { en: 'Completed', ar: 'مكتمل' },
     cancelled: { en: 'Cancelled', ar: 'ملغي' },
-    done: { en: 'Done', ar: 'تم' },
+    no_show: { en: 'No show', ar: 'لم يحضر' },
   };
   return locale === 'ar' ? map[status].ar : map[status].en;
 }

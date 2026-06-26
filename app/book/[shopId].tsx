@@ -25,19 +25,28 @@ import { getShopById } from '@/lib/booking/catalogRepository';
 import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
 import {
   buildScheduledIso,
-  buildShopTimeSlots,
   defaultBookingDateYmd,
   formatShopScheduleLine,
   shopTypeLabel,
 } from '@/lib/booking/format';
-import { createBooking, saveCustomerPhone } from '@/lib/booking/storage';
+import { formatEgp } from '@/lib/booking/reporting';
+import {
+  buildSlotsForShopDate,
+  getServiceById,
+  shopHasCustomerSchedule,
+  type SlotAvailability,
+  type TimeSlotOption,
+} from '@/lib/booking/shopSchedule';
+import { createBooking, listBookingsForShop, saveCustomerPhone } from '@/lib/booking/storage';
+import { getPrimaryVehicle } from '@/lib/booking/vehicleStorage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
 import { normalizePhoneE164 } from '@/lib/phone';
-import type { ShopExtras } from '@/lib/booking/types';
+import type { Booking, ShopExtras } from '@/lib/booking/types';
 
 export default function BookShopScreen() {
-  const { shopId } = useLocalSearchParams<{ shopId: string }>();
+  const { shopId, serviceId: rawServiceId } = useLocalSearchParams<{ shopId: string; serviceId?: string }>();
+  const serviceId = Array.isArray(rawServiceId) ? rawServiceId[0] : rawServiceId;
   const colorScheme = useColorScheme();
   const palette = Colors[colorScheme ?? 'light'];
   const { t, locale, isRTL } = useI18n();
@@ -55,20 +64,38 @@ export default function BookShopScreen() {
   const [savedCarType, setSavedCarType] = useState('');
   const [editingSavedCar, setEditingSavedCar] = useState(false);
   const [carColor, setCarColor] = useState('');
+  const [customerNotes, setCustomerNotes] = useState('');
+  const [vehicleId, setVehicleId] = useState<string | undefined>();
   const [dateYmd, setDateYmd] = useState(defaultBookingDateYmd());
   const [timeSlot, setTimeSlot] = useState('');
   const [saving, setSaving] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
   const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
+  const [shopBookings, setShopBookings] = useState<Booking[]>([]);
+
+  const selectedService = useMemo(
+    () => getServiceById(shopExtras, serviceId),
+    [shopExtras, serviceId],
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!customer?.id || carType.trim()) return;
-      const profile = await getSavedCarProfile(customer.id);
-      if (!cancelled && profile?.carType) {
-        setSavedCarType(profile.carType);
-        setCarType(profile.carType);
+      const [profile, vehicle] = await Promise.all([
+        getSavedCarProfile(customer.id),
+        getPrimaryVehicle(customer.id),
+      ]);
+      if (!cancelled) {
+        if (vehicle) {
+          setVehicleId(vehicle.id);
+          setCarType(vehicle.makeModel);
+          setSavedCarType(vehicle.makeModel);
+          if (vehicle.color) setCarColor(vehicle.color);
+        } else if (profile?.carType) {
+          setSavedCarType(profile.carType);
+          setCarType(profile.carType);
+        }
       }
     })();
     return () => {
@@ -90,8 +117,9 @@ export default function BookShopScreen() {
 
   const refreshShopExtras = useCallback(async () => {
     if (!shop) return;
-    const row = await getShopExtras(shop.id);
+    const [row, bookings] = await Promise.all([getShopExtras(shop.id), listBookingsForShop(shop.id)]);
     setShopExtras(row);
+    setShopBookings(bookings);
   }, [shop]);
 
   useFocusEffect(
@@ -100,27 +128,30 @@ export default function BookShopScreen() {
     }, [refreshShopExtras]),
   );
 
-  const hasOwnerSchedule = shopHasSavedSchedule(shopExtras);
+  const hasOwnerSchedule = shopHasCustomerSchedule(shopExtras) || shopHasSavedSchedule(shopExtras);
 
-  const timeSlots = useMemo(() => {
-    if (!hasOwnerSchedule || !shopExtras?.workOpenTime || !shopExtras.workCloseTime || !shopExtras.serviceDurationMinutes) {
-      return [];
-    }
-    return buildShopTimeSlots(
-      shopExtras.workOpenTime,
-      shopExtras.workCloseTime,
-      shopExtras.serviceDurationMinutes,
+  const slotExtras = useMemo(() => {
+    if (!shopExtras || !selectedService) return shopExtras;
+    return { ...shopExtras, serviceDurationMinutes: selectedService.durationMinutes };
+  }, [shopExtras, selectedService]);
+
+  const timeSlots = useMemo((): TimeSlotOption[] => {
+    if (!hasOwnerSchedule) return [];
+    return buildSlotsForShopDate({
+      extras: slotExtras,
       dateYmd,
-    );
-  }, [hasOwnerSchedule, shopExtras, dateYmd]);
+      bookings: shopBookings,
+    });
+  }, [hasOwnerSchedule, slotExtras, dateYmd, shopBookings]);
 
   useEffect(() => {
-    if (!timeSlots.length) {
+    const available = timeSlots.filter((s) => s.status !== 'booked');
+    if (!available.length) {
       setTimeSlot('');
       return;
     }
-    if (!timeSlot || !timeSlots.includes(timeSlot)) {
-      setTimeSlot(timeSlots[0]);
+    if (!timeSlot || !available.some((s) => s.time === timeSlot)) {
+      setTimeSlot(available[0].time);
     }
   }, [timeSlots, timeSlot]);
 
@@ -136,7 +167,10 @@ export default function BookShopScreen() {
     if (isGuest || !customer) {
       router.push({
         pathname: '/auth-required',
-        params: { intent: 'booking', returnTo: buildBookReturnTo(String(shopId)) },
+        params: {
+          intent: 'booking',
+          returnTo: buildBookReturnTo(String(shopId), serviceId),
+        },
       });
       return;
     }
@@ -156,6 +190,11 @@ export default function BookShopScreen() {
       return;
     }
 
+    const serviceName = selectedService?.name;
+    const serviceNameAr = selectedService?.nameAr;
+    const serviceDurationMinutes = selectedService?.durationMinutes;
+    const servicePriceEgp = selectedService?.priceEgp ?? shopExtras?.servicePriceEgp;
+
     setSaving(true);
     try {
       await createBooking({
@@ -166,6 +205,13 @@ export default function BookShopScreen() {
         carType: carType.trim(),
         carColor: carColor.trim(),
         scheduledAt,
+        serviceId: selectedService?.id ?? serviceId,
+        serviceName,
+        serviceNameAr,
+        serviceDurationMinutes,
+        servicePriceEgp,
+        customerNotes: customerNotes.trim() || undefined,
+        vehicleId,
       });
       await saveCustomerPhone(normalizedPhone);
       setSuccessVisible(true);
@@ -189,6 +235,14 @@ export default function BookShopScreen() {
       : shopExtras?.profileAddress || shop.address;
   const shopPhone = shopExtras?.profilePhone || shop.phone;
 
+  const serviceLabel = selectedService
+    ? locale === 'ar'
+      ? selectedService.nameAr || selectedService.name
+      : selectedService.name
+    : null;
+
+  const selectedSlot = timeSlots.find((s) => s.time === timeSlot);
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: palette.background }}
@@ -198,6 +252,23 @@ export default function BookShopScreen() {
         <Text style={[styles.meta, { color: palette.text }]}>
           {shopTypeLabel(shop.type, locale)} · {shopAddress}
         </Text>
+
+        {selectedService ? (
+          <View
+            style={[
+              styles.serviceCard,
+              {
+                borderColor: colorScheme === 'dark' ? '#444' : '#ddd',
+                backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#f8fafc',
+              },
+            ]}>
+            <Text style={[styles.serviceName, { color: palette.text }]}>{serviceLabel}</Text>
+            <Text style={[styles.serviceMeta, { color: palette.tabIconDefault }]}>
+              {formatEgp(selectedService.priceEgp, locale)} · {selectedService.durationMinutes}{' '}
+              {locale === 'ar' ? 'دقيقة' : 'min'}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.shopContactRow}>
           <Pressable
@@ -265,6 +336,18 @@ export default function BookShopScreen() {
           style={inputStyle(colorScheme, palette)}
         />
 
+        <Text style={[styles.label, { color: palette.text }]}>{t('book_customer_notes_label')}</Text>
+        <TextInput
+          placeholder={t('book_customer_notes_placeholder')}
+          placeholderTextColor={palette.tabIconDefault}
+          value={customerNotes}
+          onChangeText={setCustomerNotes}
+          multiline
+          numberOfLines={3}
+          textAlignVertical="top"
+          style={[inputStyle(colorScheme, palette), styles.notesInput]}
+        />
+
         <BookingDatePicker
           valueYmd={dateYmd}
           onChangeYmd={setDateYmd}
@@ -281,11 +364,11 @@ export default function BookShopScreen() {
             {formatShopScheduleLine(
               shopExtras.workOpenTime,
               shopExtras.workCloseTime,
-              shopExtras.serviceDurationMinutes,
+              selectedService?.durationMinutes ?? shopExtras.serviceDurationMinutes,
               locale,
             )}
           </Text>
-        ) : (
+        ) : hasOwnerSchedule ? null : (
           <Text style={[styles.scheduleHint, { color: palette.tabIconDefault }]}>{t('book_no_shop_hours')}</Text>
         )}
 
@@ -297,28 +380,79 @@ export default function BookShopScreen() {
         ) : (
           <View style={[styles.slots, isRTL && styles.slotsRtl]}>
             {timeSlots.map((slot) => {
-              const active = slot === timeSlot;
+              const active = slot.time === timeSlot;
+              const disabled = slot.status === 'booked';
               return (
                 <Pressable
-                  key={slot}
-                  onPress={() => setTimeSlot(slot)}
+                  key={slot.time}
+                  onPress={() => !disabled && setTimeSlot(slot.time)}
+                  disabled={disabled}
                   style={[
                     styles.slot,
-                    {
-                      backgroundColor: active ? palette.tint : colorScheme === 'dark' ? '#1c1c1e' : '#f0f4f8',
-                      borderColor: active ? palette.tint : colorScheme === 'dark' ? '#444' : '#ddd',
-                    },
+                    slotStyle(slot.status, active, disabled, colorScheme, palette),
                   ]}>
-                  <Text style={{ color: active ? '#fff' : palette.text, fontWeight: '600' }}>{slot}</Text>
+                  <Text
+                    style={{
+                      color: disabled ? palette.tabIconDefault : active ? '#fff' : palette.text,
+                      fontWeight: '600',
+                      opacity: disabled ? 0.5 : 1,
+                    }}>
+                    {slot.time}
+                  </Text>
+                  {slot.status !== 'available' ? (
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: '700',
+                        color: disabled ? palette.tabIconDefault : active ? '#fff' : '#b45309',
+                        marginTop: 2,
+                      }}>
+                      {slot.status === 'booked' ? t('slot_booked') : t('slot_almost_full')}
+                    </Text>
+                  ) : null}
                 </Pressable>
               );
             })}
           </View>
         )}
 
+        {timeSlot && selectedSlot?.status !== 'booked' ? (
+          <View
+            style={[
+              styles.summaryCard,
+              {
+                borderColor: colorScheme === 'dark' ? '#444' : '#ddd',
+                backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#f8fafc',
+              },
+            ]}>
+            <Text style={[styles.summaryTitle, { color: palette.text }]}>{t('book_summary_title')}</Text>
+            <Text style={[styles.summaryLine, { color: palette.text }]}>{shopName}</Text>
+            {serviceLabel ? (
+              <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+                {serviceLabel}
+                {selectedService ? ` · ${formatEgp(selectedService.priceEgp, locale)}` : ''}
+              </Text>
+            ) : null}
+            <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+              {carType.trim() || '—'}
+              {carColor.trim() ? ` · ${carColor.trim()}` : ''}
+            </Text>
+            <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+              {dateYmd} · {timeSlot}
+            </Text>
+            {customerNotes.trim() ? (
+              <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+                {customerNotes.trim()}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        <Text style={[styles.policyText, { color: palette.tabIconDefault }]}>{t('book_cancellation_policy')}</Text>
+
         <Pressable
           onPress={onSubmit}
-          disabled={saving || !timeSlot}
+          disabled={saving || !timeSlot || selectedSlot?.status === 'booked'}
           style={[
             styles.primaryBtn,
             { backgroundColor: palette.tint, opacity: saving || !timeSlot ? 0.65 : 1 },
@@ -352,6 +486,34 @@ export default function BookShopScreen() {
   );
 }
 
+function slotStyle(
+  status: SlotAvailability,
+  active: boolean,
+  disabled: boolean,
+  colorScheme: 'light' | 'dark' | null | undefined,
+  palette: (typeof Colors)['light'],
+) {
+  if (disabled) {
+    return {
+      backgroundColor: colorScheme === 'dark' ? '#1a1a1a' : '#eee',
+      borderColor: colorScheme === 'dark' ? '#333' : '#ccc',
+    };
+  }
+  if (active) {
+    return { backgroundColor: palette.tint, borderColor: palette.tint };
+  }
+  if (status === 'almost_full') {
+    return {
+      backgroundColor: colorScheme === 'dark' ? '#2a2008' : '#fef3c7',
+      borderColor: '#f59e0b',
+    };
+  }
+  return {
+    backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#f0f4f8',
+    borderColor: colorScheme === 'dark' ? '#444' : '#ddd',
+  };
+}
+
 function inputStyle(colorScheme: 'light' | 'dark' | null | undefined, palette: (typeof Colors)['light']) {
   return [
     styles.input,
@@ -368,6 +530,9 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   shopName: { fontSize: 22, fontWeight: '800', marginBottom: 4 },
   meta: { fontSize: 14, opacity: 0.8, marginBottom: 10 },
+  serviceCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 12 },
+  serviceName: { fontSize: 17, fontWeight: '800', marginBottom: 4 },
+  serviceMeta: { fontSize: 14, fontWeight: '600' },
   shopContactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   contactChip: {
     borderWidth: 1,
@@ -397,6 +562,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 17,
   },
+  notesInput: { minHeight: 88, paddingTop: 14 },
   slots: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   slotsRtl: { flexDirection: 'row-reverse' },
   slot: {
@@ -404,9 +570,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    alignItems: 'center',
   },
+  summaryCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 16 },
+  summaryTitle: { fontSize: 15, fontWeight: '800', marginBottom: 8 },
+  summaryLine: { fontSize: 14, lineHeight: 20, marginBottom: 4 },
+  policyText: { fontSize: 12, lineHeight: 18, marginTop: 16 },
   primaryBtn: {
-    marginTop: 24,
+    marginTop: 16,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',

@@ -1,9 +1,10 @@
 import type { Href } from 'expo-router';
 
-const ALLOWED_RETURN = /^\/(book|parts-shop|shop-profile)\/[A-Za-z0-9-]+$/;
+const ALLOWED_RETURN = /^\/(book|parts-shop|shop-profile)\/[A-Za-z0-9-]+(\?[^#]*)?$/;
 
-export function buildBookReturnTo(shopId: string): string {
-  return `/book/${shopId}`;
+export function buildBookReturnTo(shopId: string, serviceId?: string): string {
+  const base = `/book/${shopId}`;
+  return serviceId ? `${base}?serviceId=${encodeURIComponent(serviceId)}` : base;
 }
 
 export function buildPartsReturnTo(shopId: string): string {

@@ -28,6 +28,8 @@ type CustomerAuthContextValue = {
   ready: boolean;
   customer: Customer | null;
   isGuest: boolean;
+  /** True while Supabase has an active session (even before customer profile resolves). */
+  hasSession: boolean;
   busy: boolean;
   continueAsGuest: () => Promise<void>;
   login: (email: string, password: string) => Promise<LoginResult>;
@@ -48,6 +50,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   const [ready, setReady] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [isGuest, setIsGuest] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
   const [busy, setBusy] = useState(false);
   const signingOutRef = useRef(false);
 
@@ -90,6 +93,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
         if (supabase) {
           const { data } = await supabase.auth.getSession();
           const user = data.session?.user;
+          setHasSession(!!user);
           const match = user ? await resolveCustomerFromUser(user) : null;
           if (!cancelled) {
             setCustomer(match);
@@ -102,6 +106,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
             }
           }
         } else {
+          setHasSession(false);
           await AsyncStorage.removeItem(SESSION_KEY);
           if (!cancelled) {
             const guestSession = await AsyncStorage.getItem(GUEST_KEY);
@@ -124,6 +129,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (signingOutRef.current) return;
+      setHasSession(!!session?.user);
       const match = session?.user ? await resolveCustomerFromUser(session.user) : null;
       setCustomer(match);
       if (match) {
@@ -136,6 +142,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
 
   const continueAsGuest = useCallback(async () => {
     setCustomer(null);
+    setHasSession(false);
     setIsGuest(true);
     await AsyncStorage.setItem(GUEST_KEY, '1');
   }, []);
@@ -163,6 +170,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       await AsyncStorage.setItem(SESSION_KEY, match.id);
       await AsyncStorage.removeItem(GUEST_KEY);
       setIsGuest(false);
+      setHasSession(true);
       setCustomer(match);
       return 'ok';
     } catch {
@@ -204,6 +212,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
             await AsyncStorage.setItem(SESSION_KEY, match.id);
             await AsyncStorage.removeItem(GUEST_KEY);
             setIsGuest(false);
+            setHasSession(true);
             setCustomer(match);
             return 'ok';
           }
@@ -257,6 +266,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     signingOutRef.current = true;
     setCustomer(null);
     setIsGuest(false);
+    setHasSession(false);
     try {
       await AsyncStorage.multiRemove([SESSION_KEY, GUEST_KEY]);
       await getSupabase()?.auth.signOut();
@@ -266,8 +276,20 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const value = useMemo(
-    () => ({ ready, customer, isGuest, busy, continueAsGuest, login, register, resetPassword, verifyPassword, logout }),
-    [ready, customer, isGuest, busy, continueAsGuest, login, register, resetPassword, verifyPassword, logout],
+    () => ({
+      ready,
+      customer,
+      isGuest,
+      hasSession,
+      busy,
+      continueAsGuest,
+      login,
+      register,
+      resetPassword,
+      verifyPassword,
+      logout,
+    }),
+    [ready, customer, isGuest, hasSession, busy, continueAsGuest, login, register, resetPassword, verifyPassword, logout],
   );
 
   return <CustomerAuthContext.Provider value={value}>{children}</CustomerAuthContext.Provider>;

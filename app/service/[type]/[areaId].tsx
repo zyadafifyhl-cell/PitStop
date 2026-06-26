@@ -108,7 +108,7 @@ export default function ShopsInAreaScreen() {
               typeLabel={shopTypeLabel(shop.type, locale)}
               rating={shop.rating}
               phone={shop.phone}
-              bookLabel={isStoreShopType(shop.type) ? t('book_tap_to_book') : t('shop_profile_open')}
+              bookLabel={t('shop_card_view_details')}
               isFavorite={favoriteIds.has(shop.id)}
               onToggleFavorite={() => onToggleFavorite(shop.id)}
               onCall={() => openPhone(shop.phone).catch(linkFail)}

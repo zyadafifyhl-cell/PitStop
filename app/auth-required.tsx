@@ -10,11 +10,11 @@ export default function AuthRequiredScreen() {
   const { intent, returnTo } = useLocalSearchParams<{ intent?: string; returnTo?: string }>();
   const { t } = useI18n();
   const theme = useAppTheme();
-  const { preference } = useThemePreference();
+  const { effectivePreference } = useThemePreference();
 
   const actionLabel = intent === 'purchase' ? t('guest_gate_action_purchase') : t('guest_gate_action_book');
   const logoSource =
-    preference === 'light'
+    effectivePreference === 'light'
       ? require('../assets/images/pitstop-logo-light.png')
       : require('../assets/images/pitstop-logo-dark.png');
   const returnParams = returnTo ? { returnTo } : {};

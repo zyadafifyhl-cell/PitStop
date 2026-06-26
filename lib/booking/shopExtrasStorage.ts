@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import type { ShopExtras, ShopOffer } from '@/lib/booking/types';
+import type { ShopDayHours, ShopExtras, ShopOffer, ShopService } from '@/lib/booking/types';
+import { defaultWashServices } from '@/lib/booking/shopSchedule';
 
 const SHOP_EXTRAS_KEY = '@pitstop/shop-extras/v1';
 type ExtrasMap = Record<string, ShopExtras>;
@@ -47,6 +48,8 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     workCloseTime: row?.workCloseTime?.trim() || undefined,
     serviceDurationMinutes: row?.serviceDurationMinutes,
     scheduleSavedAt: row?.scheduleSavedAt,
+    weeklyHours: row?.weeklyHours,
+    services: (row?.services ?? []).filter((service) => service.active),
     offers: (row?.offers ?? []).filter((offer) => offer.active && new Date(offer.validUntil).getTime() > Date.now()),
     updatedAt: row?.updatedAt ?? nowIso(),
   };
@@ -163,6 +166,7 @@ export async function setShopSchedule(
 /** True when owner saved hours — customer booking should use these slots. */
 export function shopHasSavedSchedule(extras: ShopExtras | null | undefined): boolean {
   if (!extras) return false;
+  if (extras.weeklyHours?.some((row) => !row.closed && row.openTime && row.closeTime)) return true;
   if (extras.scheduleSavedAt) return true;
   return !!(
     extras.workOpenTime?.trim() &&
@@ -170,6 +174,33 @@ export function shopHasSavedSchedule(extras: ShopExtras | null | undefined): boo
     extras.serviceDurationMinutes &&
     extras.serviceDurationMinutes >= 15
   );
+}
+
+export async function setShopWeeklyHours(shopId: string, weeklyHours: ShopDayHours[]): Promise<ShopExtras> {
+  const map = await readMap();
+  const row = normalizeExtras(shopId, map[shopId]);
+  row.weeklyHours = weeklyHours;
+  row.scheduleSavedAt = nowIso();
+  row.updatedAt = nowIso();
+  map[shopId] = row;
+  await writeMap(map);
+  return row;
+}
+
+export async function setShopServices(shopId: string, services: ShopService[]): Promise<ShopExtras> {
+  const map = await readMap();
+  const row = normalizeExtras(shopId, map[shopId]);
+  row.services = services.map((service) => ({ ...service, active: service.active !== false }));
+  row.updatedAt = nowIso();
+  map[shopId] = row;
+  await writeMap(map);
+  return row;
+}
+
+export async function ensureDefaultWashServices(shopId: string): Promise<ShopExtras> {
+  const row = await getShopExtras(shopId);
+  if (row.services?.length) return row;
+  return setShopServices(shopId, defaultWashServices());
 }
 
 /** All saved shop extras (for home offers aggregation). */

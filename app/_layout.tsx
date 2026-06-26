@@ -59,10 +59,13 @@ function RootStack() {
       <Stack.Screen name="book/[shopId]" options={{ title: t('book_screen_title') }} />
       <Stack.Screen name="parts-shop/[shopId]" options={{ title: t('parts_shop_screen_title') }} />
       <Stack.Screen name="nearby/[type]" options={{ title: t('nearby_title') }} />
+      <Stack.Screen name="settings/vehicles" options={{ title: t('settings_vehicle_management') }} />
       <Stack.Screen name="auth-required" options={{ title: t('guest_gate_header') }} />
       <Stack.Screen name="reset-password" options={{ title: t('customer_reset_password_title') }} />
       <Stack.Screen name="login" options={{ title: t('auth_login_title') }} />
       <Stack.Screen name="verify" options={{ title: t('auth_verify_title') }} />
+      <Stack.Screen name="shop/wash-notifications" options={{ headerShown: false }} />
+      <Stack.Screen name="shop/wash-owner-hub" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -76,8 +79,8 @@ function RootLayoutNav() {
 }
 
 function RootLayoutWithTheme() {
-  const { preference, theme } = useThemePreference();
-  const base = preference === 'dark' ? DarkTheme : DefaultTheme;
+  const { effectivePreference, theme } = useThemePreference();
+  const base = effectivePreference === 'dark' ? DarkTheme : DefaultTheme;
   const navTheme = {
     ...base,
     colors: {

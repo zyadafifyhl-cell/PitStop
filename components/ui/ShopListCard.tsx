@@ -10,6 +10,7 @@ import { useI18n } from '@/context/I18nContext';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras } from '@/lib/booking/types';
 import { formatEgp } from '@/lib/booking/reporting';
+import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
 import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
 import type { ShopType } from '@/lib/booking/types';
 
@@ -25,6 +26,7 @@ type Props = {
   bookLabel: string;
   isFavorite?: boolean;
   onToggleFavorite?: () => void;
+  onViewDetails?: () => void;
   onCall?: () => void;
   onOpenMaps?: () => void;
   onPress: () => void;
@@ -42,6 +44,7 @@ export function ShopListCard({
   bookLabel,
   isFavorite,
   onToggleFavorite,
+  onViewDetails,
   onCall,
   onOpenMaps,
   onPress,
@@ -72,6 +75,8 @@ export function ShopListCard({
   const resolvedPhone = extras?.profilePhone || phone;
   const winchPhone = extras?.winchPhone?.trim() || resolvedPhone;
   const hasWinch = type === 'maintenance' && !!extras?.winchEnabled;
+  const openStatus = getShopOpenStatus(extras);
+  const openLabel = locale === 'ar' ? openStatus.labelAr : openStatus.labelEn;
 
   return (
     <View style={styles.wrap}>
@@ -113,6 +118,13 @@ export function ShopListCard({
           <View style={{ flex: 1 }}>
             <Text style={[styles.name, { color: theme.text }]}>{resolvedName}</Text>
             <Text style={[styles.address, { color: theme.textMuted }]}>{resolvedAddress}</Text>
+            <Text
+              style={[
+                styles.openStatus,
+                { color: openStatus.isOpen ? theme.green : theme.textDim },
+              ]}>
+              {openLabel}
+            </Text>
           </View>
         </View>
         {extras?.servicePriceEgp != null ? (
@@ -165,7 +177,7 @@ export function ShopListCard({
         ) : null}
 
         <View style={styles.footer}>
-          <Pressable onPress={onPress} style={styles.bookBtn}>
+          <Pressable onPress={onViewDetails ?? onPress} style={styles.bookBtn}>
             <Text style={[styles.book, { color: accent }]}>{bookLabel}</Text>
           </Pressable>
           <View style={styles.footerIcons}>
@@ -210,6 +222,7 @@ const styles = StyleSheet.create({
   avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#111' },
   name: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
   address: { fontSize: 14, lineHeight: 20 },
+  openStatus: { fontSize: 12, fontWeight: '600', marginTop: 4 },
   priceMeta: { fontSize: 13, fontWeight: '700', marginTop: 8 },
   offersLink: { marginTop: 8, alignSelf: 'flex-start' },
   offersLinkText: { fontSize: 14, fontWeight: '800' },

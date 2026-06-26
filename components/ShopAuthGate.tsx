@@ -11,7 +11,7 @@ export function ShopAuthGate() {
 
   useEffect(() => {
     if (!ready || !shop) return;
-    const onShopTab = pathname === '/shop';
+    const onShopTab = pathname === '/shop' || pathname.startsWith('/shop/');
     if (!onShopTab) router.replace('/shop');
   }, [ready, shop, pathname, router]);
 

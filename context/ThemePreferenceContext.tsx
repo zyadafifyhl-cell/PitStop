@@ -1,21 +1,31 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useColorScheme } from 'react-native';
 
 import { APP_THEMES, type AppThemeTokens } from '@/constants/Theme';
 
-export type ThemePreference = 'light' | 'dark';
+export type ThemePreference = 'light' | 'dark' | 'system';
 
 const STORAGE_KEY = '@pitstop/theme-preference';
 
 type ThemePreferenceContextValue = {
   preference: ThemePreference;
+  effectivePreference: 'light' | 'dark';
   theme: AppThemeTokens;
   setPreference: (preference: ThemePreference) => Promise<void>;
 };
 
 const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>(null);
 
+function resolveEffective(preference: ThemePreference, systemScheme: 'light' | 'dark' | null | undefined): 'light' | 'dark' {
+  if (preference === 'system') {
+    return systemScheme === 'light' ? 'light' : 'dark';
+  }
+  return preference;
+}
+
 export function ThemePreferenceProvider({ children }: { children: React.ReactNode }) {
+  const systemScheme = useColorScheme();
   const [preference, setPreferenceState] = useState<ThemePreference>('dark');
 
   useEffect(() => {
@@ -23,7 +33,7 @@ export function ThemePreferenceProvider({ children }: { children: React.ReactNod
     (async () => {
       try {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!cancelled && (saved === 'light' || saved === 'dark')) {
+        if (!cancelled && (saved === 'light' || saved === 'dark' || saved === 'system')) {
           setPreferenceState(saved);
         }
       } catch {
@@ -40,13 +50,16 @@ export function ThemePreferenceProvider({ children }: { children: React.ReactNod
     await AsyncStorage.setItem(STORAGE_KEY, next);
   }, []);
 
+  const effectivePreference = resolveEffective(preference, systemScheme);
+
   const value = useMemo(
     () => ({
       preference,
-      theme: APP_THEMES[preference],
+      effectivePreference,
+      theme: APP_THEMES[effectivePreference],
       setPreference,
     }),
-    [preference, setPreference],
+    [preference, effectivePreference, setPreference],
   );
 
   return <ThemePreferenceContext.Provider value={value}>{children}</ThemePreferenceContext.Provider>;

@@ -71,7 +71,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="assistant"
         options={{
-          title: t('tab_assistant'),
+          title: t('tab_driver_network'),
           tabBarIcon: ({ color }) => <TabBarIcon name="comments" color={color} />,
           headerShown: false,
           href: hasCustomerArea ? undefined : null,

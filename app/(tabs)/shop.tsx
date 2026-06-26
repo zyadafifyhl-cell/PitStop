@@ -20,6 +20,7 @@ import {
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -61,8 +62,11 @@ import {
   setShopProfileImage,
   setShopSchedule,
   setShopServicePrice,
+  setShopWeeklyHours,
   shopHasSavedSchedule,
+  ensureDefaultWashServices,
 } from '@/lib/booking/shopExtrasStorage';
+import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
 import { registerOwnerPushToken } from '@/lib/push/shopPush';
 import type {
@@ -73,6 +77,7 @@ import type {
   ShopExtras,
   StoreItem,
 } from '@/lib/booking/types';
+import { isWashShopType } from '@/lib/booking/wash/types';
 
 const webListScrollStyle =
   Platform.OS === 'web'
@@ -673,10 +678,17 @@ export default function ShopScreen() {
       workCloseTime: close,
       serviceDurationMinutes: duration,
     });
+    const weeklyHours = defaultWeeklyHours().map((row) => ({
+      ...row,
+      openTime: open,
+      closeTime: close,
+      closed: row.day === 5,
+    }));
+    const withWeekly = await setShopWeeklyHours(shop.id, weeklyHours);
     setWorkOpenTime(saved.workOpenTime ?? open);
     setWorkCloseTime(saved.workCloseTime ?? close);
     setServiceDurationMinutes(String(saved.serviceDurationMinutes ?? duration));
-    setShopExtras(saved);
+    setShopExtras(withWeekly);
     setScheduleInlineOk(true);
     showSaveNotice(
       t('shop_schedule_saved_title'),
@@ -785,6 +797,10 @@ export default function ShopScreen() {
   }
 
   const fieldStyle = [styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }];
+
+  if (isWashShopType(shop.type)) {
+    return <WashOwnerPanel shop={shop} onLogout={onLogout} />;
+  }
 
   const shopName =
     locale === 'ar'
@@ -913,6 +929,26 @@ export default function ShopScreen() {
           ) : null}
           <Pressable onPress={onSaveSchedule} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
             <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_save_schedule')}</Text>
+          </Pressable>
+        </OwnerSectionCard>
+      ) : null}
+
+      {!isStoreShopType(shop.type) ? (
+        <OwnerSectionCard theme={theme} title={t('shop_profile_services')} subtitle={t('shop_manage_services_lead')}>
+          {(shopExtras?.services?.length ? shopExtras.services : []).slice(0, 6).map((service) => (
+            <Text key={service.id} style={[styles.meta, { color: theme.textMuted }]}>
+              {locale === 'ar' ? service.nameAr || service.name : service.name} · {service.priceEgp} EGP · {service.durationMinutes} min
+            </Text>
+          ))}
+          <Pressable
+            onPress={async () => {
+              if (!shop) return;
+              const row = await ensureDefaultWashServices(shop.id);
+              setShopExtras(row);
+              showSaveNotice(t('shop_services_saved_title'), t('shop_services_saved_body'));
+            }}
+            style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 8 }]}>
+            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_save_services')}</Text>
           </Pressable>
         </OwnerSectionCard>
       ) : null}

@@ -1,6 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -21,16 +22,24 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { isStrongPassword } from '@/lib/authValidation';
-import { resolveReturnTo } from '@/lib/auth/returnTo';
 import { isValidEgyptMobile } from '@/lib/phone';
+import { addCustomerVehicle } from '@/lib/booking/vehicleStorage';
+
+const SESSION_KEY = '@pitstop/customer-session';
+
+type RegisterVehicleDraft = { id: string; makeModel: string };
+
+function newVehicleDraft(): RegisterVehicleDraft {
+  return { id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, makeModel: '' };
+}
 
 type LoginMode = 'customer' | 'owner';
 
 export default function WelcomeScreen() {
-  const { focus, returnTo } = useLocalSearchParams<{ focus?: string; returnTo?: string }>();
+  const { focus } = useLocalSearchParams<{ focus?: string; returnTo?: string }>();
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
-  const { preference } = useThemePreference();
+  const { effectivePreference } = useThemePreference();
   const { login: loginCustomer, register, resetPassword, continueAsGuest, busy: customerBusy } = useCustomerAuth();
   const { login: loginShop, busy: shopBusy } = useShopAuth();
 
@@ -42,6 +51,7 @@ export default function WelcomeScreen() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [formMessage, setFormMessage] = useState('');
+  const [registerVehicles, setRegisterVehicles] = useState<RegisterVehicleDraft[]>([newVehicleDraft()]);
 
   useEffect(() => {
     if (focus === 'register') {
@@ -55,9 +65,11 @@ export default function WelcomeScreen() {
     }
   }, [focus]);
 
-  function goAfterCustomerAuth() {
-    const destination = resolveReturnTo(returnTo) ?? '/';
-    router.replace(destination);
+  async function saveRegisterVehiclesForCustomer(customerId: string) {
+    const rows = registerVehicles.map((row) => row.makeModel.trim()).filter(Boolean);
+    for (const makeModel of rows) {
+      await addCustomerVehicle(customerId, { makeModel });
+    }
   }
 
   async function onCustomerSubmit() {
@@ -95,7 +107,10 @@ export default function WelcomeScreen() {
         Alert.alert(t('customer_register_fail_title'), t('customer_register_invalid'));
         return;
       }
-      goAfterCustomerAuth();
+      const customerId = await AsyncStorage.getItem(SESSION_KEY);
+      if (customerId) {
+        await saveRegisterVehiclesForCustomer(customerId);
+      }
       return;
     }
 
@@ -110,7 +125,6 @@ export default function WelcomeScreen() {
       Alert.alert(t('customer_login_fail_title'), t('customer_login_fail_body'));
       return;
     }
-    goAfterCustomerAuth();
   }
 
   async function onOwnerSubmit() {
@@ -128,7 +142,7 @@ export default function WelcomeScreen() {
       Alert.alert(t('shop_login_fail_title'), t('shop_login_fail_body'));
       return;
     }
-    router.replace('/shop');
+    // AppBootstrap redirects to /shop when shop auth state updates.
   }
 
   async function onForgotPassword() {
@@ -151,13 +165,14 @@ export default function WelcomeScreen() {
   function toggleCustomerRegister() {
     setMode('customer');
     setFormMessage('');
+    setRegisterVehicles([newVehicleDraft()]);
     setIsRegister((value) => !value);
   }
 
   const busy = mode === 'customer' ? customerBusy : shopBusy;
-  const ownerAccent = preference === 'light' ? theme.accent : theme.warm;
+  const ownerAccent = effectivePreference === 'light' ? theme.accent : theme.warm;
   const logoSource =
-    preference === 'light'
+    effectivePreference === 'light'
       ? require('../assets/images/pitstop-logo-light.png')
       : require('../assets/images/pitstop-logo-dark.png');
 
@@ -224,7 +239,6 @@ export default function WelcomeScreen() {
             <Pressable
               onPress={async () => {
                 await continueAsGuest();
-                router.replace('/');
               }}
               style={[styles.guestBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
               <Text style={[styles.guestBtnText, { color: theme.text }]}>{t('welcome_guest_btn')}</Text>
@@ -274,6 +288,45 @@ export default function WelcomeScreen() {
                   style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
                 />
                 {isRegister ? <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text> : null}
+                {isRegister ? (
+                  <View style={[styles.vehiclesBox, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                    <Text style={[styles.vehiclesTitle, { color: theme.text }]}>{t('auth_register_vehicles_title')}</Text>
+                    <Text style={[styles.vehiclesLead, { color: theme.textMuted }]}>{t('auth_register_vehicles_lead')}</Text>
+                    {registerVehicles.map((vehicle, index) => (
+                      <View key={vehicle.id} style={styles.vehicleRow}>
+                        <TextInput
+                          placeholder={t('auth_register_vehicle_placeholder')}
+                          placeholderTextColor={theme.textDim}
+                          value={vehicle.makeModel}
+                          onChangeText={(value) =>
+                            setRegisterVehicles((rows) =>
+                              rows.map((row) => (row.id === vehicle.id ? { ...row, makeModel: value } : row)),
+                            )
+                          }
+                          style={[
+                            styles.vehicleInput,
+                            { backgroundColor: theme.card, borderColor: theme.border, color: theme.text },
+                          ]}
+                        />
+                        {registerVehicles.length > 1 ? (
+                          <Pressable
+                            onPress={() =>
+                              setRegisterVehicles((rows) => rows.filter((row) => row.id !== vehicle.id))
+                            }
+                            hitSlop={8}
+                            style={styles.vehicleRemoveBtn}>
+                            <FontAwesome name="times-circle" size={22} color={theme.textDim} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    ))}
+                    <Pressable
+                      onPress={() => setRegisterVehicles((rows) => [...rows, newVehicleDraft()])}
+                      style={styles.addVehicleBtn}>
+                      <Text style={[styles.addVehicleText, { color: theme.accent }]}>{t('auth_register_add_vehicle')}</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
                 <Pressable
                   onPress={onCustomerSubmit}
                   disabled={busy}
@@ -476,4 +529,24 @@ const styles = StyleSheet.create({
   languageText: { color: AppTheme.textMuted, fontSize: 12, fontWeight: '800' },
   languageTextActive: { color: '#fff' },
   demoHint: { color: AppTheme.textDim, fontSize: 11, lineHeight: 16, marginTop: 14 },
+  vehiclesBox: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+  },
+  vehiclesTitle: { fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  vehiclesLead: { fontSize: 12, lineHeight: 18, marginBottom: 10 },
+  vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  vehicleInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 15,
+  },
+  vehicleRemoveBtn: { padding: 4 },
+  addVehicleBtn: { alignSelf: 'flex-start', paddingVertical: 4 },
+  addVehicleText: { fontSize: 13, fontWeight: '700' },
 });

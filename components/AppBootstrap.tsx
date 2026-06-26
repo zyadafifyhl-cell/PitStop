@@ -17,10 +17,9 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const params = useGlobalSearchParams();
-  const { ready: customerReady, customer, isGuest } = useCustomerAuth();
+  const { ready: customerReady, customer, isGuest, hasSession, busy: customerBusy } = useCustomerAuth();
   const { ready: shopReady, shop } = useShopAuth();
   const splashHidden = useRef(false);
-  const initialRouteDone = useRef(false);
 
   const authReady = customerReady && shopReady;
 
@@ -37,27 +36,36 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
 
     const isPublic = isPublicPath(pathname);
     const isLoggedIn = !!customer || !!shop || isGuest;
+    const authPending = customerBusy || (hasSession && !customer && !shop);
 
     if (shop) {
-      if (pathname !== '/shop') {
+      const onShopArea = pathname === '/shop' || pathname.startsWith('/shop/');
+      if (!onShopArea) {
         router.replace('/shop');
       }
-      initialRouteDone.current = true;
       return;
     }
 
-    if (!isLoggedIn && !isPublic) {
+    if (!isLoggedIn && !isPublic && !authPending) {
       router.replace('/welcome');
-      initialRouteDone.current = true;
       return;
     }
 
-    if ((customer || isGuest) && pathname === '/welcome' && !resolveReturnTo(params.returnTo)) {
-      router.replace('/');
-      initialRouteDone.current = true;
-      return;
+    if ((customer || isGuest) && pathname === '/welcome') {
+      const destination = resolveReturnTo(params.returnTo) ?? '/';
+      router.replace(destination);
     }
-  }, [authReady, customer, shop, isGuest, pathname, router, params.returnTo]);
+  }, [
+    authReady,
+    customer,
+    shop,
+    isGuest,
+    hasSession,
+    customerBusy,
+    pathname,
+    router,
+    params.returnTo,
+  ]);
 
   return <>{children}</>;
 }
