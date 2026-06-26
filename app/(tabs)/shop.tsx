@@ -39,6 +39,7 @@ import {
   toYmdLocal,
 } from '@/lib/booking/reporting';
 import { useShopAuth } from '@/context/ShopAuthContext';
+import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, DEFAULT_SERVICE_DURATION_MINUTES, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
 import {
   cancelBookingReminders,
@@ -87,7 +88,8 @@ const webListScrollStyle =
 export default function ShopScreen() {
   const theme = useAppTheme();
   const { t, tp, locale } = useI18n();
-  const { ready, shop, busy, login, logout } = useShopAuth();
+  const { ready, shop, busy, login } = useShopAuth();
+  const { signOut } = useAppSignOut();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -266,8 +268,7 @@ export default function ShopScreen() {
   }
 
   async function onLogout() {
-    await logout();
-    router.replace('/welcome');
+    await signOut({ welcomeFocus: 'owner' });
   }
 
   async function onAddPart() {

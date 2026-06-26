@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { createElement, useCallback, useMemo, useState } from 'react';
+import React, { createElement, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,7 @@ import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { useI18n } from '@/context/I18nContext';
+import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
@@ -65,7 +66,18 @@ import {
   saveWashBranchWeeklyHours,
   setActiveWashBranch,
   updateActiveWashBranch,
+  type WashBranchContext,
 } from '@/lib/booking/wash/washBranchStorage';
+import {
+  addBranchEmployeeRemote,
+  listBranchEmployeesRemote,
+  removeBranchEmployeeRemote,
+} from '@/lib/booking/wash/branchRepository';
+import {
+  createBranchManagerAccount,
+  fetchBranchManagerRemote,
+  linkBranchManagerByEmail,
+} from '@/lib/booking/wash/branchManagerRepository';
 import { countUnreadWashNotifications } from '@/lib/booking/wash/washNotificationCenter';
 import {
   WASH_DAY_LABELS,
@@ -78,6 +90,8 @@ import {
   type WashShopStatus,
   type WashVacationMode,
 } from '@/lib/booking/wash/types';
+import type { DbBranchEmployee, DbUser } from '@/lib/supabase/database.types';
+import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 
 const webListScrollStyle =
   Platform.OS === 'web'
@@ -121,6 +135,10 @@ type RejectTarget = {
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function emptyServiceDraft(): ServiceDraft {
@@ -167,6 +185,11 @@ function branchDisplayName(branch: WashBranch, locale: 'en' | 'ar'): string {
   return branch.profileName || branch.name;
 }
 
+function filterBookingsForStaff(bookings: Booking[], staff: ShopStaffUser | null): Booking[] {
+  if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
+  return bookings.filter((booking) => !booking.branchId || booking.branchId === staff.branchId);
+}
+
 function washStatusLabelKey(status: WashShopStatus): 'wash_status_open' | 'wash_status_closed' | 'wash_status_busy' | 'wash_status_vacation' {
   if (status === 'closed') return 'wash_status_closed';
   if (status === 'busy') return 'wash_status_busy';
@@ -211,6 +234,12 @@ function applyBranchToForms(branch: WashBranch, setters: {
 export function WashOwnerPanel({ shop, onLogout }: Props) {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
+  const { staff, isOwner, isBranchManager } = useShopAuth();
+
+  const branchCtx = useMemo<WashBranchContext | undefined>(
+    () => (staff ? { staff } : undefined),
+    [staff],
+  );
 
   const [branchState, setBranchState] = useState<WashBranchState | null>(null);
   const [activeBranch, setActiveBranch] = useState<WashBranch | null>(null);
@@ -264,6 +293,16 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
+  const [employees, setEmployees] = useState<DbBranchEmployee[]>([]);
+  const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [newEmployeePhone, setNewEmployeePhone] = useState('');
+  const [newEmployeeJobTitle, setNewEmployeeJobTitle] = useState('');
+  const [employeeBusy, setEmployeeBusy] = useState(false);
+  const [branchManager, setBranchManager] = useState<DbUser | null>(null);
+  const [managerFullName, setManagerFullName] = useState('');
+  const [managerEmail, setManagerEmail] = useState('');
+  const [managerPassword, setManagerPassword] = useState('');
+  const [managerBusy, setManagerBusy] = useState(false);
 
   const formSetters = useMemo(
     () => ({
@@ -298,23 +337,45 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     setLoading(true);
     try {
       const [state, branch, bookingRows, reviewRows, unread] = await Promise.all([
-        getWashBranchState(shop),
-        getActiveWashBranch(shop),
+        getWashBranchState(shop, branchCtx),
+        getActiveWashBranch(shop, branchCtx),
         listBookingsForShop(shop.id),
         listShopReviews(shop.id),
         countUnreadWashNotifications(shop.id),
       ]);
+      const scopedBookings = filterBookingsForStaff(bookingRows, staff);
       setBranchState(state);
       syncBranchForms(branch);
-      setBookings(bookingRows);
+      setBookings(scopedBookings);
       setReviews(reviewRows.length ? reviewRows : seedDemoReviews(shop.id));
       setUnreadNotifCount(unread);
-      const stats = await computeWashAnalytics(shop.id, bookingRows);
+      const stats = await computeWashAnalytics(shop.id, scopedBookings);
       setAnalytics(stats);
     } finally {
       setLoading(false);
     }
-  }, [shop, syncBranchForms]);
+  }, [shop, branchCtx, staff, syncBranchForms]);
+
+  useEffect(() => {
+    if (!activeBranch || !isUuid(activeBranch.id)) {
+      setEmployees([]);
+      setBranchManager(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const [employeeRows, managerRow] = await Promise.all([
+        listBranchEmployeesRemote(activeBranch.id),
+        isOwner ? fetchBranchManagerRemote(activeBranch.id) : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      setEmployees(employeeRows);
+      setBranchManager(managerRow);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBranch?.id, isOwner]);
 
   useFocusEffect(
     useCallback(() => {
@@ -388,7 +449,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
   async function onSelectBranch(branchId: string) {
     if (branchId === branchState?.activeBranchId) return;
-    const state = await setActiveWashBranch(shop, branchId);
+    const state = await setActiveWashBranch(shop, branchId, branchCtx);
     setBranchState(state);
     const branch = state.branches.find((b) => b.id === branchId);
     if (branch) syncBranchForms(branch);
@@ -400,7 +461,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       Alert.alert(t('wash_branch_invalid_title'), t('wash_branch_invalid_body'));
       return;
     }
-    const state = await addWashBranch(shop, name, newBranchNameAr.trim() || undefined);
+    const state = await addWashBranch(shop, name, newBranchNameAr.trim() || undefined, branchCtx);
     setBranchState(state);
     const branch = state.branches.find((b) => b.id === state.activeBranchId);
     if (branch) syncBranchForms(branch);
@@ -408,6 +469,113 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     setNewBranchNameAr('');
     setAddBranchModalVisible(false);
     showNotice(t('wash_branch_added_title'), t('wash_branch_added_body'));
+  }
+
+  async function onAddEmployee() {
+    if (!activeBranch || !isUuid(activeBranch.id) || !staff) return;
+    const name = newEmployeeName.trim();
+    if (!name) {
+      Alert.alert(t('wash_employee_invalid_title'), t('wash_employee_invalid_body'));
+      return;
+    }
+    setEmployeeBusy(true);
+    try {
+      const row = await addBranchEmployeeRemote({
+        shopId: shop.id,
+        branchId: activeBranch.id,
+        fullName: name,
+        phone: newEmployeePhone.trim() || undefined,
+        jobTitle: newEmployeeJobTitle.trim() || undefined,
+      });
+      if (!row) {
+        Alert.alert(t('wash_employee_save_fail_title'), t('wash_employee_save_fail_body'));
+        return;
+      }
+      setEmployees((prev) => [...prev, row].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+      setNewEmployeeName('');
+      setNewEmployeePhone('');
+      setNewEmployeeJobTitle('');
+      showNotice(t('wash_employee_added_title'), t('wash_employee_added_body'));
+    } finally {
+      setEmployeeBusy(false);
+    }
+  }
+
+  async function onRemoveEmployee(employeeId: string) {
+    Alert.alert(t('wash_employee_remove_title'), t('wash_employee_remove_body'), [
+      { text: t('alert_cancel'), style: 'cancel' },
+      {
+        text: t('wash_employee_remove_confirm'),
+        style: 'destructive',
+        onPress: async () => {
+          setEmployeeBusy(true);
+          try {
+            const ok = await removeBranchEmployeeRemote(employeeId);
+            if (ok) setEmployees((prev) => prev.filter((employee) => employee.id !== employeeId));
+          } finally {
+            setEmployeeBusy(false);
+          }
+        },
+      },
+    ]);
+  }
+
+  async function finishManagerSave(
+    result: Awaited<ReturnType<typeof createBranchManagerAccount>>,
+  ) {
+    if (!activeBranch) return;
+    if (!result.ok) {
+      showNotice(t('wash_manager_save_fail_title'), result.message ?? t('wash_manager_save_fail_body'));
+      return;
+    }
+    const managerRow = await fetchBranchManagerRemote(activeBranch.id);
+    setBranchManager(managerRow);
+    setManagerFullName('');
+    setManagerEmail('');
+    setManagerPassword('');
+    showNotice(
+      result.mode === 'linked' ? t('wash_manager_linked_title') : t('wash_manager_created_title'),
+      result.mode === 'linked' ? t('wash_manager_linked_body') : t('wash_manager_created_body'),
+    );
+  }
+
+  async function onLinkBranchManager() {
+    if (!activeBranch || !isUuid(activeBranch.id)) return;
+    if (!managerFullName.trim() || !managerEmail.trim()) {
+      Alert.alert(t('wash_manager_link_invalid_title'), t('wash_manager_link_invalid_body'));
+      return;
+    }
+    setManagerBusy(true);
+    try {
+      const result = await linkBranchManagerByEmail({
+        email: managerEmail,
+        fullName: managerFullName,
+        branchId: activeBranch.id,
+      });
+      await finishManagerSave(result);
+    } finally {
+      setManagerBusy(false);
+    }
+  }
+
+  async function onCreateBranchManager() {
+    if (!activeBranch || !isUuid(activeBranch.id)) return;
+    if (!managerFullName.trim() || !managerEmail.trim()) {
+      Alert.alert(t('wash_manager_invalid_title'), t('wash_manager_invalid_body'));
+      return;
+    }
+    setManagerBusy(true);
+    try {
+      const result = await createBranchManagerAccount({
+        email: managerEmail,
+        password: managerPassword,
+        fullName: managerFullName,
+        branchId: activeBranch.id,
+      });
+      await finishManagerSave(result);
+    } finally {
+      setManagerBusy(false);
+    }
   }
 
   async function onSaveProfile() {
@@ -424,7 +592,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       profileEmail: profileEmail.trim() || undefined,
       moreInfo: moreInfo.trim() || undefined,
       moreInfoAr: moreInfoAr.trim() || undefined,
-    });
+    }, branchCtx);
     syncBranchForms(branch);
     showNotice(t('wash_profile_saved_title'), t('wash_profile_saved_body'));
   }
@@ -435,7 +603,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       showNotice(t('wash_price_invalid_title'), t('wash_price_invalid_body'));
       return;
     }
-    const branch = await updateActiveWashBranch(shop, { servicePriceEgp: price });
+    const branch = await updateActiveWashBranch(shop, { servicePriceEgp: price }, branchCtx);
     syncBranchForms(branch);
     showNotice(t('wash_price_saved_title'), t('wash_price_saved_body'));
   }
@@ -458,7 +626,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       if (!uri || !activeBranch) return;
       const branch = await updateActiveWashBranch(shop, {
         imageUrls: [...(activeBranch.imageUrls ?? []), uri],
-      });
+      }, branchCtx);
       syncBranchForms(branch);
     } finally {
       setPickingImage(false);
@@ -481,7 +649,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       if (picked.canceled || !picked.assets?.length) return;
       const uri = picked.assets[0].uri;
       if (!uri) return;
-      const branch = await updateActiveWashBranch(shop, { profileImageUrl: uri });
+      const branch = await updateActiveWashBranch(shop, { profileImageUrl: uri }, branchCtx);
       syncBranchForms(branch);
     } finally {
       setPickingImage(false);
@@ -492,7 +660,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     if (!activeBranch) return;
     const branch = await updateActiveWashBranch(shop, {
       imageUrls: activeBranch.imageUrls.filter((u) => u !== url),
-    });
+    }, branchCtx);
     syncBranchForms(branch);
   }
 
@@ -556,7 +724,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         sortOrder,
       });
     }
-    const branch = await saveWashBranchServices(shop, services);
+    const branch = await saveWashBranchServices(shop, services, branchCtx);
     syncBranchForms(branch);
     setServiceModalVisible(false);
     showNotice(t('wash_service_saved_title'), t('wash_service_saved_body'));
@@ -571,7 +739,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         style: 'destructive',
         onPress: async () => {
           const services = activeBranch.services.filter((s) => s.id !== serviceId);
-          const branch = await saveWashBranchServices(shop, services);
+          const branch = await saveWashBranchServices(shop, services, branchCtx);
           syncBranchForms(branch);
         },
       },
@@ -583,7 +751,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     const services = activeBranch.services.map((s) =>
       s.id === serviceId ? { ...s, visible: s.visible === false ? true : false } : s,
     );
-    const branch = await saveWashBranchServices(shop, services);
+    const branch = await saveWashBranchServices(shop, services, branchCtx);
     syncBranchForms(branch);
   }
 
@@ -597,7 +765,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     services[idx].sortOrder = services[swapIdx].sortOrder;
     services[swapIdx].sortOrder = a;
     services.sort((x, y) => x.sortOrder - y.sortOrder);
-    const branch = await saveWashBranchServices(shop, services);
+    const branch = await saveWashBranchServices(shop, services, branchCtx);
     syncBranchForms(branch);
   }
 
@@ -622,7 +790,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         return;
       }
     }
-    const branch = await saveWashBranchWeeklyHours(shop, weeklyHours);
+    const branch = await saveWashBranchWeeklyHours(shop, weeklyHours, branchCtx);
     syncBranchForms(branch);
     showNotice(t('wash_hours_saved_title'), t('wash_hours_saved_body'));
   }
@@ -639,7 +807,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         : { enabled: false };
     setShopStatus(nextStatus);
     setVacationMode(nextVacation);
-    const branch = await saveWashBranchStatus(shop, nextStatus, nextVacation);
+    const branch = await saveWashBranchStatus(shop, nextStatus, nextVacation, branchCtx);
     syncBranchForms(branch);
     showNotice(t('wash_status_saved_title'), t('wash_status_saved_body'));
   }
@@ -652,7 +820,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       customerMessageAr: vacationMessageAr.trim() || undefined,
     };
     setVacationMode(nextVacation);
-    const branch = await saveWashBranchStatus(shop, shopStatus, nextVacation);
+    const branch = await saveWashBranchStatus(shop, shopStatus, nextVacation, branchCtx);
     syncBranchForms(branch);
     showNotice(t('wash_vacation_saved_title'), t('wash_vacation_saved_body'));
   }
@@ -722,7 +890,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         createdAt: new Date().toISOString(),
       });
     }
-    const branch = await saveWashBranchCoupons(shop, coupons);
+    const branch = await saveWashBranchCoupons(shop, coupons, branchCtx);
     syncBranchForms(branch);
     setCouponModalVisible(false);
     showNotice(t('wash_coupon_saved_title'), t('wash_coupon_saved_body'));
@@ -733,7 +901,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     const coupons = activeBranch.coupons.map((c) =>
       c.id === couponId ? { ...c, active: !c.active } : c,
     );
-    const branch = await saveWashBranchCoupons(shop, coupons);
+    const branch = await saveWashBranchCoupons(shop, coupons, branchCtx);
     syncBranchForms(branch);
   }
 
@@ -746,7 +914,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         style: 'destructive',
         onPress: async () => {
           const coupons = activeBranch.coupons.filter((c) => c.id !== couponId);
-          const branch = await saveWashBranchCoupons(shop, coupons);
+          const branch = await saveWashBranchCoupons(shop, coupons, branchCtx);
           syncBranchForms(branch);
         },
       },
@@ -1009,37 +1177,57 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=notifications')}
         />
 
-        {/* Branch tabs — switch branch before editing profile / services */}
-        <View style={styles.branchTabsWrap}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
-            {(branchState?.branches ?? []).map((branch) => {
-              const active = branch.id === branchState?.activeBranchId;
-              return (
+        {staff ? (
+          <View style={[styles.roleBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+            <Text style={[styles.roleBadgeText, { color: theme.accent }]}>
+              {t(isOwner ? 'wash_role_owner' : 'wash_role_branch_manager')}
+            </Text>
+          </View>
+        ) : null}
+
+        {isBranchManager && activeBranch ? (
+          <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <View style={styles.branchSelect}>
+              <Text style={[styles.branchLabel, { color: theme.textMuted }]}>{t('wash_branch_label')}</Text>
+              <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
+                {branchDisplayName(activeBranch, locale)}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.branchTabsWrap}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
+              {(branchState?.branches ?? []).map((branch) => {
+                const active = branch.id === branchState?.activeBranchId;
+                return (
+                  <Pressable
+                    key={branch.id}
+                    onPress={() => onSelectBranch(branch.id)}
+                    style={[
+                      styles.branchTab,
+                      {
+                        backgroundColor: active ? theme.accent : theme.bgElevated,
+                        borderColor: active ? theme.accent : theme.border,
+                      },
+                    ]}>
+                    <Text
+                      style={[styles.branchTabText, { color: active ? theme.onAccent : theme.text }]}
+                      numberOfLines={1}>
+                      {branchDisplayName(branch, locale)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              {isOwner ? (
                 <Pressable
-                  key={branch.id}
-                  onPress={() => onSelectBranch(branch.id)}
-                  style={[
-                    styles.branchTab,
-                    {
-                      backgroundColor: active ? theme.accent : theme.bgElevated,
-                      borderColor: active ? theme.accent : theme.border,
-                    },
-                  ]}>
-                  <Text
-                    style={[styles.branchTabText, { color: active ? theme.onAccent : theme.text }]}
-                    numberOfLines={1}>
-                    {branchDisplayName(branch, locale)}
-                  </Text>
+                  onPress={() => setAddBranchModalVisible(true)}
+                  style={[styles.branchTab, { backgroundColor: theme.card, borderColor: theme.accent, borderStyle: 'dashed' }]}>
+                  <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
                 </Pressable>
-              );
-            })}
-            <Pressable
-              onPress={() => setAddBranchModalVisible(true)}
-              style={[styles.branchTab, { backgroundColor: theme.card, borderColor: theme.accent, borderStyle: 'dashed' }]}>
-              <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
-            </Pressable>
-          </ScrollView>
-        </View>
+              ) : null}
+            </ScrollView>
+          </View>
+        )}
 
         {loading && !analytics ? (
           <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} />
@@ -1368,6 +1556,127 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           )}
         </OwnerSectionCard>
 
+        {isOwner && activeBranch && isUuid(activeBranch.id) ? (
+          <OwnerSectionCard theme={theme} title={t('wash_manager_title')} subtitle={t('wash_manager_lead')}>
+            {branchManager ? (
+              <View style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.metaStrong, { color: theme.text }]}>
+                    {branchManager.full_name || branchManager.email}
+                  </Text>
+                  <Text style={[styles.meta, { color: theme.textMuted }]}>{branchManager.email}</Text>
+                </View>
+                <Text style={[styles.meta, { color: theme.accent, fontWeight: '800' }]}>
+                  {t('wash_role_branch_manager')}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 4 }]}>
+                  {t('wash_manager_empty')}
+                </Text>
+                <TextInput
+                  placeholder={t('wash_manager_name_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  value={managerFullName}
+                  onChangeText={setManagerFullName}
+                  style={fieldStyle}
+                />
+                <TextInput
+                  placeholder={t('wash_manager_email_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={managerEmail}
+                  onChangeText={setManagerEmail}
+                  style={fieldStyle}
+                />
+                <TextInput
+                  placeholder={t('wash_manager_password_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  secureTextEntry
+                  value={managerPassword}
+                  onChangeText={setManagerPassword}
+                  style={fieldStyle}
+                />
+                <Text style={[styles.meta, { color: theme.textMuted, marginTop: 4 }]}>
+                  {t('wash_manager_hint')}
+                </Text>
+                <Pressable
+                  onPress={onLinkBranchManager}
+                  disabled={managerBusy}
+                  style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: managerBusy ? 0.65 : 1 }]}>
+                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_manager_link')}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onCreateBranchManager}
+                  disabled={managerBusy}
+                  style={[styles.secondaryBtn, { borderColor: theme.border, marginTop: 10, opacity: managerBusy ? 0.65 : 1 }]}>
+                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_manager_create')}</Text>
+                </Pressable>
+              </>
+            )}
+          </OwnerSectionCard>
+        ) : null}
+
+        {activeBranch && isUuid(activeBranch.id) ? (
+          <OwnerSectionCard theme={theme} title={t('wash_employees_title')} subtitle={t('wash_employees_lead')}>
+            <TextInput
+              placeholder={t('wash_employee_name_placeholder')}
+              placeholderTextColor={theme.textDim}
+              value={newEmployeeName}
+              onChangeText={setNewEmployeeName}
+              style={fieldStyle}
+            />
+            <TextInput
+              placeholder={t('wash_employee_phone_placeholder')}
+              placeholderTextColor={theme.textDim}
+              keyboardType="phone-pad"
+              value={newEmployeePhone}
+              onChangeText={setNewEmployeePhone}
+              style={fieldStyle}
+            />
+            <TextInput
+              placeholder={t('wash_employee_job_placeholder')}
+              placeholderTextColor={theme.textDim}
+              value={newEmployeeJobTitle}
+              onChangeText={setNewEmployeeJobTitle}
+              style={fieldStyle}
+            />
+            <Pressable
+              onPress={onAddEmployee}
+              disabled={employeeBusy}
+              style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: employeeBusy ? 0.65 : 1 }]}>
+              <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_employee_add')}</Text>
+            </Pressable>
+            {employees.length === 0 ? (
+              <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_employees_empty')}</Text>
+            ) : (
+              employees.map((employee) => (
+                <View
+                  key={employee.id}
+                  style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.metaStrong, { color: theme.text }]}>{employee.full_name}</Text>
+                    {employee.job_title ? (
+                      <Text style={[styles.meta, { color: theme.textMuted }]}>{employee.job_title}</Text>
+                    ) : null}
+                    {employee.phone ? (
+                      <Text style={[styles.meta, { color: theme.textMuted }]}>{employee.phone}</Text>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    onPress={() => onRemoveEmployee(employee.id)}
+                    disabled={employeeBusy}
+                    style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+                    <Text style={styles.actionText}>{t('wash_employee_remove')}</Text>
+                  </Pressable>
+                </View>
+              ))
+            )}
+          </OwnerSectionCard>
+        ) : null}
+
         {/* Reviews */}
         <OwnerSectionCard theme={theme} title={t('wash_reviews_title')} subtitle={t('wash_reviews_lead')}>
           {reviews.filter((r) => !r.hidden).length === 0 ? (
@@ -1648,6 +1957,15 @@ const styles = StyleSheet.create({
     maxWidth: 180,
   },
   branchTabText: { fontSize: 13, fontWeight: '800' },
+  roleBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  roleBadgeText: { fontSize: 12, fontWeight: '800' },
   shortcutRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   shortcutCard: {
     flexGrow: 1,

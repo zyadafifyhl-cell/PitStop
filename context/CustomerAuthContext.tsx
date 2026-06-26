@@ -14,7 +14,7 @@ import { isStrongPassword } from '@/lib/authValidation';
 import type { Customer } from '@/lib/booking/customers';
 import {
   getShopByOwnerEmail,
-  isShopOwnerEmailRemote,
+  isShopStaffEmailRemote,
 } from '@/lib/booking/catalogRepository';
 import { normalizePhoneE164 } from '@/lib/phone';
 import { getSupabase } from '@/lib/supabase/client';
@@ -79,7 +79,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   const resolveCustomerFromUser = useCallback(
     async (user: AuthUser): Promise<Customer | null> => {
       if (!user.email || !user.email_confirmed_at) return null;
-      if (await isShopOwnerEmailRemote(user.email)) return null;
+      if (await isShopStaffEmailRemote(user.email)) return null;
       return customerFromUser(user, true);
     },
     [customerFromUser],

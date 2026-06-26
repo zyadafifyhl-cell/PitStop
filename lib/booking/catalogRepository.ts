@@ -160,6 +160,26 @@ export async function isShopOwnerEmailRemote(email: string): Promise<boolean> {
   return !!data;
 }
 
+/** Block shop staff (owner or branch manager) from the customer area. */
+export async function isShopStaffEmailRemote(email: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return false;
+  if (getShopByOwnerEmail(normalized)) return true;
+
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data } = await supabase
+      .from('users')
+      .select('role')
+      .eq('email', normalized)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (data?.role === 'owner' || data?.role === 'branch_manager') return true;
+  }
+
+  return isShopOwnerEmailRemote(normalized);
+}
+
 export function listShopsByType(type: ShopType): Shop[] {
   return shopsCache.filter((shop) => shop.type === type);
 }

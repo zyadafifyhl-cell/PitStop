@@ -1,8 +1,7 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Modal,
   Pressable,
   ScrollView,
@@ -14,19 +13,36 @@ import {
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { listCustomerInvoices, clearCustomerInvoices } from '@/lib/booking/commerceEvents';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { clearCustomerBookingHistory, listBookingsForPhone, updateBookingStatus } from '@/lib/booking/storage';
-import type { Booking, CustomerInvoice } from '@/lib/booking/types';
+import type { Booking, BookingStatus } from '@/lib/booking/types';
+
+const STATUS_BADGE_COLORS: Record<BookingStatus, string> = {
+  pending: '#F97316',
+  confirmed: '#3B82F6',
+  in_progress: '#A855F7',
+  done: '#22C55E',
+  cancelled: '#EF4444',
+  no_show: '#6B7280',
+};
+
+function serviceLabel(booking: Booking, locale: 'en' | 'ar'): string {
+  if (locale === 'ar' && booking.serviceNameAr) return booking.serviceNameAr;
+  if (booking.serviceName) return booking.serviceName;
+  return shopTypeLabel(booking.shopType, locale);
+}
+
+function formatDisplayPhone(phone: string): string {
+  return phone.startsWith('+20') ? `0${phone.slice(3)}` : phone;
+}
 
 export default function MyBookingsScreen() {
   const { t, locale } = useI18n();
   const theme = useAppTheme();
-  const { customer } = useCustomerAuth();
+  const { customer, ready: authReady } = useCustomerAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
   const [busy, setBusy] = useState(true);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Booking | null>(null);
@@ -35,62 +51,63 @@ export default function MyBookingsScreen() {
   const [erasing, setErasing] = useState(false);
   const [eraseSuccessVisible, setEraseSuccessVisible] = useState(false);
 
+  const rebookLabel = locale === 'ar' ? 'إعادة الحجز' : 'Rebook';
+  const reviewLabel = locale === 'ar' ? 'اترك تقييم' : 'Leave a Review';
+  const serviceFieldLabel = locale === 'ar' ? 'الخدمة' : 'Service';
+  const dateFieldLabel = locale === 'ar' ? 'الموعد' : 'Date & time';
+  const carFieldLabel = locale === 'ar' ? 'السيارة' : 'Car';
+  const priceFieldLabel = locale === 'ar' ? 'السعر' : 'Price';
+
   const refreshBookings = useCallback(async () => {
     if (!customer?.phone) {
       setBookings([]);
-      setInvoices([]);
       setBusy(false);
       return;
     }
-    const [rows, invoiceRows] = await Promise.all([
-      listBookingsForPhone(customer.phone),
-      listCustomerInvoices({
-        customerId: customer.id,
-        customerPhone: customer.phone,
-      }),
-    ]);
+    const rows = await listBookingsForPhone(customer.phone);
     setBookings(rows);
-    setInvoices(invoiceRows);
     setBusy(false);
-  }, [customer?.id, customer?.phone]);
+  }, [customer?.phone]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        setBusy(true);
-        if (!customer?.phone) {
-          if (!cancelled) {
-            setBookings([]);
-            setBusy(false);
-          }
+        if (!authReady) {
+          setBusy(true);
           return;
         }
-        const [rows, invoiceRows] = await Promise.all([
-          listBookingsForPhone(customer.phone),
-          listCustomerInvoices({
-            customerId: customer.id,
-            customerPhone: customer.phone,
-          }),
-        ]);
-        if (!cancelled) {
-          setBookings(rows);
-          setInvoices(invoiceRows);
-          setBusy(false);
+        setBusy(true);
+        try {
+          if (!customer?.phone) {
+            if (!cancelled) setBookings([]);
+            return;
+          }
+          const rows = await listBookingsForPhone(customer.phone);
+          if (!cancelled) setBookings(rows);
+        } catch {
+          if (!cancelled) setBookings([]);
+        } finally {
+          if (!cancelled) setBusy(false);
         }
       })();
       return () => {
         cancelled = true;
+        setBusy(false);
       };
-    }, [customer?.id, customer?.phone]),
+    }, [authReady, customer?.phone]),
   );
-
-  function canCancelBooking(booking: Booking): boolean {
-    return booking.status === 'pending' || booking.status === 'confirmed';
-  }
 
   function onCancelBooking(booking: Booking) {
     setCancelTarget(booking);
+  }
+
+  function onRebook(booking: Booking) {
+    router.push(`/book/${booking.shopId}`);
+  }
+
+  function onLeaveReview(booking: Booking) {
+    router.push(`/shop-profile/${booking.shopId}`);
   }
 
   async function confirmCancelBooking() {
@@ -111,10 +128,7 @@ export default function MyBookingsScreen() {
     if (!customer?.phone) return;
     setErasing(true);
     try {
-      await Promise.all([
-        clearCustomerBookingHistory({ phone: customer.phone, customerId: customer.id }),
-        clearCustomerInvoices({ customerId: customer.id, customerPhone: customer.phone }),
-      ]);
+      await clearCustomerBookingHistory({ phone: customer.phone, customerId: customer.id });
       setEraseConfirmVisible(false);
       await refreshBookings();
       setEraseSuccessVisible(true);
@@ -123,113 +137,117 @@ export default function MyBookingsScreen() {
     }
   }
 
-  const hasHistory = bookings.length > 0 || invoices.length > 0;
+  function renderActions(booking: Booking) {
+    if (booking.status === 'in_progress') return null;
 
-  function partsStatusLabel(status: CustomerInvoice['status']): string {
-    if (status === 'pending') return t('parts_status_pending');
-    if (status === 'confirmed') return t('parts_status_confirmed');
-    if (status === 'cancelled') return t('parts_status_cancelled');
-    return t('parts_status_shipped');
+    const showCancel = booking.status === 'pending' || booking.status === 'confirmed';
+    const showRebook =
+      booking.status === 'done' || booking.status === 'cancelled' || booking.status === 'no_show';
+    const showReview = booking.status === 'done';
+
+    if (!showCancel && !showRebook && !showReview) return null;
+
+    return (
+      <View style={styles.actionsRow}>
+        {showCancel ? (
+          <Pressable
+            onPress={() => onCancelBooking(booking)}
+            disabled={cancellingId === booking.id}
+            style={[
+              styles.actionBtn,
+              styles.actionBtnOutline,
+              { borderColor: theme.danger, opacity: cancellingId === booking.id ? 0.6 : 1 },
+            ]}>
+            <Text style={[styles.actionBtnText, { color: theme.danger }]}>
+              {cancellingId === booking.id ? t('book_saving') : t('book_cancel_btn')}
+            </Text>
+          </Pressable>
+        ) : null}
+        {showRebook ? (
+          <Pressable
+            onPress={() => onRebook(booking)}
+            style={[styles.actionBtn, { backgroundColor: theme.accent }]}>
+            <Text style={[styles.actionBtnText, { color: theme.onAccent }]}>{rebookLabel}</Text>
+          </Pressable>
+        ) : null}
+        {showReview ? (
+          <Pressable
+            onPress={() => onLeaveReview(booking)}
+            style={[styles.actionBtn, styles.actionBtnOutline, { borderColor: theme.accent }]}>
+            <Text style={[styles.actionBtnText, { color: theme.accent }]}>{reviewLabel}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
   }
 
   return (
     <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
-      <Text style={[styles.lead, { color: theme.textMuted }]}>{t('bookings_lead_customer')}</Text>
       {customer ? (
-        <Text style={[styles.phoneLine, { color: theme.text }]}>
-          {t('book_phone_label')}: {customer.phone.replace('+20', '0')}
-        </Text>
+        <View style={[styles.pageHeader, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.profileName, { color: theme.text }]}>{customer.name}</Text>
+          {customer.phone ? (
+            <Text style={[styles.profilePhone, { color: theme.textMuted }]}>
+              {formatDisplayPhone(customer.phone)}
+            </Text>
+          ) : null}
+        </View>
       ) : null}
 
       {busy ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={theme.accent} />
+      ) : bookings.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.textMuted, marginTop: 24 }]}>{t('bookings_empty')}</Text>
       ) : (
-        <>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('bookings_services_section')}</Text>
-          <FlatList
-            data={bookings}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-            style={{ marginTop: 12 }}
-            contentContainerStyle={bookings.length === 0 ? styles.emptyWrap : undefined}
-            ListEmptyComponent={<Text style={[styles.empty, { color: theme.textMuted }]}>{t('bookings_empty')}</Text>}
-            renderItem={({ item }) => {
-              const shop = getShopById(item.shopId);
-              const shopName = shop
-                ? locale === 'ar'
-                  ? shop.nameAr
-                  : shop.name
-                : item.shopId;
-              return (
-                <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                  <Text style={[styles.shopName, { color: theme.text }]}>{shopName}</Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {shopTypeLabel(item.shopType, locale)} · {bookingStatusLabel(item.status, locale)}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>{formatBookingDateTime(item.scheduledAt, locale)}</Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {item.carType}
-                    {item.carColor ? ` · ${item.carColor}` : ''}
-                  </Text>
-                  {canCancelBooking(item) ? (
-                    <Pressable
-                      onPress={() => onCancelBooking(item)}
-                      disabled={cancellingId === item.id}
-                      style={[
-                        styles.cancelBtn,
-                        {
-                          borderColor: theme.danger,
-                          opacity: cancellingId === item.id ? 0.6 : 1,
-                        },
-                      ]}>
-                      <Text style={[styles.cancelBtnText, { color: theme.danger }]}>
-                        {cancellingId === item.id ? t('book_saving') : t('book_cancel_btn')}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              );
-            }}
-          />
+        bookings.map((item) => {
+          const shop = getShopById(item.shopId);
+          const shopName = shop ? (locale === 'ar' ? shop.nameAr : shop.name) : item.shopId;
+          const badgeColor = STATUS_BADGE_COLORS[item.status];
+          const price =
+            item.servicePriceEgp != null ? formatEgp(item.servicePriceEgp, locale) : formatEgp(0, locale);
 
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('bookings_parts_invoices_section')}</Text>
-          {invoices.length === 0 ? (
-            <Text style={[styles.empty, { color: theme.textMuted }]}>{t('bookings_parts_invoices_empty')}</Text>
-          ) : (
-            invoices.map((invoice) => {
-              const shop = getShopById(invoice.shopId);
-              const shopName = shop ? (locale === 'ar' ? shop.nameAr : shop.name) : invoice.shopId;
-              return (
-                <View key={invoice.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                  <Text style={[styles.shopName, { color: theme.text }]}>{shopName}</Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {t('parts_order_money_line')
-                      .replace('{subtotal}', formatEgp(invoice.subtotalEgp, locale))
-                      .replace('{fee}', formatEgp(invoice.platformFeeEgp, locale))
-                      .replace('{total}', formatEgp(invoice.totalEgp, locale))}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {t('parts_shipping_address_label')}: {invoice.shippingAddress}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {t('bookings_parts_status_prefix')}: {partsStatusLabel(invoice.status)}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {new Date(invoice.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {invoice.emailedAt
-                      ? t('bookings_invoice_emailed')
-                      : t('bookings_invoice_not_emailed')}
-                  </Text>
+          return (
+            <View
+              key={item.id}
+              style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card, marginTop: 12 }]}>
+              <View style={styles.cardHeader}>
+                <Text style={[styles.shopName, { color: theme.text }]} numberOfLines={2}>
+                  {shopName}
+                </Text>
+                <View style={[styles.statusBadge, { backgroundColor: badgeColor }]}>
+                  <Text style={styles.statusBadgeText}>{bookingStatusLabel(item.status, locale)}</Text>
                 </View>
-              );
-            })
-          )}
-        </>
+              </View>
+
+              <View style={styles.fieldRow}>
+                <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{serviceFieldLabel}</Text>
+                <Text style={[styles.fieldValue, { color: theme.text }]}>{serviceLabel(item, locale)}</Text>
+              </View>
+              <View style={styles.fieldRow}>
+                <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{dateFieldLabel}</Text>
+                <Text style={[styles.fieldValue, { color: theme.text }]}>
+                  {formatBookingDateTime(item.scheduledAt, locale)}
+                </Text>
+              </View>
+              <View style={styles.fieldRow}>
+                <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{carFieldLabel}</Text>
+                <Text style={[styles.fieldValue, { color: theme.text }]}>
+                  {item.carType}
+                  {item.carColor ? ` · ${item.carColor}` : ''}
+                </Text>
+              </View>
+              <View style={styles.fieldRow}>
+                <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{priceFieldLabel}</Text>
+                <Text style={[styles.priceValue, { color: theme.text }]}>{price}</Text>
+              </View>
+
+              {renderActions(item)}
+            </View>
+          );
+        })
       )}
 
-      {customer?.phone && hasHistory && !busy ? (
+      {customer?.phone && bookings.length > 0 && !busy ? (
         <Pressable
           onPress={() => setEraseConfirmVisible(true)}
           style={[styles.eraseBtn, { borderColor: theme.danger, opacity: erasing ? 0.6 : 1 }]}>
@@ -342,10 +360,14 @@ export default function MyBookingsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
-  lead: { fontSize: 15, lineHeight: 22 },
-  phoneLine: { fontSize: 14, marginTop: 8, fontWeight: '600' },
-  sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 16, marginBottom: 4 },
-  emptyWrap: { flexGrow: 1, justifyContent: 'center' },
+  pageHeader: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 4,
+  },
+  profileName: { fontSize: 18, fontWeight: '800' },
+  profilePhone: { fontSize: 15, fontWeight: '600', marginTop: 4 },
   empty: { textAlign: 'center' },
   card: {
     borderWidth: 1,
@@ -353,17 +375,40 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
   },
-  shopName: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
-  meta: { fontSize: 14, marginTop: 2 },
-  cancelBtn: {
-    marginTop: 12,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  shopName: { flex: 1, fontSize: 16, fontWeight: '800' },
+  statusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  fieldRow: { marginTop: 8 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', marginBottom: 2 },
+  fieldValue: { fontSize: 14, lineHeight: 20 },
+  priceValue: { fontSize: 15, fontWeight: '800' },
+  actionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+  },
+  actionBtn: {
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
-  cancelBtnText: { fontSize: 14, fontWeight: '800' },
+  actionBtnOutline: {
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  actionBtnText: { fontSize: 13, fontWeight: '800' },
   eraseBtn: {
     marginTop: 24,
     alignSelf: 'center',

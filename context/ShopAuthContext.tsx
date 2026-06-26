@@ -9,13 +9,9 @@ import React, {
   useState,
 } from 'react';
 
-import {
-  getShopByOwnerEmail,
-  hydrateCatalogCache,
-  isCatalogReady,
-  refreshCatalog,
-} from '@/lib/booking/catalogRepository';
 import type { Shop } from '@/lib/booking/types';
+import { resolveShopSession, type ShopStaffUser } from '@/lib/shop/shopStaffUser';
+import { isStaffInviteLocked } from '@/lib/auth/staffInviteLock';
 import { getSupabase } from '@/lib/supabase/client';
 
 export type ShopLoginResult =
@@ -27,6 +23,9 @@ export type ShopLoginResult =
 type ShopAuthContextValue = {
   ready: boolean;
   shop: Shop | null;
+  staff: ShopStaffUser | null;
+  isOwner: boolean;
+  isBranchManager: boolean;
   busy: boolean;
   login: (email: string, password: string) => Promise<ShopLoginResult>;
   logout: () => Promise<void>;
@@ -34,21 +33,32 @@ type ShopAuthContextValue = {
 
 const ShopAuthContext = createContext<ShopAuthContextValue | null>(null);
 
-async function resolveShopForEmail(email: string): Promise<Shop | null> {
-  if (!isCatalogReady()) {
-    await hydrateCatalogCache();
-  }
-  if (!isCatalogReady()) {
-    await refreshCatalog();
-  }
-  return getShopByOwnerEmail(email) ?? null;
+const SESSION_KEY = '@pitstop/shop-session';
+
+async function persistSession(staff: ShopStaffUser): Promise<void> {
+  await AsyncStorage.setItem(SESSION_KEY, staff.email);
 }
 
 export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [shop, setShop] = useState<Shop | null>(null);
+  const [staff, setStaff] = useState<ShopStaffUser | null>(null);
   const [busy, setBusy] = useState(false);
   const signingOutRef = useRef(false);
+
+  const applySession = useCallback(async (userId: string, email: string) => {
+    const resolved = await resolveShopSession(userId, email);
+    if (resolved.shop && resolved.staff) {
+      setShop(resolved.shop);
+      setStaff(resolved.staff);
+      await persistSession(resolved.staff);
+      return true;
+    }
+    setShop(null);
+    setStaff(null);
+    await AsyncStorage.removeItem(SESSION_KEY);
+    return false;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,20 +67,9 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
         const supabase = getSupabase();
         if (supabase) {
           const { data } = await supabase.auth.getSession();
-          const email = data.session?.user?.email;
-          if (email) {
-            const match = await resolveShopForEmail(email);
-            if (match && !cancelled) {
-              setShop(match);
-              await AsyncStorage.setItem('@pitstop/shop-session', match.ownerEmail);
-            }
-          }
-        } else {
-          const saved = await AsyncStorage.getItem('@pitstop/shop-session');
-          if (saved) {
-            if (!isCatalogReady()) await hydrateCatalogCache();
-            const match = getShopByOwnerEmail(saved);
-            if (match && !cancelled) setShop(match);
+          const user = data.session?.user;
+          if (user?.email && user.id) {
+            await applySession(user.id, user.email);
           }
         }
       } catch {
@@ -82,29 +81,23 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applySession]);
 
   useEffect(() => {
     const supabase = getSupabase();
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (signingOutRef.current) return;
-      if (event === 'SIGNED_OUT' || !session?.user?.email) {
+      if (signingOutRef.current || isStaffInviteLocked()) return;
+      if (event === 'SIGNED_OUT' || !session?.user?.email || !session.user.id) {
         setShop(null);
-        await AsyncStorage.removeItem('@pitstop/shop-session');
+        setStaff(null);
+        await AsyncStorage.removeItem(SESSION_KEY);
         return;
       }
-      const match = await resolveShopForEmail(session.user.email);
-      if (match) {
-        setShop(match);
-        await AsyncStorage.setItem('@pitstop/shop-session', match.ownerEmail);
-      } else {
-        setShop(null);
-        await AsyncStorage.removeItem('@pitstop/shop-session');
-      }
+      await applySession(session.user.id, session.user.email);
     });
     return () => data.subscription.unsubscribe();
-  }, []);
+  }, [applySession]);
 
   const login = useCallback(async (email: string, password: string) => {
     setBusy(true);
@@ -113,31 +106,30 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
       const supabase = getSupabase();
       if (!supabase) return 'not_configured';
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: normalized,
         password: password.trim(),
       });
-      if (error) return 'invalid_credentials';
+      if (error || !data.user?.email) return 'invalid_credentials';
 
-      const match = await resolveShopForEmail(normalized);
-      if (!match) {
+      const ok = await applySession(data.user.id, data.user.email);
+      if (!ok) {
         await supabase.auth.signOut();
         return 'shop_not_found';
       }
 
-      await AsyncStorage.setItem('@pitstop/shop-session', match.ownerEmail);
-      setShop(match);
       return 'ok';
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [applySession]);
 
   const logout = useCallback(async () => {
     signingOutRef.current = true;
     setShop(null);
+    setStaff(null);
     try {
-      await AsyncStorage.removeItem('@pitstop/shop-session');
+      await AsyncStorage.removeItem(SESSION_KEY);
       await getSupabase()?.auth.signOut();
     } finally {
       signingOutRef.current = false;
@@ -145,8 +137,17 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ ready, shop, busy, login, logout }),
-    [ready, shop, busy, login, logout],
+    () => ({
+      ready,
+      shop,
+      staff,
+      isOwner: staff?.role === 'owner',
+      isBranchManager: staff?.role === 'branch_manager',
+      busy,
+      login,
+      logout,
+    }),
+    [ready, shop, staff, busy, login, logout],
   );
 
   return <ShopAuthContext.Provider value={value}>{children}</ShopAuthContext.Provider>;

@@ -4,8 +4,42 @@ import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
 import { formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
+import { phoneLookupVariants, phonesEqual } from '@/lib/phone';
 import { sendShopPushForBooking } from '@/lib/push/shopPush';
 import { getSupabase } from '@/lib/supabase/client';
+
+const REMOTE_QUERY_TIMEOUT_MS = 6000;
+
+async function withRemoteTimeout<T>(promise: PromiseLike<T>, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), REMOTE_QUERY_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function fetchBookingsForPhoneRemote(phone: string): Promise<Booking[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const phoneVariants = phoneLookupVariants(phone);
+  const response = await withRemoteTimeout(
+    supabase
+      .from('bookings')
+      .select('*')
+      .in('customer_phone', phoneVariants.length ? phoneVariants : [phone])
+      .order('scheduled_at', { ascending: false }),
+    null,
+  );
+  if (!response || response.error || !response.data) return null;
+  return (response.data as BookingRow[]).map(mapBookingRow);
+}
 
 const BOOKINGS_KEY = '@pitstop/bookings/v1';
 const CUSTOMER_PHONE_KEY = '@pitstop/bookings/customer-phone';
@@ -153,23 +187,11 @@ export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
 }
 
 export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
-  const localRows = (await readAll()).filter((b) => b.customerPhone === phone);
-  const supabase = getSupabase();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('customer_phone', phone)
-      .order('scheduled_at', { ascending: false });
-
-    if (!error && data) {
-      const remoteRows = (data as BookingRow[]).map(mapBookingRow);
-      return mergeBookings(remoteRows, localRows).sort((a, b) =>
-        b.scheduledAt.localeCompare(a.scheduledAt),
-      );
-    }
+  const localRows = (await readAll()).filter((b) => phonesEqual(b.customerPhone, phone));
+  const remoteRows = await fetchBookingsForPhoneRemote(phone);
+  if (remoteRows) {
+    return mergeBookings(remoteRows, localRows).sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
   }
-
   return localRows.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
 }
 

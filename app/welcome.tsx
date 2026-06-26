@@ -62,6 +62,11 @@ export default function WelcomeScreen() {
     if (focus === 'login') {
       setMode('customer');
       setIsRegister(false);
+      return;
+    }
+    if (focus === 'owner') {
+      setMode('owner');
+      setIsRegister(false);
     }
   }, [focus]);
 

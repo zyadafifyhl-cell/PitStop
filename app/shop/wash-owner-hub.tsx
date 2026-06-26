@@ -43,10 +43,15 @@ type HubTab = 'notifications' | 'orders' | 'history';
 
 type RejectTarget = { booking: Booking };
 
+function filterBookingsForStaff(bookings: Booking[], staff: ReturnType<typeof useShopAuth>['staff']) {
+  if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
+  return bookings.filter((booking) => !booking.branchId || booking.branchId === staff.branchId);
+}
+
 export default function WashOwnerHubScreen() {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
-  const { shop, ready } = useShopAuth();
+  const { shop, staff, ready } = useShopAuth();
   const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const rawTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const initialTab: HubTab =
@@ -80,11 +85,11 @@ export default function WashOwnerHubScreen() {
         listBookingsForShop(shop.id),
       ]);
       setNotifications(notifRows);
-      setBookings(bookingRows);
+      setBookings(filterBookingsForStaff(bookingRows, staff));
     } finally {
       setLoading(false);
     }
-  }, [shop]);
+  }, [shop, staff]);
 
   useFocusEffect(
     useCallback(() => {

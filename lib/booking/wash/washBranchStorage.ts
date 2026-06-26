@@ -3,11 +3,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import type { Shop, ShopDayHours, ShopOffer, ShopService } from '@/lib/booking/types';
+import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { WashBranch, WashBranchState, WashCoupon, WashShopStatus, WashVacationMode } from '@/lib/booking/wash/types';
+import {
+  addBranchRemote,
+  fetchWashBranchStateFromRemote,
+  persistActiveBranchRemote,
+  saveBranchServicesRemote,
+  updateBranchRemote,
+} from '@/lib/booking/wash/branchRepository';
 import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
 
 const KEY = '@pitstop/wash-branches/v1';
 type BranchMap = Record<string, WashBranchState>;
+
+export type WashBranchContext = {
+  staff: ShopStaffUser;
+};
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -84,7 +100,30 @@ async function branchFromExtras(shop: Shop, extras: Awaited<ReturnType<typeof ge
   return branch;
 }
 
-export async function getWashBranchState(shop: Shop): Promise<WashBranchState> {
+async function cacheState(shopId: string, state: WashBranchState): Promise<void> {
+  const map = await readMap();
+  map[shopId] = state;
+  await writeMap(map);
+}
+
+function activeBranchFromState(state: WashBranchState): WashBranch {
+  return state.branches.find((b) => b.id === state.activeBranchId) ?? state.branches[0];
+}
+
+async function syncActiveBranchExtras(shop: Shop, state: WashBranchState): Promise<void> {
+  const branch = activeBranchFromState(state);
+  if (branch) await syncWashBranchToShopExtras(shop.id, branch);
+}
+
+export async function getWashBranchState(shop: Shop, ctx?: WashBranchContext): Promise<WashBranchState> {
+  if (ctx?.staff) {
+    const remote = await fetchWashBranchStateFromRemote(shop, ctx.staff);
+    if (remote) {
+      await cacheState(shop.id, remote);
+      return remote;
+    }
+  }
+
   const map = await readMap();
   const existing = map[shop.id];
   if (existing?.branches?.length) return existing;
@@ -97,38 +136,58 @@ export async function getWashBranchState(shop: Shop): Promise<WashBranchState> {
     branches: [main],
     updatedAt: nowIso(),
   };
-  map[shop.id] = state;
-  await writeMap(map);
+  await cacheState(shop.id, state);
   return state;
 }
 
-export async function getActiveWashBranch(shop: Shop): Promise<WashBranch> {
-  const state = await getWashBranchState(shop);
-  return state.branches.find((b) => b.id === state.activeBranchId) ?? state.branches[0];
+export async function getActiveWashBranch(shop: Shop, ctx?: WashBranchContext): Promise<WashBranch> {
+  const state = await getWashBranchState(shop, ctx);
+  return activeBranchFromState(state);
 }
 
-export async function setActiveWashBranch(shop: Shop, branchId: string): Promise<WashBranchState> {
-  const map = await readMap();
-  const state = await getWashBranchState(shop);
+export async function setActiveWashBranch(
+  shop: Shop,
+  branchId: string,
+  ctx?: WashBranchContext,
+): Promise<WashBranchState> {
+  const state = await getWashBranchState(shop, ctx);
   if (!state.branches.some((b) => b.id === branchId)) return state;
   state.activeBranchId = branchId;
   state.updatedAt = nowIso();
-  map[shop.id] = state;
-  await writeMap(map);
-  const branch = state.branches.find((b) => b.id === state.activeBranchId)!;
-  await syncWashBranchToShopExtras(shop.id, branch);
+  await cacheState(shop.id, state);
+  if (ctx?.staff.role === 'owner') {
+    await persistActiveBranchRemote(shop.id, branchId);
+  }
+  await syncActiveBranchExtras(shop, state);
   return state;
 }
 
-export async function addWashBranch(shop: Shop, name: string, nameAr?: string): Promise<WashBranchState> {
-  const map = await readMap();
-  const state = await getWashBranchState(shop);
+export async function addWashBranch(
+  shop: Shop,
+  name: string,
+  nameAr?: string,
+  ctx?: WashBranchContext,
+): Promise<WashBranchState> {
+  if (ctx?.staff) {
+    const remoteBranch = await addBranchRemote(shop, name, nameAr);
+    if (remoteBranch) {
+      const state = await getWashBranchState(shop, ctx);
+      state.branches = [...state.branches.filter((b) => b.id !== remoteBranch.id), remoteBranch];
+      state.activeBranchId = remoteBranch.id;
+      state.updatedAt = nowIso();
+      await cacheState(shop.id, state);
+      await persistActiveBranchRemote(shop.id, remoteBranch.id);
+      await syncWashBranchToShopExtras(shop.id, remoteBranch);
+      return state;
+    }
+  }
+
+  const state = await getWashBranchState(shop, ctx);
   const branch = emptyBranch(name.trim() || 'New branch', nameAr?.trim());
   state.branches = [...state.branches, branch];
   state.activeBranchId = branch.id;
   state.updatedAt = nowIso();
-  map[shop.id] = state;
-  await writeMap(map);
+  await cacheState(shop.id, state);
   await syncWashBranchToShopExtras(shop.id, branch);
   return state;
 }
@@ -163,60 +222,90 @@ export async function updateActiveWashBranch(
       | 'scheduleSavedAt'
     >
   >,
+  ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  const map = await readMap();
-  const state = await getWashBranchState(shop);
+  const state = await getWashBranchState(shop, ctx);
+  const activeId = state.activeBranchId;
   state.branches = state.branches.map((branch) => {
-    if (branch.id !== state.activeBranchId) return branch;
+    if (branch.id !== activeId) return branch;
     return { ...branch, ...patch, updatedAt: nowIso() };
   });
   state.updatedAt = nowIso();
-  map[shop.id] = state;
-  await writeMap(map);
-  const active = state.branches.find((b) => b.id === state.activeBranchId)!;
+  await cacheState(shop.id, state);
+  const active = activeBranchFromState(state);
+
+  if (ctx?.staff && isUuid(active.id)) {
+    await updateBranchRemote(active.id, patch);
+    if (patch.services) {
+      await saveBranchServicesRemote(shop.id, active.id, active.services);
+    }
+  }
+
   await syncWashBranchToShopExtras(shop.id, active);
-  return state.branches.find((b) => b.id === state.activeBranchId)!;
+  return active;
 }
 
-export async function deleteWashBranch(shop: Shop, branchId: string): Promise<WashBranchState> {
-  const map = await readMap();
-  const state = await getWashBranchState(shop);
+export async function deleteWashBranch(
+  shop: Shop,
+  branchId: string,
+  ctx?: WashBranchContext,
+): Promise<WashBranchState> {
+  const state = await getWashBranchState(shop, ctx);
   if (state.branches.length <= 1) return state;
   state.branches = state.branches.filter((b) => b.id !== branchId);
   if (state.activeBranchId === branchId) {
     state.activeBranchId = state.branches[0]?.id ?? 'main';
   }
   state.updatedAt = nowIso();
-  map[shop.id] = state;
-  await writeMap(map);
-  const active = state.branches.find((b) => b.id === state.activeBranchId)!;
-  await syncWashBranchToShopExtras(shop.id, active);
+  await cacheState(shop.id, state);
+  await syncActiveBranchExtras(shop, state);
   return state;
 }
 
-export async function saveWashBranchServices(shop: Shop, services: ShopService[]): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { services });
+export async function saveWashBranchServices(
+  shop: Shop,
+  services: ShopService[],
+  ctx?: WashBranchContext,
+): Promise<WashBranch> {
+  return updateActiveWashBranch(shop, { services }, ctx);
 }
 
-export async function saveWashBranchWeeklyHours(shop: Shop, weeklyHours: ShopDayHours[]): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, {
-    weeklyHours,
-    scheduleSavedAt: nowIso(),
-  });
+export async function saveWashBranchWeeklyHours(
+  shop: Shop,
+  weeklyHours: ShopDayHours[],
+  ctx?: WashBranchContext,
+): Promise<WashBranch> {
+  return updateActiveWashBranch(
+    shop,
+    {
+      weeklyHours,
+      scheduleSavedAt: nowIso(),
+    },
+    ctx,
+  );
 }
 
-export async function saveWashBranchCoupons(shop: Shop, coupons: WashCoupon[]): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { coupons });
+export async function saveWashBranchCoupons(
+  shop: Shop,
+  coupons: WashCoupon[],
+  ctx?: WashBranchContext,
+): Promise<WashBranch> {
+  return updateActiveWashBranch(shop, { coupons }, ctx);
 }
 
-export async function saveWashBranchOffers(shop: Shop, offers: ShopOffer[]): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { offers });
+export async function saveWashBranchOffers(
+  shop: Shop,
+  offers: ShopOffer[],
+  ctx?: WashBranchContext,
+): Promise<WashBranch> {
+  return updateActiveWashBranch(shop, { offers }, ctx);
 }
 
 export async function saveWashBranchStatus(
   shop: Shop,
   shopStatus: WashShopStatus,
   vacationMode: WashVacationMode,
+  ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { shopStatus, vacationMode });
+  return updateActiveWashBranch(shop, { shopStatus, vacationMode }, ctx);
 }

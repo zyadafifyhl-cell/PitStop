@@ -8,6 +8,14 @@ import { resolveReturnTo } from '@/lib/auth/returnTo';
 
 const PUBLIC_PATHS = ['/welcome', '/reset-password', '/auth-required', '/login', '/verify'];
 
+function readRouteParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function isWelcomeAuthIntent(focus: string | undefined): boolean {
+  return focus === 'login' || focus === 'register' || focus === 'owner';
+}
+
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -52,6 +60,9 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     }
 
     if ((customer || isGuest) && pathname === '/welcome') {
+      const focus = readRouteParam(params.focus);
+      if (isGuest && isWelcomeAuthIntent(focus)) return;
+
       const destination = resolveReturnTo(params.returnTo) ?? '/';
       router.replace(destination);
     }
@@ -65,6 +76,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     pathname,
     router,
     params.returnTo,
+    params.focus,
   ]);
 
   return <>{children}</>;

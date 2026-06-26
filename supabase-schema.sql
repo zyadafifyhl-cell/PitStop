@@ -3,6 +3,14 @@
 -- Fresh project:
 --   1. supabase/schema.sql
 --   2. supabase/seed.sql
+--   3. supabase/seed-branches.sql   (optional demo branches + employees)
 --
--- Existing project with spare_parts table:
---   Run supabase/migrate-to-store.sql once, then re-run seed store rows if needed.
+-- Existing project (profiles + spare_parts — like your SQL Editor script):
+--   1. apply-pitstop-2.0-step1-enums.sql
+--   2. apply-pitstop-2.0-step2-main.sql
+--   3. seed-test-data.sql (optional demo data)
+--
+-- Existing project with spare_parts table (legacy):
+--   Run supabase/migrate-to-store.sql once before the above if needed.
+--
+-- Full documentation: docs/SCHEMA.md

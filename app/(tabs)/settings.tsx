@@ -259,7 +259,7 @@ export default function SettingsScreen() {
           label={t('guest_gate_sign_in')}
           hint={t('guest_settings_sign_in_hint')}
           accent={theme.accent}
-          onPress={() => router.push({ pathname: '/welcome', params: { focus: 'login' } })}
+          onPress={() => router.replace({ pathname: '/welcome', params: { focus: 'login' } })}
         />
       ) : (
         <SettingsRow
