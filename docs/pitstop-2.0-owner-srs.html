@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PitStop 2.0 — Owner & Branch SRS</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      color: #111;
+      background: #fff;
+      line-height: 1.45;
+      font-size: 11pt;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 12mm 10mm;
+    }
+    h1 { font-size: 22pt; margin: 0 0 4px; color: #0d3b66; }
+    h2 { font-size: 13pt; margin: 22px 0 8px; color: #0d3b66; border-bottom: 2px solid #e8eef5; padding-bottom: 4px; }
+    h3 { font-size: 11pt; margin: 14px 0 6px; color: #333; }
+    p, li { margin: 0 0 6px; }
+    .subtitle { color: #555; font-size: 10.5pt; margin-bottom: 18px; }
+    .tag { display: inline-block; background: #eef4fb; color: #0d3b66; padding: 2px 8px; border-radius: 999px; font-size: 9pt; margin-right: 6px; }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 10pt; }
+    th, td { border: 1px solid #d8dee8; padding: 6px 8px; text-align: left; vertical-align: top; }
+    th { background: #f3f6fa; }
+    .yes { color: #0a7; font-weight: 700; }
+    .no { color: #c33; font-weight: 700; }
+    .partial { color: #b80; font-weight: 700; }
+    pre {
+      background: #f7f9fc;
+      border: 1px solid #e2e8f0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 9.5pt;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+    .flow { font-family: Consolas, monospace; font-size: 9.5pt; background: #f7f9fc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .page-break { page-break-before: always; }
+    .footer { margin-top: 24px; font-size: 9pt; color: #777; text-align: center; }
+    ul { padding-left: 18px; }
+  </style>
+</head>
+<body>
+
+<h1>PitStop 2.0 — Master SRS (Business Side)</h1>
+<p class="subtitle">
+  Unified document for <strong>Owner</strong>, <strong>Branch Manager</strong>, and <strong>Employees</strong> —
+  roles, permissions, dashboards, workflows, and multi-branch operations.<br />
+  Complements <em>PitStop Master SRS (Customer Side)</em>.
+</p>
+<p>
+  <span class="tag">Car Wash</span>
+  <span class="tag">Multi-Branch</span>
+  <span class="tag">Roles &amp; RLS</span>
+  <span class="tag">Supabase Auth</span>
+</p>
+
+<h2>1. Vision</h2>
+<p>
+  PitStop lets a <strong>shop owner</strong> run one brand with many branches.
+  The owner keeps full control; each branch has a <strong>branch manager</strong> with a separate login;
+  <strong>employees</strong> are roster records only (no app accounts).
+</p>
+
+<h2>2. Role Hierarchy</h2>
+<pre>
+Owner (shop brand account)
+  ├── Creates & manages branches
+  ├── Creates / links Branch Manager accounts (email + password)
+  └── Sees all branches + global reports
+
+Branch Manager (one branch)
+  ├── Manages daily operations for assigned branch only
+  ├── Adds / edits employees (info only, no login)
+  └── Handles bookings, schedule, services for that branch
+
+Employees
+  └── Name, phone, job title, notes — stored in branch_employees (no login)
+</pre>
+
+<h2>3. Roles &amp; Database Mapping</h2>
+<table>
+  <tr>
+    <th>Role</th>
+    <th>Login</th>
+    <th>Table</th>
+    <th>shop_id</th>
+    <th>branch_id</th>
+  </tr>
+  <tr>
+    <td>Customer</td>
+    <td class="yes">Yes</td>
+    <td>public.users</td>
+    <td>—</td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td>Owner</td>
+    <td class="yes">Yes</td>
+    <td>public.users</td>
+    <td>Required</td>
+    <td>— (all branches)</td>
+  </tr>
+  <tr>
+    <td>Branch Manager</td>
+    <td class="yes">Yes</td>
+    <td>public.users</td>
+    <td>Required</td>
+    <td>Required (one branch)</td>
+  </tr>
+  <tr>
+    <td>Employee</td>
+    <td class="no">No</td>
+    <td>branch_employees</td>
+    <td>—</td>
+    <td>Required</td>
+  </tr>
+</table>
+
+<h2>4. Owner Dashboard — What &amp; Why</h2>
+<table>
+  <tr><th>Section</th><th>Owner</th><th>Why</th></tr>
+  <tr><td>Dashboard overview</td><td class="yes">All branches aggregated</td><td>Business health at a glance</td></tr>
+  <tr><td>Branch tabs / switcher</td><td class="yes">Yes</td><td>Owner manages every location</td></tr>
+  <tr><td>Create branch</td><td class="yes">Yes</td><td>Scale to new areas</td></tr>
+  <tr><td>Branch profile &amp; gallery</td><td class="yes">Per branch</td><td>Each location has its own identity</td></tr>
+  <tr><td>Services CRUD</td><td class="yes">Per branch</td><td>Prices/duration may differ by branch</td></tr>
+  <tr><td>Weekly hours &amp; vacation</td><td class="yes">Per branch</td><td>Operating rules per site</td></tr>
+  <tr><td>Offers / coupons</td><td class="yes">Per branch</td><td>Local promotions</td></tr>
+  <tr><td>Bookings (all statuses)</td><td class="yes">All branches</td><td>Override &amp; audit</td></tr>
+  <tr><td>Employees list</td><td class="yes">View all branches</td><td>HR oversight</td></tr>
+  <tr><td><strong>Create Branch Manager</strong></td><td class="yes">Owner only</td><td>Security — only owner invites managers</td></tr>
+  <tr><td>Link existing email as manager</td><td class="yes">Owner only</td><td>Avoid duplicate sign-ups / rate limits</td></tr>
+  <tr><td>PDF financial reports</td><td class="yes">All branches</td><td>Accounting &amp; review</td></tr>
+  <tr><td>Notifications</td><td class="yes">Shop-wide</td><td>New bookings &amp; alerts</td></tr>
+</table>
+
+<h2>5. Branch Manager Dashboard — What &amp; Why</h2>
+<table>
+  <tr><th>Section</th><th>Manager</th><th>Why</th></tr>
+  <tr><td>Dashboard overview</td><td class="partial">Own branch only</td><td>Focus on daily KPIs</td></tr>
+  <tr><td>Branch switcher</td><td class="no">No</td><td>Assigned to one branch</td></tr>
+  <tr><td>Create branch</td><td class="no">No</td><td>Owner decides expansion</td></tr>
+  <tr><td>Branch profile &amp; gallery</td><td class="yes">Own branch</td><td>Keep listing up to date</td></tr>
+  <tr><td>Services CRUD</td><td class="yes">Own branch</td><td>Day-to-day menu updates</td></tr>
+  <tr><td>Weekly hours &amp; vacation</td><td class="yes">Own branch</td><td>Local schedule control</td></tr>
+  <tr><td>Offers / coupons</td><td class="yes">Own branch</td><td>Run local campaigns</td></tr>
+  <tr><td>Bookings</td><td class="yes">Own branch only</td><td>Accept / reject / complete</td></tr>
+  <tr><td><strong>Add / edit employees</strong></td><td class="yes">Own branch</td><td>Roster for shifts — no login needed</td></tr>
+  <tr><td>Create Branch Manager</td><td class="no">No</td><td>Prevents privilege escalation</td></tr>
+  <tr><td>PDF reports</td><td class="partial">Own branch</td><td>Local performance review</td></tr>
+  <tr><td>Notifications</td><td class="yes">Own branch</td><td>Action on new requests</td></tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2>6. Employee Records (No Login)</h2>
+<p>Employees are <strong>not</strong> Supabase Auth users. Branch manager (or owner) adds:</p>
+<ul>
+  <li>Full name (required)</li>
+  <li>Phone (optional)</li>
+  <li>Job title — e.g. washer, cashier (optional)</li>
+  <li>Notes — shift, skills (optional)</li>
+</ul>
+<p>Stored in <code>branch_employees</code>. Used for internal roster — future: assign to bookings / shifts.</p>
+
+<h2>7. Owner Creates Branch Manager — Workflow</h2>
+<div class="flow">
+Owner logs in (wash@demo.com)
+    |
+    v
+Opens Branch → Branch Managers section
+    |
+    +--> Link existing email (user already registered)
+    |         |
+    |         v
+    |    RPC assign_branch_manager_by_email
+    |
+    +--> Create new login (email + password + name)
+              |
+              v
+         assign_branch_manager (role before signUp)
+              |
+              v
+         signUp → restore owner session
+              |
+              v
+Branch manager logs in → sees own branch only
+</div>
+
+<h2>8. Booking Status Flow (Owner / Manager)</h2>
+<div class="flow">
+pending → confirmed (accept) / cancelled (reject + note)
+confirmed → in_progress → done
+confirmed → no_show
+cancelled ← customer or owner/manager
+</div>
+
+<h2>9. Authentication</h2>
+<ul>
+  <li>Login screen: Customer tab | Owner tab (shop staff)</li>
+  <li>Owner &amp; Branch Manager use same Owner login form</li>
+  <li>App reads <code>public.users.role</code> after Supabase Auth</li>
+  <li>Customers blocked from shop login if they are staff</li>
+  <li>Demo owner: <strong>wash@demo.com</strong> / demo123</li>
+  <li>Demo manager: <strong>manager.wash@demo.com</strong> / demo123</li>
+</ul>
+
+<h2>10. Multi-Branch Data Model</h2>
+<pre>
+shops (brand)
+  └── shop_branches (main, maadi, …)
+        ├── branch_services
+        ├── branch_employees
+        └── bookings.branch_id
+users (owner → shop_id, manager → shop_id + branch_id)
+</pre>
+
+<h2>11. Permissions Matrix (Summary)</h2>
+<table>
+  <tr>
+    <th>Action</th>
+    <th>Owner</th>
+    <th>Branch Manager</th>
+    <th>Employee</th>
+  </tr>
+  <tr><td>Log in to app</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td></tr>
+  <tr><td>See all branches</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+  <tr><td>Manage one branch</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td></tr>
+  <tr><td>Create branch</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+  <tr><td>Create manager account</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+  <tr><td>Add employee record</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td></tr>
+  <tr><td>Handle bookings</td><td class="yes">All</td><td class="yes">Own branch</td><td class="no">No</td></tr>
+  <tr><td>Export PDF report</td><td class="yes">All</td><td class="partial">Own branch</td><td class="no">No</td></tr>
+</table>
+
+<h2>12. Supabase Setup (Business)</h2>
+<ol>
+  <li><code>apply-pitstop-2.0-step1-enums.sql</code></li>
+  <li><code>apply-pitstop-2.0-step2-main.sql</code></li>
+  <li><code>apply-pitstop-2.0-step3-branch-manager-rpc.sql</code></li>
+  <li><code>apply-pitstop-2.0-step4-bookings-rls.sql</code></li>
+  <li><code>seed-test-data.sql</code> (optional demo data)</li>
+</ol>
+
+<h2>13. Future Enhancements (Business)</h2>
+<ul>
+  <li>Assign employees to bookings / shifts</li>
+  <li>Manager performance dashboard per branch</li>
+  <li>Owner approves manager-created offers</li>
+  <li>Payroll / commission tracking</li>
+  <li>Maintenance &amp; Parts owner panels (separate modules)</li>
+  <li>Platform admin role for PitStop operations</li>
+</ul>
+
+<p class="footer">PitStop 2.0 — Business SRS · Generated for project documentation</p>
+
+</body>
+</html>

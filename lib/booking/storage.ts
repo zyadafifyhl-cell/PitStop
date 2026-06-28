@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
 import { formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
+import { recordWashBookingDone } from '@/lib/booking/loyaltyStampsStorage';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
 import { phoneLookupVariants, phonesEqual } from '@/lib/phone';
@@ -313,6 +314,10 @@ export async function updateBookingStatus(
 
   if (updated && status === 'cancelled' && previousStatus !== 'cancelled') {
     await notifyWashOwnerBooking(updated, 'cancelled_booking');
+  }
+
+  if (updated && status === 'done' && previousStatus !== 'done') {
+    await recordWashBookingDone(updated, previousStatus);
   }
 
   return updated;

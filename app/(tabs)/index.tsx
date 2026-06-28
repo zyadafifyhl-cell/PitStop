@@ -4,6 +4,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
+import { LoyaltyCard } from '@/components/customer/LoyaltyCard';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -15,6 +16,12 @@ import { getShopById } from '@/lib/booking/catalogRepository';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { listBookingsForPhone } from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
+import type { LoyaltyRewardCoupon } from '@/lib/booking/loyaltyStampsStorage';
+import {
+  consumePendingLoyaltyReward,
+  getLoyaltyStamps,
+  syncLoyaltyFromBookings,
+} from '@/lib/booking/loyaltyStampsStorage';
 import { listAllShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { listShopsByType } from '@/lib/booking/catalogRepository';
 
@@ -34,6 +41,8 @@ export default function HomeScreen() {
   >([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
+  const [loyaltyStamps, setLoyaltyStamps] = useState(0);
+  const [loyaltyReward, setLoyaltyReward] = useState<LoyaltyRewardCoupon | null>(null);
 
   const serviceCards = useMemo(
     () =>
@@ -99,6 +108,8 @@ export default function HomeScreen() {
       setNextBooking(null);
       setSavedCarType('');
       setCarTypeDraft('');
+      setLoyaltyStamps(0);
+      setLoyaltyReward(null);
       return;
     }
 
@@ -106,6 +117,13 @@ export default function HomeScreen() {
       getSavedCarProfile(customer.id),
       customer.phone ? listBookingsForPhone(customer.phone) : Promise.resolve([]),
     ]);
+    await syncLoyaltyFromBookings(bookings, { customerId: customer.id, phone: customer.phone });
+    const [stamps, pendingReward] = await Promise.all([
+      getLoyaltyStamps({ customerId: customer.id, phone: customer.phone }),
+      consumePendingLoyaltyReward({ customerId: customer.id, phone: customer.phone }),
+    ]);
+    setLoyaltyStamps(stamps);
+    if (pendingReward) setLoyaltyReward(pendingReward);
     const carType = profile?.carType ?? '';
     setSavedCarType(carType);
     setCarTypeDraft(carType);
@@ -182,6 +200,8 @@ export default function HomeScreen() {
           </Text>
         </Pressable>
       ) : null}
+
+      {customer && !isGuest ? <LoyaltyCard stamps={loyaltyStamps} /> : null}
 
       <View style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Text style={[styles.cardTitle, { color: theme.text }]}>{t('home_car_profile_title')}</Text>
@@ -303,6 +323,35 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={!!loyaltyReward}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLoyaltyReward(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('loyalty_reward_title')}</Text>
+            <Text style={[styles.modalBody, { color: theme.textMuted }]}>{t('loyalty_reward_body')}</Text>
+            <Text style={[styles.rewardCodeLabel, { color: theme.textMuted }]}>{t('loyalty_reward_code_label')}</Text>
+            <Text style={[styles.rewardCode, { color: theme.accent, backgroundColor: theme.accentSoft }]}>
+              {loyaltyReward?.code}
+            </Text>
+            {loyaltyReward ? (
+              <Text style={[styles.modalBody, { color: theme.textDim, marginTop: 10 }]}>
+                {tp('loyalty_reward_expires', {
+                  date: new Date(loyaltyReward.expiresAt).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
+                })}
+              </Text>
+            ) : null}
+            <Pressable
+              onPress={() => setLoyaltyReward(null)}
+              style={[styles.modalBtnPrimary, { backgroundColor: theme.accent, marginTop: 16 }]}>
+              <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -415,6 +464,16 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 10 },
   modalBody: { fontSize: 15, lineHeight: 22 },
+  rewardCodeLabel: { fontSize: 12, fontWeight: '700', marginTop: 14, marginBottom: 6 },
+  rewardCode: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textAlign: 'center',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+  },
   modalBtnPrimary: {
     borderRadius: 12,
     paddingVertical: 12,

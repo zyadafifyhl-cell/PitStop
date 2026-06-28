@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -24,6 +24,10 @@ import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContex
 import { isStrongPassword } from '@/lib/authValidation';
 import { isValidEgyptMobile } from '@/lib/phone';
 import { addCustomerVehicle } from '@/lib/booking/vehicleStorage';
+import { useShopCatalog } from '@/context/ShopCatalogContext';
+import { listAreas } from '@/lib/booking/catalogRepository';
+import type { ShopType } from '@/lib/booking/types';
+import { shopTypeLabel } from '@/lib/booking/format';
 import { resolveReturnTo } from '@/lib/auth/returnTo';
 import { userAlert } from '@/lib/ui/userAlert';
 
@@ -37,23 +41,39 @@ function newVehicleDraft(): RegisterVehicleDraft {
 
 type LoginMode = 'customer' | 'owner';
 
+type SubmitPhase = 'idle' | 'signing_in' | 'registering' | 'redirecting';
+
+const OWNER_SHOP_TYPES: ShopType[] = ['wash', 'maintenance', 'parts', 'accessories'];
+
 export default function WelcomeScreen() {
-  const { focus, returnTo } = useLocalSearchParams<{ focus?: string; returnTo?: string }>();
+  const { focus, returnTo, pending } = useLocalSearchParams<{ focus?: string; returnTo?: string; pending?: string }>();
   const router = useRouter();
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
   const { effectivePreference } = useThemePreference();
   const { login: loginCustomer, register, resetPassword, continueAsGuest, busy: customerBusy } = useCustomerAuth();
-  const { login: loginShop, busy: shopBusy } = useShopAuth();
+  const {
+    login: loginShop,
+    registerOwner,
+    busy: shopBusy,
+    isPendingOwner,
+  } = useShopAuth();
+  const { ready: catalogReady } = useShopCatalog();
 
   const [mode, setMode] = useState<LoginMode>('customer');
   const [isRegister, setIsRegister] = useState(false);
+  const [isOwnerRegister, setIsOwnerRegister] = useState(false);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [shopName, setShopName] = useState('');
+  const [shopAddress, setShopAddress] = useState('');
+  const [shopType, setShopType] = useState<ShopType>('wash');
+  const [shopAreaId, setShopAreaId] = useState('maadi');
   const [formMessage, setFormMessage] = useState('');
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>('idle');
   const [registerVehicles, setRegisterVehicles] = useState<RegisterVehicleDraft[]>([newVehicleDraft()]);
 
   useEffect(() => {
@@ -70,8 +90,18 @@ export default function WelcomeScreen() {
     if (focus === 'owner') {
       setMode('owner');
       setIsRegister(false);
+      setIsOwnerRegister(false);
     }
   }, [focus]);
+
+  useEffect(() => {
+    if (pending === '1' || isPendingOwner) {
+      setMode('owner');
+      setFormMessage(t('owner_pending_approval_body'));
+    }
+  }, [pending, isPendingOwner, t]);
+
+  const areaOptions = catalogReady ? listAreas() : [];
 
   async function saveRegisterVehiclesForCustomer(customerId: string) {
     const rows = registerVehicles.map((row) => row.makeModel.trim()).filter(Boolean);
@@ -82,81 +112,165 @@ export default function WelcomeScreen() {
 
   async function onCustomerSubmit() {
     setFormMessage('');
-    if (isRegister) {
-      if (!isValidEgyptMobile(phone)) {
-        setFormMessage(t('auth_phone_invalid_body'));
-        Alert.alert(t('auth_phone_invalid_title'), t('auth_phone_invalid_body'));
+    setSubmitPhase(isRegister ? 'registering' : 'signing_in');
+    try {
+      if (isRegister) {
+        if (!isValidEgyptMobile(phone)) {
+          setFormMessage(t('auth_phone_invalid_body'));
+          Alert.alert(t('auth_phone_invalid_title'), t('auth_phone_invalid_body'));
+          return;
+        }
+        if (!isStrongPassword(password)) {
+          setFormMessage(t('customer_weak_password_body'));
+          Alert.alert(t('customer_weak_password_title'), t('customer_weak_password_body'));
+          return;
+        }
+        const result = await register({ name, email, phone, password });
+        if (result === 'check_email') {
+          setFormMessage(t('customer_verify_email_body'));
+          Alert.alert(t('customer_verify_email_title'), t('customer_verify_email_body'));
+          setIsRegister(false);
+          return;
+        }
+        if (result === 'email_taken') {
+          setFormMessage(t('customer_email_taken'));
+          Alert.alert(t('customer_register_fail_title'), t('customer_email_taken'));
+          return;
+        }
+        if (result === 'weak_password') {
+          setFormMessage(t('customer_weak_password_body'));
+          Alert.alert(t('customer_weak_password_title'), t('customer_weak_password_body'));
+          return;
+        }
+        if (result === 'invalid' || result === 'not_configured') {
+          setFormMessage(result === 'not_configured' ? t('customer_supabase_not_configured') : t('customer_register_invalid'));
+          Alert.alert(t('customer_register_fail_title'), t('customer_register_invalid'));
+          return;
+        }
+        const customerId = await AsyncStorage.getItem(SESSION_KEY);
+        if (customerId) {
+          await saveRegisterVehiclesForCustomer(customerId);
+        }
         return;
       }
-      if (!isStrongPassword(password)) {
-        setFormMessage(t('customer_weak_password_body'));
-        Alert.alert(t('customer_weak_password_title'), t('customer_weak_password_body'));
-        return;
-      }
-      const result = await register({ name, email, phone, password });
-      if (result === 'check_email') {
-        setFormMessage(t('customer_verify_email_body'));
-        Alert.alert(t('customer_verify_email_title'), t('customer_verify_email_body'));
-        setIsRegister(false);
-        return;
-      }
-      if (result === 'email_taken') {
-        setFormMessage(t('customer_email_taken'));
-        Alert.alert(t('customer_register_fail_title'), t('customer_email_taken'));
-        return;
-      }
-      if (result === 'weak_password') {
-        setFormMessage(t('customer_weak_password_body'));
-        Alert.alert(t('customer_weak_password_title'), t('customer_weak_password_body'));
-        return;
-      }
-      if (result === 'invalid' || result === 'not_configured') {
-        setFormMessage(result === 'not_configured' ? t('customer_supabase_not_configured') : t('customer_register_invalid'));
-        Alert.alert(t('customer_register_fail_title'), t('customer_register_invalid'));
-        return;
-      }
-      const customerId = await AsyncStorage.getItem(SESSION_KEY);
-      if (customerId) {
-        await saveRegisterVehiclesForCustomer(customerId);
-      }
-      return;
-    }
 
-    const ok = await loginCustomer(email, password);
-    if (ok === 'email_not_confirmed') {
-      setFormMessage(t('customer_login_verify_email_body'));
-      Alert.alert(t('customer_verify_email_title'), t('customer_login_verify_email_body'));
-      return;
+      const ok = await loginCustomer(email, password);
+      if (ok === 'email_not_confirmed') {
+        setFormMessage(t('customer_login_verify_email_body'));
+        Alert.alert(t('customer_verify_email_title'), t('customer_login_verify_email_body'));
+        return;
+      }
+      if (ok === 'email_login_disabled') {
+        setFormMessage(t('shop_login_email_disabled_body'));
+        userAlert(t('shop_login_email_disabled_title'), t('shop_login_email_disabled_body'));
+        return;
+      }
+      if (ok !== 'ok') {
+        const message = ok === 'not_configured' ? t('customer_supabase_not_configured') : t('customer_login_fail_body');
+        setFormMessage(message);
+        userAlert(t('customer_login_fail_title'), message);
+        return;
+      }
+      setSubmitPhase('redirecting');
+      setFormMessage(t('customer_login_success'));
+      router.replace(resolveReturnTo(returnTo) ?? '/');
+    } finally {
+      setSubmitPhase((phase) => (phase === 'redirecting' ? phase : 'idle'));
     }
-    if (ok !== 'ok') {
-      const message = ok === 'not_configured' ? t('customer_supabase_not_configured') : t('customer_login_fail_body');
-      setFormMessage(message);
-      userAlert(t('customer_login_fail_title'), message);
-      return;
-    }
-    setFormMessage(t('customer_login_success'));
-    router.replace(resolveReturnTo(returnTo) ?? '/');
   }
 
   async function onOwnerSubmit() {
     setFormMessage('');
-    const result = await loginShop(email, password);
-    if (result === 'invalid_credentials') {
-      setFormMessage(t('shop_login_auth_fail_body'));
-      userAlert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
-      return;
-    }
-    if (result === 'shop_not_found') {
-      setFormMessage(t('shop_login_shop_not_found_body'));
-      userAlert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
-      return;
-    }
-    if (result !== 'ok') {
+    setSubmitPhase(isOwnerRegister ? 'registering' : 'signing_in');
+    try {
+      if (isOwnerRegister) {
+        if (!isValidEgyptMobile(phone)) {
+          setFormMessage(t('auth_phone_invalid_body'));
+          userAlert(t('auth_phone_invalid_title'), t('auth_phone_invalid_body'));
+          return;
+        }
+        if (!isStrongPassword(password)) {
+          setFormMessage(t('customer_weak_password_body'));
+          userAlert(t('customer_weak_password_title'), t('customer_weak_password_body'));
+          return;
+        }
+        if (!shopName.trim() || !shopAddress.trim() || !name.trim()) {
+          setFormMessage(t('owner_register_invalid'));
+          userAlert(t('owner_register_fail_title'), t('owner_register_invalid'));
+          return;
+        }
+        const result = await registerOwner({
+          email,
+          password,
+          fullName: name.trim(),
+          phone: phone.trim(),
+          shopName: shopName.trim(),
+          shopType,
+          areaId: shopAreaId,
+          address: shopAddress.trim(),
+        });
+        if (result === 'email_taken') {
+          setFormMessage(t('customer_email_taken'));
+          userAlert(t('owner_register_fail_title'), t('customer_email_taken'));
+          return;
+        }
+        if (result !== 'ok') {
+          setFormMessage(t('owner_register_invalid'));
+          userAlert(t('owner_register_fail_title'), t('owner_register_invalid'));
+          return;
+        }
+        setFormMessage(t('owner_pending_approval_body'));
+        userAlert(t('owner_pending_approval_title'), t('owner_pending_approval_body'));
+        setIsOwnerRegister(false);
+        return;
+      }
+
+      const result = await loginShop(email, password);
+      if (result === 'invalid_credentials') {
+        setFormMessage(t('shop_login_auth_fail_body'));
+        userAlert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
+        return;
+      }
+      if (result === 'email_not_confirmed') {
+        setFormMessage(t('customer_login_verify_email_body'));
+        userAlert(t('customer_verify_email_title'), t('customer_login_verify_email_body'));
+        return;
+      }
+      if (result === 'email_login_disabled') {
+        setFormMessage(t('shop_login_email_disabled_body'));
+        userAlert(t('shop_login_email_disabled_title'), t('shop_login_email_disabled_body'));
+        return;
+      }
+      if (result === 'shop_not_found') {
+        setFormMessage(t('shop_login_shop_not_found_body'));
+        userAlert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
+        return;
+      }
+      if (result === 'pending_approval') {
+        setFormMessage(t('owner_pending_approval_body'));
+        userAlert(t('owner_pending_approval_title'), t('owner_pending_approval_body'));
+        return;
+      }
+      if (result === 'ok_admin') {
+        setSubmitPhase('redirecting');
+        router.replace('/admin' as Href);
+        return;
+      }
+      if (result === 'ok') {
+        setSubmitPhase('redirecting');
+        router.replace('/shop');
+        return;
+      }
       setFormMessage(t('shop_login_fail_body'));
       userAlert(t('shop_login_fail_title'), t('shop_login_fail_body'));
-      return;
+    } finally {
+      setSubmitPhase((phase) => (phase === 'redirecting' ? phase : 'idle'));
     }
-    router.replace('/shop');
+  }
+
+  function toggleOwnerRegister() {
+    setFormMessage('');
+    setIsOwnerRegister((value) => !value);
   }
 
   async function onForgotPassword() {
@@ -183,7 +297,18 @@ export default function WelcomeScreen() {
     setIsRegister((value) => !value);
   }
 
-  const busy = mode === 'customer' ? customerBusy : shopBusy;
+  const authBusy = mode === 'customer' ? customerBusy : shopBusy;
+  const formBusy = submitPhase !== 'idle' || authBusy;
+
+  function submitButtonLabel(idleLabel: string, registerIdleLabel?: string): string {
+    if (submitPhase === 'signing_in') return t('auth_signing_in');
+    if (submitPhase === 'registering') return t('auth_registering');
+    if (submitPhase === 'redirecting') return t('auth_redirecting');
+    if (authBusy) return isRegister || isOwnerRegister ? t('auth_registering') : t('auth_signing_in');
+    const registerMode = mode === 'customer' ? isRegister : isOwnerRegister;
+    return registerMode && registerIdleLabel ? registerIdleLabel : idleLabel;
+  }
+
   const ownerAccent = effectivePreference === 'light' ? theme.accent : theme.warm;
   const logoSource =
     effectivePreference === 'light'
@@ -344,8 +469,8 @@ export default function WelcomeScreen() {
                 ) : null}
                 <Pressable
                   onPress={onCustomerSubmit}
-                  disabled={busy}
-                  style={[styles.submitBtn, busy && { opacity: 0.6 }]}>
+                  disabled={formBusy}
+                  style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
                   <LinearGradient
                     pointerEvents="none"
                     colors={[theme.accent, theme.accent]}
@@ -353,11 +478,10 @@ export default function WelcomeScreen() {
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
                     <Text pointerEvents="none" style={[styles.submitText, { color: theme.onAccent }]}>
-                      {busy
-                        ? t('cloud_busy')
-                        : isRegister
-                          ? t('customer_register_btn')
-                          : t('customer_login_btn')}
+                      {submitButtonLabel(
+                        t('customer_login_btn'),
+                        t('customer_register_btn'),
+                      )}
                     </Text>
                   </LinearGradient>
                 </Pressable>
@@ -377,7 +501,76 @@ export default function WelcomeScreen() {
               </>
             ) : (
               <>
-                <Text style={[styles.formLead, { color: theme.textMuted }]}>{t('shop_login_lead')}</Text>
+                <Text style={[styles.formLead, { color: theme.textMuted }]}>
+                  {isOwnerRegister ? t('owner_register_lead') : t('shop_login_lead')}
+                </Text>
+                {isOwnerRegister ? (
+                  <>
+                    <TextInput
+                      placeholder={t('owner_register_shop_name')}
+                      placeholderTextColor={theme.textDim}
+                      value={shopName}
+                      onChangeText={setShopName}
+                      style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                    />
+                    <TextInput
+                      placeholder={t('customer_name_placeholder')}
+                      placeholderTextColor={theme.textDim}
+                      value={name}
+                      onChangeText={setName}
+                      style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                    />
+                    <TextInput
+                      placeholder={t('auth_phone_placeholder')}
+                      placeholderTextColor={theme.textDim}
+                      keyboardType="phone-pad"
+                      value={phone}
+                      onChangeText={setPhone}
+                      style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                    />
+                    <TextInput
+                      placeholder={t('owner_register_address')}
+                      placeholderTextColor={theme.textDim}
+                      value={shopAddress}
+                      onChangeText={setShopAddress}
+                      style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                    />
+                    <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('owner_register_type_label')}</Text>
+                    <View style={styles.chipRow}>
+                      {OWNER_SHOP_TYPES.map((type) => (
+                        <Pressable
+                          key={type}
+                          onPress={() => setShopType(type)}
+                          style={[
+                            styles.chip,
+                            { borderColor: theme.border, backgroundColor: theme.bgElevated },
+                            shopType === type && { backgroundColor: ownerAccent, borderColor: ownerAccent },
+                          ]}>
+                          <Text style={{ color: shopType === type ? theme.onAccent : theme.text, fontSize: 12, fontWeight: '700' }}>
+                            {shopTypeLabel(type, locale)}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('owner_register_area_label')}</Text>
+                    <View style={styles.chipRow}>
+                      {(areaOptions.length ? areaOptions : [{ id: 'maadi', name: 'Maadi', nameAr: 'المعادي', city: '', cityAr: '' }]).map((area) => (
+                        <Pressable
+                          key={area.id}
+                          onPress={() => setShopAreaId(area.id)}
+                          style={[
+                            styles.chip,
+                            { borderColor: theme.border, backgroundColor: theme.bgElevated },
+                            shopAreaId === area.id && { backgroundColor: ownerAccent, borderColor: ownerAccent },
+                          ]}>
+                          <Text style={{ color: shopAreaId === area.id ? theme.onAccent : theme.text, fontSize: 12, fontWeight: '700' }}>
+                            {locale === 'ar' ? area.nameAr || area.name : area.name}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
                 <TextInput
                   placeholder={t('shop_email_label')}
                   placeholderTextColor={theme.textDim}
@@ -395,22 +588,32 @@ export default function WelcomeScreen() {
                   onChangeText={setPassword}
                   style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
                 />
+                {isOwnerRegister ? (
+                  <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text>
+                ) : null}
                 <Pressable
                   onPress={onOwnerSubmit}
-                  disabled={busy}
-                  style={[styles.submitBtn, busy && { opacity: 0.6 }]}>
+                  disabled={formBusy}
+                  style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
                   <LinearGradient
                     pointerEvents="none"
                     colors={[ownerAccent, ownerAccent]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
-                    <Text pointerEvents="none" style={[styles.submitText, { color: theme.onAccent }]}>{t('shop_login_btn')}</Text>
+                    <Text pointerEvents="none" style={[styles.submitText, { color: theme.onAccent }]}>
+                      {submitButtonLabel(t('shop_login_btn'), t('owner_register_btn'))}
+                    </Text>
                   </LinearGradient>
                 </Pressable>
                 {formMessage ? (
                   <Text style={[styles.formMessage, { color: theme.warm }]}>{formMessage}</Text>
                 ) : null}
+                <Pressable onPress={toggleOwnerRegister} hitSlop={10} style={styles.switchLink}>
+                  <Text style={[styles.switchText, { color: ownerAccent }]}>
+                    {isOwnerRegister ? t('owner_have_account') : t('owner_register_link')}
+                  </Text>
+                </Pressable>
                 <Text style={[styles.demoHint, { color: theme.textDim }]}>{t('shop_demo_accounts')}</Text>
               </>
             )}
@@ -530,6 +733,8 @@ const styles = StyleSheet.create({
   switchText: { color: AppTheme.accent, fontSize: 14, fontWeight: '600' },
   resetText: { color: AppTheme.textMuted, fontSize: 13, fontWeight: '700' },
   passwordHint: { color: AppTheme.textDim, fontSize: 11, lineHeight: 16, marginTop: -6, marginBottom: 10 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   formMessage: { fontSize: 12, lineHeight: 18, marginTop: 10, textAlign: 'center', fontWeight: '700' },
   languageWrap: {
     alignSelf: 'flex-end',

@@ -51,6 +51,11 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     weeklyHours: row?.weeklyHours,
     services: (row?.services ?? []).filter((service) => service.active),
     offers: (row?.offers ?? []).filter((offer) => offer.active && new Date(offer.validUntil).getTime() > Date.now()),
+    washShopStatus: row?.washShopStatus,
+    vacationReturnDate: row?.vacationReturnDate,
+    vacationMessage: row?.vacationMessage?.trim() || undefined,
+    vacationMessageAr: row?.vacationMessageAr?.trim() || undefined,
+    activeBranchId: row?.activeBranchId,
     updatedAt: row?.updatedAt ?? nowIso(),
   };
 }

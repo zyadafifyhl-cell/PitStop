@@ -234,11 +234,11 @@ function applyBranchToForms(branch: WashBranch, setters: {
 export function WashOwnerPanel({ shop, onLogout }: Props) {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
-  const { staff, isOwner, isBranchManager } = useShopAuth();
+  const { shopStaff, isOwner, isBranchManager } = useShopAuth();
 
   const branchCtx = useMemo<WashBranchContext | undefined>(
-    () => (staff ? { staff } : undefined),
-    [staff],
+    () => (shopStaff ? { staff: shopStaff } : undefined),
+    [shopStaff],
   );
 
   const [branchState, setBranchState] = useState<WashBranchState | null>(null);
@@ -343,7 +343,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         listShopReviews(shop.id),
         countUnreadWashNotifications(shop.id),
       ]);
-      const scopedBookings = filterBookingsForStaff(bookingRows, staff);
+      const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
       setBranchState(state);
       syncBranchForms(branch);
       setBookings(scopedBookings);
@@ -354,7 +354,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [shop, branchCtx, staff, syncBranchForms]);
+  }, [shop, branchCtx, shopStaff, syncBranchForms]);
 
   useEffect(() => {
     if (!activeBranch || !isUuid(activeBranch.id)) {
@@ -472,7 +472,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   }
 
   async function onAddEmployee() {
-    if (!activeBranch || !isUuid(activeBranch.id) || !staff) return;
+    if (!activeBranch || !isUuid(activeBranch.id) || !shopStaff) return;
     const name = newEmployeeName.trim();
     if (!name) {
       Alert.alert(t('wash_employee_invalid_title'), t('wash_employee_invalid_body'));
@@ -1177,7 +1177,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=notifications')}
         />
 
-        {staff ? (
+        {shopStaff ? (
           <View style={[styles.roleBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
             <Text style={[styles.roleBadgeText, { color: theme.accent }]}>
               {t(isOwner ? 'wash_role_owner' : 'wash_role_branch_manager')}

@@ -1,4 +1,4 @@
-export type DbUserRole = 'customer' | 'owner' | 'branch_manager' | 'admin';
+export type DbUserRole = 'customer' | 'owner' | 'branch_manager' | 'admin' | 'pending_owner';
 
 export type DbShopOperatingStatus = 'open' | 'closed' | 'busy' | 'vacation';
 

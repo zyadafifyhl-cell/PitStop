@@ -12,6 +12,7 @@ import type { ShopExtras } from '@/lib/booking/types';
 import { formatEgp } from '@/lib/booking/reporting';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
 import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
+import { WashBusyBadge } from '@/components/ui/WashBusyBadge';
 import type { ShopType } from '@/lib/booking/types';
 
 type Props = {
@@ -77,6 +78,7 @@ export function ShopListCard({
   const hasWinch = type === 'maintenance' && !!extras?.winchEnabled;
   const openStatus = getShopOpenStatus(extras);
   const openLabel = locale === 'ar' ? openStatus.labelAr : openStatus.labelEn;
+  const showBusyBadge = type === 'wash' && extras?.washShopStatus === 'busy';
 
   return (
     <View style={styles.wrap}>
@@ -125,6 +127,7 @@ export function ShopListCard({
               ]}>
               {openLabel}
             </Text>
+            {showBusyBadge ? <WashBusyBadge /> : null}
           </View>
         </View>
         {extras?.servicePriceEgp != null ? (

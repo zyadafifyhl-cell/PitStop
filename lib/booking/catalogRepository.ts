@@ -170,11 +170,18 @@ export async function isShopStaffEmailRemote(email: string): Promise<boolean> {
   if (supabase) {
     const { data } = await supabase
       .from('users')
-      .select('role')
+      .select('role, is_active')
       .eq('email', normalized)
-      .eq('is_active', true)
       .maybeSingle();
-    if (data?.role === 'owner' || data?.role === 'branch_manager') return true;
+    if (
+      data?.role === 'owner' ||
+      data?.role === 'branch_manager' ||
+      data?.role === 'admin' ||
+      data?.role === 'pending_owner'
+    ) {
+      if (data.role === 'pending_owner' || data.role === 'admin') return true;
+      if (data.is_active) return true;
+    }
   }
 
   return isShopOwnerEmailRemote(normalized);
@@ -216,7 +223,7 @@ export async function refreshCatalog(): Promise<void> {
       const [areasRes, shopsRes] = await withTimeout(
         Promise.all([
           supabase.from('areas').select('*').order('name'),
-          supabase.from('shops').select('*').order('name'),
+          supabase.from('shops').select('*').eq('is_active', true).order('name'),
         ]),
         FETCH_TIMEOUT_MS,
       );

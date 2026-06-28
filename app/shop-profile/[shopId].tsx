@@ -25,6 +25,7 @@ import { listShopReviews, seedDemoReviews } from '@/lib/booking/reviewsStorage';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { formatWeeklyHoursLines, getActiveServices } from '@/lib/booking/shopSchedule';
 import type { ShopExtras, ShopReview } from '@/lib/booking/types';
+import { WashBusyBadge } from '@/components/ui/WashBusyBadge';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
 
@@ -86,6 +87,7 @@ export default function ShopProfileScreen() {
   const offers = (extras?.offers ?? []).filter((offer) => offer.active);
   const services = getActiveServices(extras);
   const hoursLines = formatWeeklyHoursLines(extras, locale);
+  const showBusyBadge = shop.type === 'wash' && extras?.washShopStatus === 'busy';
 
   function openViewer(uri?: string) {
     if (!uri) return;
@@ -149,6 +151,8 @@ export default function ShopProfileScreen() {
             ) : null}
           </View>
         </View>
+
+        {showBusyBadge ? <WashBusyBadge /> : null}
 
         <View style={styles.actionRow}>
           <Pressable

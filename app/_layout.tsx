@@ -66,6 +66,7 @@ function RootStack() {
       <Stack.Screen name="verify" options={{ title: t('auth_verify_title') }} />
       <Stack.Screen name="shop/wash-notifications" options={{ headerShown: false }} />
       <Stack.Screen name="shop/wash-owner-hub" options={{ headerShown: false }} />
+      <Stack.Screen name="admin" options={{ headerShown: false }} />
     </Stack>
   );
 }

@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PitStop — Master System Documentation</title>
+  <style>
+    @page { size: A4; margin: 14mm 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      color: #111;
+      background: #fff;
+      line-height: 1.42;
+      font-size: 10pt;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 10mm 8mm;
+    }
+    h1 { font-size: 24pt; margin: 0 0 6px; color: #0d3b66; }
+    h2 { font-size: 14pt; margin: 20px 0 8px; color: #0d3b66; border-bottom: 2px solid #e8eef5; padding-bottom: 4px; page-break-after: avoid; }
+    h3 { font-size: 11pt; margin: 12px 0 6px; color: #333; page-break-after: avoid; }
+    h4 { font-size: 10pt; margin: 10px 0 4px; color: #444; }
+    p, li { margin: 0 0 5px; }
+    ul, ol { margin: 4px 0 10px; padding-left: 18px; }
+    .cover-sub { color: #555; font-size: 11pt; margin-bottom: 6px; }
+    .cover-meta { font-size: 9pt; color: #777; margin-top: 20px; }
+    .tag { display: inline-block; background: #eef4fb; color: #0d3b66; padding: 2px 7px; border-radius: 999px; font-size: 8.5pt; margin: 0 4px 4px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 9pt; }
+    th, td { border: 1px solid #d8dee8; padding: 5px 7px; text-align: left; vertical-align: top; }
+    th { background: #f3f6fa; }
+    code, pre { font-family: Consolas, monospace; font-size: 8.5pt; }
+    pre {
+      background: #f7f9fc;
+      border: 1px solid #e2e8f0;
+      padding: 8px 10px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      margin: 6px 0 10px;
+    }
+    .flow { background: #f7f9fc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; font-family: Consolas, monospace; font-size: 8.5pt; white-space: pre-wrap; }
+    .page-break { page-break-before: always; }
+    .toc a { color: #0d3b66; text-decoration: none; }
+    .toc li { margin-bottom: 3px; }
+    .ar { font-size: 9pt; color: #555; direction: rtl; text-align: right; margin-top: -2px; margin-bottom: 8px; }
+    .footer { margin-top: 16px; font-size: 8pt; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 8px; }
+    .small { font-size: 8.5pt; color: #555; }
+    .module-box { border: 1px solid #c5d4e8; background: #f8fafc; border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; }
+    .module-box h4 { margin-top: 0; color: #0d3b66; }
+    .screen-map { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+    .screen-card { border: 1px solid #dde4ee; border-radius: 6px; padding: 8px; font-size: 8.5pt; background: #fff; }
+    .screen-card strong { color: #0d3b66; display: block; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+
+<!-- COVER -->
+<h1>PitStop</h1>
+<p class="cover-sub"><strong>Master System Documentation</strong></p>
+<p class="cover-sub">Complete reference: customer app, owner panels, Super Admin, database, auth, booking, and deployment.</p>
+<p class="ar">التوثيق الشامل — عميل، صاحب محل، مدير فرع، Super Admin، قاعدة البيانات، والحجز</p>
+<p>
+  <span class="tag">Expo 54</span>
+  <span class="tag">React Native</span>
+  <span class="tag">Supabase</span>
+  <span class="tag">Super Admin</span>
+  <span class="tag">AR / EN</span>
+  <span class="tag">PitStop 2.0</span>
+</p>
+<p class="cover-meta">Project: car-care-eg · Version 1.0.0 · Updated with Super Admin workflow</p>
+
+<h2>Table of Contents</h2>
+<ol class="toc">
+  <li><a href="#arch">Architecture Overview</a></li>
+  <li><a href="#routes">App Routes &amp; Screens</a></li>
+  <li><a href="#auth">Authentication &amp; Roles</a></li>
+  <li><a href="#customer">Customer Features</a></li>
+  <li><a href="#shops">Shop Types &amp; Owner Panels</a></li>
+  <li><a href="#booking">Booking Flow</a></li>
+  <li><a href="#parts">Parts &amp; Store Orders</a></li>
+  <li><a href="#database">Database Schema</a></li>
+  <li><a href="#supabase">Supabase Setup &amp; Migrations</a></li>
+  <li><a href="#lib">Key Library Modules</a></li>
+  <li><a href="#i18n">Internationalization</a></li>
+  <li><a href="#notify">Notifications &amp; PDF Reports</a></li>
+  <li><a href="#demo">Demo Accounts</a></li>
+  <li><a href="#env">Environment &amp; Running the App</a></li>
+  <li><a href="#limits">Limitations &amp; Roadmap</a></li>
+  <li><a href="#ui-arch">UI Architecture &amp; Design System</a></li>
+  <li><a href="#ui-nav">Master Navigation Flowcharts</a></li>
+  <li><a href="#ui-customer">Customer UI — Module by Module</a></li>
+  <li><a href="#ui-owner">Owner UI — Module by Module</a></li>
+  <li><a href="#ui-screens">Screen-by-Screen Reference</a></li>
+  <li><a href="#ui-components">Shared UI Components</a></li>
+  <li><a href="#ui-context">UI State &amp; Context Flow</a></li>
+  <li><a href="#admin-overview">Super Admin — Overview &amp; Roles</a></li>
+  <li><a href="#admin-flows">Super Admin — Flowcharts</a></li>
+  <li><a href="#admin-modules">Super Admin — Modules &amp; UI</a></li>
+  <li><a href="#owner-register">Merchant Registration Module</a></li>
+  <li><a href="#admin-lib">New Library Modules (Admin)</a></li>
+</ol>
+
+<div class="page-break" id="arch"></div>
+<h2>1. Architecture Overview</h2>
+<p class="ar">نظرة عامة على البنية</p>
+
+<h3>Stack</h3>
+<table>
+  <tr><th>Layer</th><th>Technology</th></tr>
+  <tr><td>Mobile / Web UI</td><td>Expo Router ~54, React Native, expo-linear-gradient, expo-image</td></tr>
+  <tr><td>State</td><td>React Context (auth, i18n, theme, shop catalog)</td></tr>
+  <tr><td>Local storage</td><td>AsyncStorage (bookings, extras, notifications, wash branches cache)</td></tr>
+  <tr><td>Legacy garage</td><td>SQLite via expo-sqlite (catalog, odometer — hidden tabs)</td></tr>
+  <tr><td>Backend</td><td>Supabase Auth + Postgres (optional; app works offline-first)</td></tr>
+  <tr><td>Push</td><td>Expo Notifications → shop_push_tokens (native only)</td></tr>
+  <tr><td>AI</td><td>OpenAI GPT-4o-mini (Assistant tab)</td></tr>
+</table>
+
+<h3>Provider tree (startup)</h3>
+<pre>ThemePreferenceProvider → I18nProvider → ShopCatalogProvider
+  → CustomerAuthProvider → AuthProvider → ShopAuthProvider → AppBootstrap</pre>
+
+<h3>Data flow (hybrid)</h3>
+<div class="flow">Customer action (book, order)
+    → lib/booking/storage.ts or partsStorage.ts
+    → Supabase insert (if configured) + AsyncStorage cache
+    → Owner notification (local + optional Expo push)
+    → Owner approves/declines → customer in-app notification</div>
+
+<h3>Shop type enum</h3>
+<p><code>maintenance</code> · <code>wash</code> · <code>parts</code> · <code>accessories</code> · <code>winch</code></p>
+
+<div class="page-break" id="routes"></div>
+<h2>2. App Routes &amp; Screens</h2>
+<p class="ar">المسارات والشاشات</p>
+
+<h3>Root stack (<code>app/_layout.tsx</code>)</h3>
+<table>
+  <tr><th>Route</th><th>File</th><th>Purpose</th></tr>
+  <tr><td>/welcome</td><td>welcome.tsx</td><td>Customer + owner login, merchant registration, guest, language</td></tr>
+  <tr><td>/(tabs)/*</td><td>(tabs)/_layout.tsx</td><td>Main tab navigator</td></tr>
+  <tr><td>/service/[type]</td><td>service/[type]/index.tsx</td><td>Pick area (Cairo/Giza) for service type</td></tr>
+  <tr><td>/service/[type]/[areaId]</td><td>service/[type]/[areaId].tsx</td><td>Shops in area → profile or parts shop</td></tr>
+  <tr><td>/shop-profile/[shopId]</td><td>shop-profile/[shopId].tsx</td><td>Public profile: gallery, hours, services, reviews, book</td></tr>
+  <tr><td>/book/[shopId]</td><td>book/[shopId].tsx</td><td>Booking form: date, slots, car, phone, notes</td></tr>
+  <tr><td>/nearby/[type]</td><td>nearby/[type].tsx</td><td>GPS discovery + filters (top rated, price, open now…)</td></tr>
+  <tr><td>/parts-shop/[shopId]</td><td>parts-shop/[shopId].tsx</td><td>Parts/accessories cart + checkout</td></tr>
+  <tr><td>/auth-required</td><td>auth-required.tsx</td><td>Gate before booking/purchase for guests</td></tr>
+  <tr><td>/settings/vehicles</td><td>settings/vehicles.tsx</td><td>Customer vehicle list</td></tr>
+  <tr><td>/shop/wash-owner-hub</td><td>shop/wash-owner-hub.tsx</td><td>Wash hub: notifications, orders, history</td></tr>
+  <tr><td>/admin</td><td>admin/index.tsx</td><td>Super Admin panel (dashboard, pending, merchants)</td></tr>
+  <tr><td>/reset-password</td><td>reset-password.tsx</td><td>Supabase password reset deep link</td></tr>
+  <tr><td>/login, /verify</td><td>login.tsx, verify.tsx</td><td>Legacy phone OTP (garage prototype)</td></tr>
+  <tr><td>/car/[id], /add-car</td><td>car/, add-car.tsx</td><td>Legacy Egypt garage (SQLite odometer)</td></tr>
+</table>
+
+<h3>Customer tabs (<code>app/(tabs)/</code>)</h3>
+<table>
+  <tr><th>Tab</th><th>Visible</th><th>Purpose</th></tr>
+  <tr><td>index (Home)</td><td>Customer/guest</td><td>Service cards, offers, next booking</td></tr>
+  <tr><td>bookings</td><td>Customer/guest</td><td>My bookings, cancel, history</td></tr>
+  <tr><td>favorites</td><td>Logged-in customer</td><td>Saved shops</td></tr>
+  <tr><td>assistant</td><td>Customer/guest</td><td>Driver Network + AI chat</td></tr>
+  <tr><td>settings</td><td>Customer/guest</td><td>Language, theme, vehicles, support, logout</td></tr>
+  <tr><td>shop</td><td>Shop session</td><td>Owner login or owner dashboard</td></tr>
+  <tr><td>catalog, alerts</td><td>Hidden</td><td>Legacy garage features</td></tr>
+</table>
+
+<h3>Navigation rules (<code>AppBootstrap.tsx</code>)</h3>
+<ul>
+  <li>Public paths: /welcome, /reset-password, /auth-required, /login, /verify</li>
+  <li><strong>Admin session</strong> → redirect to <code>/admin</code></li>
+  <li><strong>Pending owner</strong> → stay on /welcome?pending=1 (no shop access)</li>
+  <li>Approved shop session → redirect to /shop</li>
+  <li>No session on protected route → /welcome</li>
+  <li>Customer on /welcome after login → home or returnTo deep link</li>
+</ul>
+
+<div class="page-break" id="auth"></div>
+<h2>3. Authentication &amp; Roles</h2>
+<p class="ar">المصادقة والأدوار</p>
+
+<h3>Roles (<code>public.user_role</code>)</h3>
+<table>
+  <tr><th>Role</th><th>Login</th><th>shop_id</th><th>branch_id</th><th>Purpose</th></tr>
+  <tr><td>customer</td><td>Yes</td><td>—</td><td>—</td><td>Books services, favorites, notifications</td></tr>
+  <tr><td>owner</td><td>Yes</td><td>Required</td><td>—</td><td>Owns brand, all branches, creates managers</td></tr>
+  <tr><td>branch_manager</td><td>Yes</td><td>Required</td><td>Required</td><td>Runs one branch day-to-day</td></tr>
+  <tr><td>pending_owner</td><td>Yes</td><td>Required</td><td>—</td><td>New merchant awaiting admin approval; <code>is_active=false</code></td></tr>
+  <tr><td>admin</td><td>Yes</td><td>—</td><td>—</td><td>Super Admin → <code>/admin</code> panel</td></tr>
+</table>
+<p><strong>Employees</strong> are NOT auth users — stored in <code>branch_employees</code> only.</p>
+<p><strong>Shop visibility:</strong> <code>shops.is_active=false</code> hides shop from customer catalog until admin approves.</p>
+
+<h3>Customer auth (<code>CustomerAuthContext.tsx</code>)</h3>
+<ul>
+  <li>Supabase email/password: signIn, signUp, resetPassword</li>
+  <li>Guest mode: local flag, no Supabase session</li>
+  <li>Blocks shop staff emails from customer login</li>
+  <li>Requires email confirmed for login</li>
+  <li>Storage: <code>@pitstop/customer-session</code>, <code>@pitstop/guest-session</code></li>
+</ul>
+
+<h3>Shop auth (<code>ShopAuthContext.tsx</code>)</h3>
+<ul>
+  <li>Resolves from <code>public.users</code> (owner | branch_manager | admin | pending_owner) or legacy <code>shops.owner_email</code></li>
+  <li>Flags: <code>isOwner</code>, <code>isBranchManager</code>, <code>isAdmin</code>, <code>isPendingOwner</code></li>
+  <li><code>registerOwner()</code> — signUp + RPC <code>register_shop_owner</code></li>
+  <li>Login results: <code>ok</code> | <code>pending_approval</code> | <code>invalid_credentials</code> | …</li>
+  <li>Storage: <code>@pitstop/shop-session</code> (staff email)</li>
+  <li>Branch manager invite uses <code>staffInviteLock</code> to prevent session hijack</li>
+</ul>
+
+<h3>Auth storage on web</h3>
+<p><code>lib/supabase/authStorage.ts</code> uses <code>localStorage</code> on web for reliable Supabase session persistence.</p>
+
+<h3>Role hierarchy (updated)</h3>
+<div class="flow">Super Admin (platform)
+  ├── Approves / rejects pending_owner registrations
+  ├── Views platform stats (bookings, 12% fee)
+  └── Sees all merchants + branches
+
+Owner (approved)
+  ├── Creates branches
+  ├── Creates / links Branch Managers
+  └── Sees all branches + reports
+
+pending_owner (awaiting approval)
+  └── Shop hidden from customers until admin accepts
+
+Branch Manager (one branch)
+  ├── Manages daily operations
+  └── Adds employees (no login)
+
+Employees → roster only (branch_employees)</div>
+
+<div class="page-break" id="customer"></div>
+<h2>4. Customer Features</h2>
+<p class="ar">ميزات العميل</p>
+
+<h3>Home (<code>/(tabs)/index.tsx</code>)</h3>
+<ul>
+  <li>Service entry cards: maintenance, wash, parts, accessories</li>
+  <li>Live promotional offers from shops</li>
+  <li>Next upcoming booking snippet</li>
+  <li>Car profile shortcut</li>
+</ul>
+
+<h3>Discovery</h3>
+<ul>
+  <li><strong>By area:</strong> /service/{type} → pick Maadi, Nasr City, etc.</li>
+  <li><strong>Nearby GPS:</strong> /nearby/{type} with filters (top rated, price, distance, open now, favorites)</li>
+  <li><strong>Favorites:</strong> saved shops tab (login required)</li>
+</ul>
+
+<h3>Shop profile</h3>
+<ul>
+  <li>Gallery, bilingual name/address, phone, directions, share</li>
+  <li>Services list with prices and duration</li>
+  <li>Reviews (ratings, comments, likes, owner replies)</li>
+  <li>Offers / coupons display</li>
+  <li>More info section (owner-configured)</li>
+  <li>Book appointment CTA → requires login (not guest)</li>
+</ul>
+
+<h3>My bookings</h3>
+<ul>
+  <li>List all bookings for customer phone/account</li>
+  <li>Cancel pending/confirmed bookings</li>
+  <li>Clear history</li>
+  <li>In-app notifications for approval, decline, reminders</li>
+</ul>
+
+<h3>Driver Network + AI (<code>/(tabs)/assistant.tsx</code>)</h3>
+<ul>
+  <li>Community posts (local AsyncStorage)</li>
+  <li>Embedded AI assistant (OpenAI — requires API key)</li>
+</ul>
+
+<h3>Settings</h3>
+<ul>
+  <li>Arabic / English toggle</li>
+  <li>Light / dark theme</li>
+  <li>Vehicle management link</li>
+  <li>Support, privacy, sign out</li>
+</ul>
+
+<div class="page-break" id="shops"></div>
+<h2>5. Shop Types &amp; Owner Panels</h2>
+<p class="ar">أنواع المحلات ولوحات التحكم</p>
+
+<h3>Panel routing (<code>app/(tabs)/shop.tsx</code>)</h3>
+<pre>wash type          → WashOwnerPanel.tsx (full CMS)
+parts/accessories  → Store owner UI (inventory + orders)
+maintenance/winch  → Generic owner UI (profile + bookings + PDF)</pre>
+
+<h3>Generic owner panel (maintenance, winch)</h3>
+<table>
+  <tr><th>Section</th><th>Features</th></tr>
+  <tr><td>Profile</td><td>Bilingual name, address, phone, email, more info; winch toggle (maintenance)</td></tr>
+  <tr><td>Gallery</td><td>Add/remove photos</td></tr>
+  <tr><td>Pricing</td><td>Default service price (EGP)</td></tr>
+  <tr><td>Schedule</td><td>Open/close, slot duration; Friday closed default</td></tr>
+  <tr><td>Offers</td><td>Bilingual promotional offers</td></tr>
+  <tr><td>Bookings</td><td>Active requests (confirm/cancel/done), history, date-range reports</td></tr>
+  <tr><td>PDF report</td><td>View report modal + save/share PDF</td></tr>
+  <tr><td>Notifications</td><td>Booking + parts order alerts</td></tr>
+</table>
+
+<h3>Store owner panel (parts, accessories)</h3>
+<table>
+  <tr><th>Section</th><th>Features</th></tr>
+  <tr><td>Profile + gallery</td><td>Same as generic (no schedule/bookings)</td></tr>
+  <tr><td>Inventory</td><td>Add items: name, price, stock, image; ±1 stock</td></tr>
+  <tr><td>Orders</td><td>Confirm / cancel / mark shipped; 12% platform fee on orders</td></tr>
+</table>
+
+<h3>Wash owner panel (<code>WashOwnerPanel.tsx</code>) — PitStop 2.0</h3>
+<table>
+  <tr><th>Section</th><th>Owner</th><th>Branch Manager</th></tr>
+  <tr><td>Dashboard stats</td><td>All branches</td><td>Own branch</td></tr>
+  <tr><td>Branch switcher</td><td>Yes</td><td>No</td></tr>
+  <tr><td>Create branch</td><td>Yes</td><td>No</td></tr>
+  <tr><td>Profile, gallery, base price</td><td>Per branch</td><td>Own branch</td></tr>
+  <tr><td>Services CRUD</td><td>Per branch</td><td>Own branch</td></tr>
+  <tr><td>Weekly hours + vacation</td><td>Per branch</td><td>Own branch</td></tr>
+  <tr><td>Coupons</td><td>Per branch</td><td>Own branch</td></tr>
+  <tr><td>Bookings workflow</td><td>All branches</td><td>Own branch</td></tr>
+  <tr><td>Employees roster</td><td>All branches</td><td>Own branch (add/edit)</td></tr>
+  <tr><td>Create branch manager</td><td>Yes</td><td>No</td></tr>
+  <tr><td>Reviews moderation</td><td>Yes</td><td>Yes (own branch)</td></tr>
+  <tr><td>PDF reports</td><td>All</td><td>Own branch</td></tr>
+</table>
+
+<h3>Service categories (wash)</h3>
+<p><code>exterior_wash</code> · <code>interior_cleaning</code> · <code>full_package</code> · <code>detailing</code> · <code>engine_cleaning</code> · <code>custom</code></p>
+
+<h3>Wash owner hub (<code>/shop/wash-owner-hub</code>)</h3>
+<table>
+  <tr><th>Tab</th><th>Purpose</th></tr>
+  <tr><td>notifications</td><td>Wash notification inbox</td></tr>
+  <tr><td>orders</td><td>Approve/reject/update booking statuses</td></tr>
+  <tr><td>history</td><td>Past bookings; clear history</td></tr>
+</table>
+
+<div class="page-break" id="booking"></div>
+<h2>6. Booking Flow</h2>
+<p class="ar">مسار الحجز من البداية للنهاية</p>
+
+<h3>End-to-end workflow</h3>
+<div class="flow">Home / Nearby / Favorites
+    → Shop profile (/shop-profile/[shopId])
+    → [Guest?] → /auth-required → /welcome login
+    → Book (/book/[shopId]?serviceId=...)
+    → Select date + time slot + car + phone + notes
+    → createBooking() → status: pending
+    → Owner notification (+ optional push)
+    → Owner: confirm → confirmed | decline → cancelled
+    → Customer notification + reminders (60 min, 30 min before)
+    → Owner: in_progress → done (or no_show)</div>
+
+<h3>Booking statuses</h3>
+<p><code>pending</code> → <code>confirmed</code> → <code>in_progress</code> → <code>done</code> | <code>cancelled</code> | <code>no_show</code></p>
+
+<h3>Pricing (<code>lib/booking/storage.ts</code>)</h3>
+<table>
+  <tr><th>Shop type</th><th>Default price (EGP)</th></tr>
+  <tr><td>maintenance</td><td>650</td></tr>
+  <tr><td>wash</td><td>220</td></tr>
+  <tr><td>winch</td><td>500</td></tr>
+  <tr><td>other</td><td>420</td></tr>
+</table>
+<p>Platform fee: <strong>12%</strong> of service price (shown in owner PDF reports).</p>
+
+<h3>Time slots</h3>
+<p>Built by <code>buildSlotsForShopDate()</code> from owner weekly hours + existing bookings. Submit disabled until a slot is selected.</p>
+
+<h3>Persistence</h3>
+<ul>
+  <li>Primary: Supabase <code>bookings</code> table (when configured)</li>
+  <li>Cache: AsyncStorage <code>@pitstop/bookings/v1</code></li>
+  <li>On Supabase insert failure → error shown to customer (RLS fix: step4 SQL)</li>
+</ul>
+
+<div class="page-break" id="parts"></div>
+<h2>7. Parts &amp; Store Orders</h2>
+<p class="ar">طلبات قطع الغيار والإكسسوارات</p>
+
+<div class="flow">/parts-shop/[shopId]
+    → Browse inventory (store table)
+    → Cart + shipping address + phone
+    → createPartsOrder()
+    → Owner notification + push
+    → Owner: confirm / cancel / ship
+    → Customer notification</div>
+
+<p>Order statuses: <code>pending</code> → <code>confirmed</code> → <code>shipped</code> | <code>cancelled</code></p>
+
+<div class="page-break" id="database"></div>
+<h2>8. Database Schema</h2>
+<p class="ar">هيكل قاعدة البيانات</p>
+
+<h3>Entity diagram</h3>
+<div class="flow">auth.users (Supabase Auth)
+    └── public.users (role, shop_id, branch_id)
+
+public.shops (brand)
+    ├── shop_branches (locations, hours, gallery, status)
+    │     ├── branch_services
+    │     └── branch_employees (no login)
+    ├── bookings (+ branch_id, service_id)
+    ├── store (parts/accessories inventory)
+    └── parts_orders + parts_order_items
+
+shop_push_tokens · garage_snapshots (legacy) · areas</div>
+
+<h3>Core tables</h3>
+<table>
+  <tr><th>Table</th><th>Purpose</th></tr>
+  <tr><td>areas</td><td>Cairo/Giza districts (Maadi, Nasr City, Mohandessin, October, Heliopolis)</td></tr>
+  <tr><td>shops</td><td>Brand catalog entry; legacy owner_email</td></tr>
+  <tr><td>users</td><td>App identity: customer, owner, branch_manager, admin</td></tr>
+  <tr><td>shop_branches</td><td>Physical branches with profile, weekly_hours, vacation_mode</td></tr>
+  <tr><td>branch_employees</td><td>Staff roster (full_name, phone, job_title, notes)</td></tr>
+  <tr><td>branch_services</td><td>Per-branch service menu</td></tr>
+  <tr><td>bookings</td><td>Appointments with status, pricing, branch_id</td></tr>
+  <tr><td>store</td><td>Parts/accessories SKUs with stock_qty</td></tr>
+  <tr><td>parts_orders</td><td>Customer store orders</td></tr>
+  <tr><td>shop_push_tokens</td><td>Expo push tokens per shop</td></tr>
+</table>
+
+<h3>RLS helpers</h3>
+<p><code>is_shop_owner</code> · <code>is_branch_manager</code> · <code>can_manage_shop</code> · <code>can_manage_branch</code></p>
+
+<div class="page-break" id="supabase"></div>
+<h2>9. Supabase Setup &amp; Migrations</h2>
+<p class="ar">إعداد Supabase وملفات الـ SQL</p>
+
+<h3>Fresh project</h3>
+<ol>
+  <li><code>supabase/schema.sql</code></li>
+  <li><code>supabase/seed.sql</code> — 12 demo shops</li>
+  <li><code>supabase/seed-branches.sql</code> — optional 2nd branch + employees</li>
+</ol>
+
+<h3>Existing project (PitStop 2.0 migration)</h3>
+<ol>
+  <li><code>apply-pitstop-2.0-step1-enums.sql</code> — run alone first</li>
+  <li><code>apply-pitstop-2.0-step2-main.sql</code> — users, branches, employees</li>
+  <li><code>apply-pitstop-2.0-step3-branch-manager-rpc.sql</code> — assign_branch_manager RPC</li>
+  <li><code>apply-pitstop-2.0-step4-bookings-rls.sql</code> — restore booking insert policies</li>
+  <li><code>apply-pitstop-2.0-step5-admin-approval.sql</code> — Super Admin, pending_owner, approve/reject RPCs</li>
+  <li><code>seed-test-data.sql</code> — optional demo manager link</li>
+</ol>
+
+<h3>Other migration files</h3>
+<ul>
+  <li><code>migrate-roles-branches.sql</code> — legacy → 2.0</li>
+  <li><code>migrate-to-store.sql</code> — spare_parts → store</li>
+  <li><code>apply-pitstop-2.0-on-existing-db.sql</code> — combined path</li>
+</ul>
+
+<h3>Step 5 RPCs (Super Admin)</h3>
+<table>
+  <tr><th>RPC</th><th>Caller</th><th>Effect</th></tr>
+  <tr><td><code>register_shop_owner(...)</code></td><td>New merchant (authenticated)</td><td>Creates inactive shop + main branch; user → pending_owner</td></tr>
+  <tr><td><code>approve_shop_owner(user_id, shop_id)</code></td><td>Admin</td><td>user → owner, is_active=true; shop → is_active=true (live)</td></tr>
+  <tr><td><code>reject_shop_owner(user_id, shop_id)</code></td><td>Admin</td><td>Deletes shop; user → customer</td></tr>
+</table>
+
+<h3>Link owner after Auth user created</h3>
+<pre>update public.users
+set role = 'owner', shop_id = 'shop-wash-nile'
+where email = 'wash@demo.com';</pre>
+
+<div class="page-break" id="lib"></div>
+<h2>10. Key Library Modules</h2>
+<p class="ar">أهم ملفات lib/</p>
+
+<table>
+  <tr><th>Module</th><th>Role</th></tr>
+  <tr><td>lib/booking/storage.ts</td><td>Bookings CRUD, Supabase + AsyncStorage merge</td></tr>
+  <tr><td>lib/booking/catalogRepository.ts</td><td>Areas/shops from Supabase + cache</td></tr>
+  <tr><td>lib/booking/shopExtrasStorage.ts</td><td>Owner profile, schedule, services, offers</td></tr>
+  <tr><td>lib/booking/shopSchedule.ts</td><td>Weekly hours, slot builder, open-now</td></tr>
+  <tr><td>lib/booking/reporting.ts</td><td>Date ranges, EGP, buildOwnerReportHtml()</td></tr>
+  <tr><td>lib/booking/commerceEvents.ts</td><td>Owner/customer notifications</td></tr>
+  <tr><td>lib/booking/bookingReminders.ts</td><td>60/30 min reminders (native)</td></tr>
+  <tr><td>lib/booking/partsStorage.ts</td><td>Store inventory + orders</td></tr>
+  <tr><td>lib/booking/wash/washBranchStorage.ts</td><td>Multi-branch state (Supabase-first + cache)</td></tr>
+  <tr><td>lib/booking/wash/branchRepository.ts</td><td>branch_employees CRUD</td></tr>
+  <tr><td>lib/booking/wash/branchManagerRepository.ts</td><td>Manager account RPC + signUp flow</td></tr>
+  <tr><td>lib/shop/ownerRegistrationRepository.ts</td><td>Merchant signUp + register_shop_owner RPC</td></tr>
+  <tr><td>lib/admin/adminRepository.ts</td><td>Pending list, merchants, stats, approve/reject</td></tr>
+  <tr><td>components/admin/AdminPanel.tsx</td><td>Super Admin UI (3 tabs)</td></tr>
+  <tr><td>lib/shop/shopStaffUser.ts</td><td>Resolve owner/manager/admin/pending from users</td></tr>
+  <tr><td>lib/supabase/client.ts</td><td>Supabase singleton (env → app.json → fallback)</td></tr>
+  <tr><td>lib/push/shopPush.ts</td><td>Expo push for owners (native)</td></tr>
+  <tr><td>lib/i18n/strings.ts</td><td>~928 translation keys × EN + AR</td></tr>
+  <tr><td>lib/ui/userAlert.ts</td><td>window.alert on web (Alert.alert fallback)</td></tr>
+  <tr><td>lib/ai-chat.ts</td><td>OpenAI assistant</td></tr>
+</table>
+
+<div class="page-break" id="i18n"></div>
+<h2>11. Internationalization</h2>
+<p class="ar">العربية والإنجليزية</p>
+<ul>
+  <li>Locales: <code>en</code> | <code>ar</code> — stored in <code>@pitstop/locale</code></li>
+  <li>Default from device language (expo-localization)</li>
+  <li>API: <code>t(key)</code>, <code>tp(key, vars)</code>, <code>isRTL</code></li>
+  <li>RTL: I18nManager (native) + document dir (web)</li>
+  <li>Toggle: Welcome screen + Settings</li>
+</ul>
+
+<div class="page-break" id="notify"></div>
+<h2>12. Notifications &amp; PDF Reports</h2>
+<p class="ar">الإشعارات وتقارير PDF</p>
+
+<h3>Owner push (native only)</h3>
+<ul>
+  <li>Table: shop_push_tokens</li>
+  <li>Triggers: new booking, new parts order</li>
+  <li>Via Expo Push API</li>
+</ul>
+
+<h3>Customer in-app notifications</h3>
+<p>Kinds: booking_approved, booking_declined, booking_reminder, parts_order_confirmed, parts_order_cancelled</p>
+
+<h3>PDF reports</h3>
+<ul>
+  <li><code>buildOwnerReportHtml()</code> — shop header, date range, gross/fee/net</li>
+  <li>Web: scrollable modal preview → Save as PDF (browser print)</li>
+  <li>Native: printToFileAsync + share</li>
+  <li>Used in generic shop panel + WashOwnerPanel</li>
+</ul>
+
+<div class="page-break" id="demo"></div>
+<h2>13. Demo Accounts</h2>
+<p class="ar">حسابات تجريبية — كلمة السر: demo123</p>
+
+<h3>Platform admin</h3>
+<p><code>admin@demo.com</code> / demo123 — set role manually after step5 SQL:</p>
+<pre>update public.users set role = 'admin', is_active = true, shop_id = null
+where email = 'admin@demo.com';</pre>
+
+<h3>Shop owners (pre-approved in seed)</h3>
+<table>
+  <tr><th>Email</th><th>Shop ID</th><th>Type</th></tr>
+  <tr><td>wash@demo.com</td><td>shop-wash-nile</td><td>wash</td></tr>
+  <tr><td>maintenance@demo.com</td><td>shop-maint-autofix</td><td>maintenance</td></tr>
+  <tr><td>parts@demo.com</td><td>shop-parts-nasr</td><td>parts</td></tr>
+  <tr><td>accessories@demo.com</td><td>shop-accessories-maadi</td><td>accessories</td></tr>
+  <tr><td>winch@demo.com</td><td>shop-winch-maadi</td><td>winch</td></tr>
+</table>
+<p class="small">Also: wash2@, wash3@, maintenance2@, maintenance3@, parts2@, accessories2@, winch2@ — see seed.sql</p>
+
+<h3>Branch manager</h3>
+<p><code>manager.wash@demo.com</code> / demo123 — Nile Auto Wash main branch</p>
+
+<h3>Customers</h3>
+<p><code>customer@demo.com</code> · <code>sara@demo.com</code> / demo123</p>
+
+<div class="page-break" id="env"></div>
+<h2>14. Environment &amp; Running the App</h2>
+<p class="ar">تشغيل المشروع</p>
+
+<h3>Environment variables (.env)</h3>
+<pre>EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+EXPO_PUBLIC_OPENAI_API_KEY=sk-...   # for AI assistant</pre>
+
+<h3>Fallback (app.json extra)</h3>
+<p>Supabase URL and anon key also in <code>app.json → extra</code> if .env unset.</p>
+
+<h3>Commands</h3>
+<pre>cd car-care-eg
+npm install
+npm start          # Expo (offline mode)
+npm run web        # http://localhost:8082
+npm run android
+npm run ios</pre>
+
+<h3>Supabase project (demo)</h3>
+<p>URL: https://qlopvpyeawauepsyrirz.supabase.co</p>
+
+<div class="page-break" id="limits"></div>
+<h2>15. Limitations &amp; Roadmap</h2>
+<p class="ar">القيود والتطوير المستقبلي</p>
+
+<h3>Current limitations</h3>
+<table>
+  <tr><th>Limitation</th><th>Detail</th></tr>
+  <tr><td>Hybrid storage</td><td>Many features use AsyncStorage; Supabase when configured</td></tr>
+  <tr><td>Guest cannot book</td><td>Login required despite guest browsing</td></tr>
+  <tr><td>Merchant approval</td><td>New owners need admin approve before shop goes live</td></tr>
+  <tr><td>Winch not on home</td><td>In DB but no home service card</td></tr>
+  <tr><td>Web push disabled</td><td>Owner push + reminders native only</td></tr>
+  <tr><td>Payments</td><td>No online payment integration yet</td></tr>
+  <tr><td>Legacy garage</td><td>Parallel SQLite app (hidden tabs)</td></tr>
+</table>
+
+<h3>Future enhancements (from docs)</h3>
+<ul>
+  <li>Online payments (Paymob/Fawry)</li>
+  <li>Loyalty program &amp; subscriptions</li>
+  <li>Driver network on Supabase + moderation</li>
+  <li>Vehicle cloud sync</li>
+  <li>Platform admin dashboards</li>
+  <li>Multi-region (GCC expansion)</li>
+  <li>Assign employees to bookings/shifts</li>
+  <li>QR check-in, queue tracking, fleet management</li>
+</ul>
+
+<h3>Related documents in repo</h3>
+<ul>
+  <li><code>docs/SCHEMA.md</code> — database reference</li>
+  <li><code>docs/FUTURE_ENHANCEMENTS.md</code> — product roadmap</li>
+  <li><code>docs/pitstop-2.0-owner-srs.html</code> — Owner/Branch SRS</li>
+  <li><code>pitstop2.0.pdf</code> — Customer-side SRS (original)</li>
+</ul>
+
+<div class="page-break" id="ui-arch"></div>
+<h2>16. UI Architecture &amp; Design System</h2>
+<p class="ar">بنية الواجهة ونظام التصميم</p>
+
+<h3>Layout model</h3>
+<div class="flow">app/_layout.tsx (Root Stack)
+  ├── welcome, auth-required, book, shop-profile, nearby, parts-shop …
+  └── (tabs)/_layout.tsx (Bottom tabs — customer OR shop mode)
+        ├── index (Home)
+        ├── bookings | favorites | assistant | settings  ← customer area
+        └── shop  ← owner dashboard (tabs hidden when shop logged in)</div>
+
+<h3>Two UI modes</h3>
+<table>
+  <tr><th>Mode</th><th>Trigger</th><th>Tabs shown</th><th>Default route</th></tr>
+  <tr><td>Customer / Guest</td><td>No shop session</td><td>Home, Bookings, Favorites*, Assistant, Settings</td><td>/ (Home)</td></tr>
+  <tr><td>Shop staff</td><td>ShopAuthContext.shop set</td><td>Shop tab only (bar hidden)</td><td>/shop → AppBootstrap forces /shop</td></tr>
+</table>
+<p class="small">*Favorites tab hidden for guests — login required.</p>
+
+<h3>Theme (<code>constants/Theme.ts</code> + ThemePreferenceContext)</h3>
+<ul>
+  <li><strong>Light / Dark</strong> — user choice in Settings; persisted</li>
+  <li><strong>Tokens:</strong> bg, bgElevated, card, border, text, textMuted, accent, warm, onAccent</li>
+  <li><strong>RTL:</strong> Arabic flips layout via I18nContext + I18nManager</li>
+  <li><strong>Owner wash accent:</strong> warm color in dark mode for owner buttons</li>
+</ul>
+
+<h3>UI patterns used everywhere</h3>
+<table>
+  <tr><th>Pattern</th><th>Where</th><th>Behavior</th></tr>
+  <tr><td>Pressable + gradient btn</td><td>welcome.tsx</td><td>Login/register; pointerEvents none on gradient (web fix)</td></tr>
+  <tr><td>OwnerSectionCard</td><td>WashOwnerPanel</td><td>Collapsible section with title + subtitle</td></tr>
+  <tr><td>Modal confirm</td><td>shop.tsx, WashOwnerPanel</td><td>Replaces Alert.alert on web for booking decisions</td></tr>
+  <tr><td>userAlert</td><td>welcome, book, shop</td><td>window.alert on web when Alert invisible</td></tr>
+  <tr><td>ScrollView sections</td><td>All owner panels</td><td>Long vertical CMS layout</td></tr>
+  <tr><td>iframe report preview</td><td>shop.tsx, WashOwnerPanel</td><td>Scrollable HTML report before PDF</td></tr>
+</table>
+
+<div class="page-break" id="ui-nav"></div>
+<h2>17. Master Navigation Flowcharts</h2>
+<p class="ar">مخططات التنقل الرئيسية</p>
+
+<h3>17.1 App entry &amp; auth routing</h3>
+<div class="flow">[App launch]
+      |
+      v
+[AppBootstrap waits: CustomerAuth + ShopAuth ready]
+      |
+      +-- isAdmin? ----------------> router.replace('/admin')
+      |
+      +-- isPendingOwner? ---------> /welcome?pending=1  (blocked from /shop)
+      |
+      +-- approved shop session? --> router.replace('/shop')
+      |
+      +-- no session + protected? --> /welcome
+      |
+      +-- customer/guest on /welcome? --> / or returnTo
+      |
+      v
+[/(tabs) or stack screens]</div>
+
+<h3>17.2 Customer booking journey</h3>
+<div class="flow">Home (/(tabs)/index)
+  | tap service card (maintenance|wash|parts|accessories)
+  v
+/service/[type]  → pick area (Maadi, Nasr City…)
+  v
+/service/[type]/[areaId]  → shop list
+  |
+  +-- parts/accessories --> /parts-shop/[shopId]
+  |
+  +-- maintenance/wash --> /shop-profile/[shopId]
+          |
+          | [Book button]
+          v
+      guest? --> /auth-required --> /welcome?returnTo=/book/...
+          |
+          v
+      /book/[shopId]?serviceId=...
+          | fill phone, car, date, time slot, notes
+          v
+      createBooking() --> success modal --> /bookings tab</div>
+
+<h3>17.3 Alternative discovery paths</h3>
+<div class="flow">Home --search/filter--> service cards
+Home --live offers--> shop-profile
+Nearby GPS (/nearby/[type]) --> shop-profile | parts-shop
+Favorites tab --> shop-profile (login required)
+Shop profile: Call | Directions | Share | Favorite | Gallery | Reviews</div>
+
+<h3>17.4 Owner login &amp; panel routing</h3>
+<div class="flow">/welcome → Owner tab
+  |
+  +-- Login (approved owner/manager)
+  |     v
+  |   ShopAuthContext.login() → ok
+  |     v
+  |   router.replace('/shop') → WashOwnerPanel | store UI | generic UI
+  |
+  +-- Login (admin)
+  |     v
+  |   router.replace('/admin') → AdminPanel
+  |
+  +-- Login (pending_owner)
+  |     v
+  |   pending_approval message — no shop access
+  |
+  +-- Register as merchant
+        v
+      registerOwner() → signUp + register_shop_owner RPC
+        v
+      pending_owner + shop is_active=false → wait for admin</div>
+
+<h3>17.5 Wash owner hub (secondary navigation)</h3>
+<div class="flow">WashOwnerPanel → Hub shortcuts
+  v
+/shop/wash-owner-hub?tab=notifications|orders|history
+  |
+  +-- notifications: wash notification inbox
+  +-- orders: approve/reject/in_progress/done bookings
+  +-- history: completed/cancelled list + clear</div>
+
+<h3>17.6 Branch manager vs owner (wash UI)</h3>
+<div class="flow">Same login form (/welcome Owner tab)
+  v
+ShopAuthContext resolves role
+  |
+  +-- isOwner --> branch tabs visible, create branch, create manager
+  |
+  +-- isBranchManager --> single branch, no manager section, bookings filtered by branch_id</div>
+
+<div class="page-break" id="ui-customer"></div>
+<h2>18. Customer UI — Module by Module</h2>
+<p class="ar">واجهة العميل — شرح كل جزء</p>
+
+<div class="module-box">
+<h4>Module A — Welcome / Auth (<code>app/welcome.tsx</code>)</h4>
+<p><strong>UI elements:</strong> Logo, language toggle, Customer | Owner mode tabs, guest button, form box.</p>
+<p><strong>Customer tab:</strong> Login ↔ Register toggle, email/password, optional vehicles on register, forgot password link.</p>
+<p><strong>Owner tab:</strong> Shop email + password, demo accounts hint.</p>
+<p><strong>Actions:</strong> onCustomerSubmit → login/register; onOwnerSubmit → shop login; continueAsGuest → home without Supabase.</p>
+<p><strong>Feedback:</strong> formMessage inline (red) + userAlert on errors; success → router.replace.</p>
+</div>
+
+<div class="module-box">
+<h4>Module B — Home (<code>app/(tabs)/index.tsx</code>)</h4>
+<p><strong>Sections top→bottom:</strong></p>
+<ol>
+  <li>Header logo + sign out (if logged in)</li>
+  <li>Car profile card — saved make/model; edit modal</li>
+  <li>Next booking card — upcoming appointment or empty state</li>
+  <li>Live offers carousel — wash/maintenance promotions</li>
+  <li>Service search + filter (all / wash only)</li>
+  <li>4 service cards → navigate to /service/{type}</li>
+</ol>
+</div>
+
+<div class="module-box">
+<h4>Module C — Area &amp; Shop List (<code>app/service/</code>)</h4>
+<p><strong>Step 1:</strong> Grid of Cairo/Giza areas with shop count.</p>
+<p><strong>Step 2:</strong> Shops in selected area; card shows name, rating, distance hint, open status.</p>
+<p><strong>Routing:</strong> parts/accessories → parts-shop; others → shop-profile.</p>
+</div>
+
+<div class="module-box">
+<h4>Module D — Shop Profile (<code>app/shop-profile/[shopId].tsx</code>)</h4>
+<table>
+  <tr><th>UI block</th><th>User action</th></tr>
+  <tr><td>Hero image + gallery swipe</td><td>View photos</td></tr>
+  <tr><td>Name, address, phone</td><td>Call, open maps</td></tr>
+  <tr><td>Schedule line</td><td>See open hours</td></tr>
+  <tr><td>Services list</td><td>Tap service → book with serviceId</td></tr>
+  <tr><td>Offers</td><td>Read promotions</td></tr>
+  <tr><td>More info</td><td>Owner free-text details</td></tr>
+  <tr><td>Reviews</td><td>Read/submit rating (logged in)</td></tr>
+  <tr><td>Share / Favorite</td><td>Social share; save shop</td></tr>
+  <tr><td>Book CTA (sticky)</td><td>→ /book or auth-required</td></tr>
+</table>
+</div>
+
+<div class="module-box">
+<h4>Module E — Booking Form (<code>app/book/[shopId].tsx</code>)</h4>
+<table>
+  <tr><th>Field</th><th>Source</th><th>Validation</th></tr>
+  <tr><td>Phone</td><td>Customer profile</td><td>Egypt E.164</td></tr>
+  <tr><td>Car type / color</td><td>Vehicle storage or manual</td><td>Car type required</td></tr>
+  <tr><td>Date picker</td><td>BookingDatePicker</td><td>Owner schedule days</td></tr>
+  <tr><td>Time slots grid</td><td>buildSlotsForShopDate</td><td>Required; booked slots disabled</td></tr>
+  <tr><td>Service summary</td><td>Selected service or shop default</td><td>Price + duration shown</td></tr>
+  <tr><td>Notes</td><td>Free text</td><td>Optional</td></tr>
+  <tr><td>Submit</td><td>createBooking</td><td>Disabled if no slot</td></tr>
+</table>
+<p><strong>Success:</strong> Modal → View my bookings → /bookings tab.</p>
+</div>
+
+<div class="module-box">
+<h4>Module F — My Bookings (<code>app/(tabs)/bookings.tsx</code>)</h4>
+<p>List cards: shop name, service, datetime, status badge, cancel button (pending/confirmed).</p>
+<p>Clear history action for done/cancelled items.</p>
+</div>
+
+<div class="module-box">
+<h4>Module G — Favorites, Assistant, Settings</h4>
+<p><strong>Favorites:</strong> Saved shop cards → shop-profile. Login required.</p>
+<p><strong>Assistant:</strong> Driver Network posts (local) + AI chat panel (OpenAI key required).</p>
+<p><strong>Settings:</strong> Language EN/AR, theme light/dark, vehicles link, support links, privacy, sign out.</p>
+<p><strong>Vehicles:</strong> /settings/vehicles — add/edit/delete customer cars.</p>
+</div>
+
+<div class="module-box">
+<h4>Module H — Parts Shop (<code>app/parts-shop/[shopId].tsx</code>)</h4>
+<p>Product grid, cart badge, qty +/-, shipping address, phone, checkout → createPartsOrder.</p>
+<p>No time slots — inventory-based e-commerce flow.</p>
+</div>
+
+<div class="module-box">
+<h4>Module I — Nearby (<code>app/nearby/[type].tsx</code>)</h4>
+<p>Requests GPS permission → sorts shops by distance.</p>
+<p>Filter chips: All, Top rated, Price, Distance, Open now, Favorites.</p>
+</div>
+
+<div class="module-box">
+<h4>Module J — Customer Notifications (<code>CustomerNotificationsBell</code>)</h4>
+<p>Bell icon in tab headers (logged-in customer only).</p>
+<p>Shows booking approved/declined/reminder + parts order updates.</p>
+<p>Processes due reminders on focus.</p>
+</div>
+
+<div class="page-break" id="ui-owner"></div>
+<h2>19. Owner UI — Module by Module</h2>
+<p class="ar">واجهة صاحب المحل — شرح كل جزء</p>
+
+<h3>19.1 Generic owner panel (<code>app/(tabs)/shop.tsx</code> — maintenance / winch)</h3>
+<div class="module-box">
+<h4>Header bar</h4>
+<p>Profile cover image, notifications bell, logout. Shop name from catalog.</p>
+</div>
+<div class="module-box">
+<h4>Profile section</h4>
+<p>Fields: profile name EN/AR, address EN/AR, phone, email, more info EN/AR.</p>
+<p>Maintenance only: Winch service toggle (shows winch add-on to customers).</p>
+<p>Save profile info button → shopExtrasStorage.</p>
+</div>
+<div class="module-box">
+<h4>Photo album</h4>
+<p>Add image URL, remove image. Gallery shown on shop-profile.</p>
+</div>
+<div class="module-box">
+<h4>Service price + schedule</h4>
+<p>Default price EGP, open/close time, slot duration (15+ min). Friday closed default.</p>
+<p>Generates customer time slots on book screen.</p>
+</div>
+<div class="module-box">
+<h4>Offers</h4>
+<p>Add bilingual offer title/body, expiry. Cancel active offers.</p>
+</div>
+<div class="module-box">
+<h4>Bookings dashboard</h4>
+<p><strong>Report:</strong> date from/to, quick last N days, preview list, View report modal, Save PDF.</p>
+<p><strong>Active requests:</strong> pending + confirmed — Confirm | Cancel | Mark done buttons via confirm modal.</p>
+<p><strong>History:</strong> done + cancelled — show/hide toggle.</p>
+</div>
+
+<h3>19.2 Store owner panel (parts / accessories)</h3>
+<div class="module-box">
+<p>Same profile + gallery as generic. <strong>No schedule/bookings.</strong></p>
+<p><strong>Inventory table:</strong> add item (name, price, stock, image URL), +/- stock buttons.</p>
+<p><strong>Orders table:</strong> customer phone, items, total, status — Confirm | Cancel | Shipped.</p>
+</div>
+
+<h3>19.3 Wash owner panel (<code>WashOwnerPanel.tsx</code>) — section order</h3>
+<table>
+  <tr><th>#</th><th>Section (i18n key)</th><th>UI controls</th><th>Owner only?</th></tr>
+  <tr><td>1</td><td>wash_dashboard_*</td><td>Stat cards: today bookings, pending, revenue, rating, customers, top service</td><td>Stats scope differs</td></tr>
+  <tr><td>2</td><td>wash_status_*</td><td>Open / Closed / Busy / Vacation + vacation dates</td><td>No</td></tr>
+  <tr><td>3</td><td>wash_analytics_*</td><td>Revenue &amp; booking charts (computed locally)</td><td>No</td></tr>
+  <tr><td>4</td><td>wash_hub_*</td><td>3 shortcut buttons → wash-owner-hub tabs</td><td>No</td></tr>
+  <tr><td>5</td><td>wash_branch_*</td><td>Branch tabs, add branch, rename</td><td>Owner only</td></tr>
+  <tr><td>6</td><td>wash_profile_*</td><td>Branch profile fields + save</td><td>No</td></tr>
+  <tr><td>7</td><td>wash_gallery_*</td><td>Image URL list add/remove</td><td>No</td></tr>
+  <tr><td>8</td><td>wash_base_price_*</td><td>Default service price input</td><td>No</td></tr>
+  <tr><td>9</td><td>wash_services_*</td><td>Service list, add/edit modal (EN/AR, price, duration, category, visible, sort)</td><td>No</td></tr>
+  <tr><td>10</td><td>wash_hours_*</td><td>Day picker 0–6, open/close/break, copy to all days</td><td>No</td></tr>
+  <tr><td>11</td><td>wash_coupons_*</td><td>Coupon list, add percent/fixed code</td><td>No</td></tr>
+  <tr><td>12</td><td>wash_manager_*</td><td>Link email | Create login (name, email, password)</td><td>Owner only</td></tr>
+  <tr><td>13</td><td>wash_employees_*</td><td>Employee list per branch, add/edit/delete roster</td><td>No</td></tr>
+  <tr><td>14</td><td>wash_reviews_*</td><td>Hide review, reply, report</td><td>No</td></tr>
+  <tr><td>15</td><td>wash_report_*</td><td>Date range report + PDF (same engine as generic)</td><td>No</td></tr>
+  <tr><td>16</td><td>Active bookings inline</td><td>Status workflow: accept, reject+note, in progress, done, no show</td><td>Branch filtered</td></tr>
+</table>
+
+<h3>19.4 Wash owner hub screens</h3>
+<div class="flow">wash-owner-hub.tsx
+  Tab: notifications → list from washNotificationCenter (unread badge)
+  Tab: orders      → booking cards + action buttons + call customer
+  Tab: history     → past bookings + delete/clear</div>
+
+<h3>19.5 Super Admin panel (<code>AdminPanel.tsx</code>)</h3>
+<table>
+  <tr><th>Tab</th><th>Module</th><th>Actions</th></tr>
+  <tr><td>Dashboard</td><td>Platform stats cards</td><td>Read-only metrics from bookings + users</td></tr>
+  <tr><td>Pending</td><td>PendingOwnerRequest list</td><td>Accept / Reject → Supabase RPC</td></tr>
+  <tr><td>Merchants</td><td>ActiveMerchant list</td><td>View approved owners + branch count</td></tr>
+</table>
+<p>Entry: /welcome Owner tab → admin login → <code>/admin</code>. Uses <code>OwnerSectionCard</code> for sections.</p>
+
+<div class="page-break" id="ui-screens"></div>
+<h2>20. Screen-by-Screen Reference</h2>
+<p class="ar">مرجع سريع لكل شاشة</p>
+
+<div class="screen-map">
+  <div class="screen-card"><strong>/welcome</strong>Auth gateway. Customer register/login, guest, owner login. Language toggle.</div>
+  <div class="screen-card"><strong>/(tabs)/index</strong>Home hub. Services, offers, next booking, car profile.</div>
+  <div class="screen-card"><strong>/service/[type]</strong>Pick geographic area.</div>
+  <div class="screen-card"><strong>/service/[type]/[areaId]</strong>Shop list for area.</div>
+  <div class="screen-card"><strong>/shop-profile/[shopId]</strong>Public shop page before booking.</div>
+  <div class="screen-card"><strong>/book/[shopId]</strong>Appointment form + slot picker.</div>
+  <div class="screen-card"><strong>/bookings tab</strong>Customer appointment list.</div>
+  <div class="screen-card"><strong>/favorites tab</strong>Saved shops (login).</div>
+  <div class="screen-card"><strong>/assistant tab</strong>Driver network + AI chat.</div>
+  <div class="screen-card"><strong>/settings tab</strong>App preferences.</div>
+  <div class="screen-card"><strong>/settings/vehicles</strong>Customer car list CRUD.</div>
+  <div class="screen-card"><strong>/nearby/[type]</strong>GPS shop discovery.</div>
+  <div class="screen-card"><strong>/parts-shop/[shopId]</strong>Storefront + cart checkout.</div>
+  <div class="screen-card"><strong>/auth-required</strong>Login gate with returnTo.</div>
+  <div class="screen-card"><strong>/(tabs)/shop</strong>Owner dashboard (type-specific panel).</div>
+  <div class="screen-card"><strong>/shop/wash-owner-hub</strong>Wash notifications/orders/history.</div>
+  <div class="screen-card"><strong>/admin</strong>Super Admin: dashboard, pending merchants, active merchants.</div>
+  <div class="screen-card"><strong>/reset-password</strong>Supabase password reset handler.</div>
+</div>
+
+<h3>Tab visibility matrix</h3>
+<table>
+  <tr><th>Tab</th><th>Guest</th><th>Customer</th><th>Shop owner</th></tr>
+  <tr><td>Home</td><td>✓</td><td>✓</td><td>hidden</td></tr>
+  <tr><td>Bookings</td><td>✓</td><td>✓</td><td>hidden</td></tr>
+  <tr><td>Favorites</td><td>hidden</td><td>✓</td><td>hidden</td></tr>
+  <tr><td>Assistant</td><td>✓</td><td>✓</td><td>hidden</td></tr>
+  <tr><td>Settings</td><td>✓</td><td>✓</td><td>hidden</td></tr>
+  <tr><td>Shop</td><td>hidden*</td><td>hidden</td><td>✓ (only tab)</td></tr>
+</table>
+<p class="small">*Shop tab visible when no customer area and not logged in as customer — rare edge case.</p>
+
+<div class="page-break" id="ui-components"></div>
+<h2>21. Shared UI Components</h2>
+<p class="ar">المكوّنات المشتركة</p>
+
+<table>
+  <tr><th>Component</th><th>Path</th><th>Used for</th></tr>
+  <tr><td>AppBootstrap</td><td>components/AppBootstrap.tsx</td><td>Auth routing, splash hide</td></tr>
+  <tr><td>OwnerSectionCard</td><td>components/owner/OwnerSectionCard.tsx</td><td>Wash owner CMS sections</td></tr>
+  <tr><td>ServiceOptionCard</td><td>components/ui/ServiceOptionCard.tsx</td><td>Home service type cards</td></tr>
+  <tr><td>BookingDatePicker</td><td>components/ui/BookingDatePicker.tsx</td><td>Book screen date selection</td></tr>
+  <tr><td>CustomerNotificationsBell</td><td>components/customer/CustomerNotificationsBell.tsx</td><td>In-app notification dropdown</td></tr>
+  <tr><td>ShopCatalogProvider</td><td>context/ShopCatalogContext.tsx</td><td>Loads areas/shops cache for UI lists</td></tr>
+  <tr><td>userAlert</td><td>lib/ui/userAlert.ts</td><td>Cross-platform error dialogs</td></tr>
+</table>
+
+<h3>Context → UI binding</h3>
+<table>
+  <tr><th>Context</th><th>UI reads</th><th>UI effect</th></tr>
+  <tr><td>I18nContext</td><td>t(), locale, isRTL</td><td>All labels; remount tabs on locale change</td></tr>
+  <tr><td>ThemePreferenceContext</td><td>useAppTheme()</td><td>Colors on every screen</td></tr>
+  <tr><td>CustomerAuthContext</td><td>customer, isGuest, busy</td><td>Auth gates, profile prefill</td></tr>
+  <tr><td>ShopAuthContext</td><td>shop, isOwner, isBranchManager</td><td>Panel type, branch tabs, manager section</td></tr>
+  <tr><td>ShopCatalogContext</td><td>ready, version</td><td>Shop lists, home offers</td></tr>
+</table>
+
+<div class="page-break" id="ui-context"></div>
+<h2>22. UI State &amp; Context Flow</h2>
+<p class="ar">تدفق الحالة بين الواجهة والبيانات</p>
+
+<h3>22.1 Customer books — UI ↔ data</h3>
+<div class="flow">[Book screen state: phone, carType, dateYmd, timeSlot, notes]
+        |
+        | onSubmit
+        v
+createBooking() ──► Supabase bookings + AsyncStorage cache
+        |
+        +──► pushOwnerNotification (owner bell)
+        +──► pushWashCenterNotification (wash hub)
+        +──► sendShopPushForBooking (native push)
+        |
+        v
+[Success modal] ──► user taps ──► /bookings tab reloads listBookingsForPhone()</div>
+
+<h3>22.2 Owner confirms — UI ↔ data</h3>
+<div class="flow">[shop.tsx or wash-owner-hub booking card]
+        |
+        | Confirm button → confirm modal
+        v
+updateBookingStatus(id, 'confirmed')
+        |
+        +──► pushCustomerNotification('booking_approved')
+        +──► scheduleBookingReminders (60m, 30m)
+        |
+        v
+[CustomerNotificationsBell shows approval]
+[Bookings tab status badge updates on refresh]</div>
+
+<h3>22.3 Wash branch switch — UI ↔ data</h3>
+<div class="flow">[Owner taps branch tab in WashOwnerPanel]
+        |
+        v
+setActiveBranch(branch) + useEffect reload
+        |
+        +──► loadBranchEmployees(branch.id) from Supabase
+        +──► applyBranchToForms() fills profile/gallery/hours fields
+        |
+        v
+[All section forms show selected branch data]
+[Save writes back to washBranchStorage → branchRepository Supabase sync]</div>
+
+<h3>22.4 Report PDF — UI ↔ data</h3>
+<div class="flow">[Owner sets date range + Apply]
+        |
+        v
+filterBookingsByDateRange() from listBookingsForShop()
+        |
+        v
+buildOwnerReportHtml() → HTML string
+        |
+        +── Web: setReportPreviewHtml → Modal iframe (scroll) → Save PDF = print
+        +── Native: Print.printToFileAsync → Sharing.shareAsync</div>
+
+<h3>22.5 Local vs cloud (what UI shows when offline)</h3>
+<table>
+  <tr><th>UI area</th><th>Offline behavior</th></tr>
+  <tr><td>Shop lists</td><td>Cached catalog from last Supabase refresh</td></tr>
+  <tr><td>Bookings list</td><td>AsyncStorage merge; may differ from cloud</td></tr>
+  <tr><td>Owner extras (schedule, offers)</td><td>Local shopExtrasStorage until synced</td></tr>
+  <tr><td>Wash branches</td><td>Local cache + Supabase when online</td></tr>
+  <tr><td>Login</td><td>Requires Supabase (shows not_configured if missing)</td></tr>
+  <tr><td>Admin panel</td><td>Requires Supabase + step5 RPCs; read-only offline</td></tr>
+</table>
+
+<div class="page-break" id="admin-overview"></div>
+<h2>23. Super Admin — Overview &amp; Roles</h2>
+<p class="ar">لوحة Super Admin — نظرة عامة</p>
+
+<p>PitStop 2.0 adds a <strong>merchant approval gate</strong>: new shop owners cannot go live until a platform admin approves them. Existing seed owners (e.g. wash@demo.com) remain pre-approved.</p>
+
+<h3>State machine — merchant account</h3>
+<table>
+  <tr><th>State</th><th>users.role</th><th>users.is_active</th><th>shops.is_active</th><th>Customer catalog</th><th>App route</th></tr>
+  <tr><td>New registration</td><td>pending_owner</td><td>false</td><td>false</td><td>Hidden</td><td>/welcome (pending message)</td></tr>
+  <tr><td>Approved</td><td>owner</td><td>true</td><td>true</td><td>Visible</td><td>/shop</td></tr>
+  <tr><td>Rejected</td><td>customer</td><td>true</td><td>deleted</td><td>—</td><td>/ (customer area)</td></tr>
+</table>
+
+<h3>Admin capabilities</h3>
+<ul>
+  <li>View platform-wide booking stats and 12% platform fee estimate</li>
+  <li>List pending merchant registration requests</li>
+  <li>Accept → atomic RPC activates user + shop</li>
+  <li>Reject → deletes shop row, resets user to customer</li>
+  <li>List active merchants with branch counts</li>
+</ul>
+
+<div class="page-break" id="admin-flows"></div>
+<h2>24. Super Admin — Flowcharts</h2>
+<p class="ar">مخططات Super Admin والتسجيل</p>
+
+<h3>24.1 Merchant self-registration</h3>
+<div class="flow">/welcome → Owner tab → "Register as merchant"
+  |
+  v
+Fill: business name, owner name, phone, address, shop type, area, email, password
+  |
+  v
+ShopAuthContext.registerOwner()
+  |
+  +-- supabase.auth.signUp({ email, password, metadata })
+  |
+  +-- RPC register_shop_owner(...)
+  |       |
+  |       +-- INSERT shops (is_active=false, owner_user_id)
+  |       +-- INSERT shop_branches (slug=main)
+  |       +-- UPDATE users SET role=pending_owner, is_active=false, shop_id
+  |
+  v
+Show: "Pending approval" (owner cannot access /shop yet)
+  |
+  v
+[Admin reviews in /admin → Pending tab]</div>
+
+<h3>24.2 Admin approval flow</h3>
+<div class="flow">Admin logs in (admin@demo.com) via Owner tab on /welcome
+  |
+  v
+AppBootstrap → router.replace('/admin')
+  |
+  v
+AdminPanel → Pending requests tab
+  |
+  +-- [Accept] → RPC approve_shop_owner(user_id, shop_id)
+  |       |
+  |       +-- users: role=owner, is_active=true
+  |       +-- shops: is_active=true
+  |       |
+  |       v
+  |     Shop appears in customer catalog (refreshCatalog)
+  |     Owner can login → /shop
+  |
+  +-- [Reject] → RPC reject_shop_owner(user_id, shop_id)
+          |
+          +-- DELETE shop_branches + shops
+          +-- users: role=customer, shop_id=null
+          |
+          v
+        Registration removed; user stays as customer</div>
+
+<h3>24.3 Catalog visibility</h3>
+<div class="flow">refreshCatalog() queries shops WHERE is_active = true
+  |
+  v
+pending_owner shops (is_active=false) NEVER shown to customers
+  |
+  v
+After approve_shop_owner → shop included on next catalog refresh</div>
+
+<h3>24.4 Platform stats calculation</h3>
+<div class="flow">AdminPanel → Dashboard tab
+  |
+  v
+fetchPlatformStats() in adminRepository.ts
+  |
+  +-- COUNT all bookings
+  +-- FILTER status = 'done' for revenue
+  +-- SUM platform_fee_egp OR 12% of service_price_egp
+  +-- COUNT pending_owner users
+  +-- COUNT active owner users
+  |
+  v
+Display stat cards (OwnerSectionCard layout)</div>
+
+<div class="page-break" id="admin-modules"></div>
+<h2>25. Super Admin — Modules &amp; UI</h2>
+<p class="ar">شرح وحدات لوحة المشرف</p>
+
+<div class="module-box">
+<h4>Route: <code>app/admin/index.tsx</code> + <code>components/admin/AdminPanel.tsx</code></h4>
+<p>Full-screen layout (web-optimized): fixed header + horizontal tab chips + scrollable content.</p>
+</div>
+
+<h3>Tab A — Dashboard (<code>admin_tab_dashboard</code>)</h3>
+<table>
+  <tr><th>Stat card</th><th>Data source</th></tr>
+  <tr><td>Total bookings</td><td>COUNT bookings</td></tr>
+  <tr><td>Completed</td><td>status = done</td></tr>
+  <tr><td>Gross revenue</td><td>SUM service_price_egp (done)</td></tr>
+  <tr><td>Platform fee (12%)</td><td>SUM platform_fee_egp or calculated</td></tr>
+  <tr><td>Pending owners</td><td>COUNT users role=pending_owner</td></tr>
+  <tr><td>Active merchants</td><td>COUNT users role=owner, is_active</td></tr>
+</table>
+
+<h3>Tab B — Pending requests (<code>admin_tab_pending</code>)</h3>
+<p>Each card shows: shop name, type, owner email, phone, address.</p>
+<p><strong>Accept</strong> → <code>approveShopOwner()</code> → RPC</p>
+<p><strong>Reject</strong> → <code>rejectShopOwner()</code> → RPC</p>
+<p>Uses <code>userAlert</code> for success/error on web.</p>
+
+<h3>Tab C — Active merchants (<code>admin_tab_merchants</code>)</h3>
+<p>Lists approved owners: shop name, type, email, active branch count from <code>shop_branches</code>.</p>
+
+<h3>Header actions</h3>
+<ul>
+  <li>Title: Super Admin / لوحة المشرف</li>
+  <li>Signed-in email from <code>ShopAuthContext.staff</code></li>
+  <li>Sign out → <code>useAppSignOut()</code> → /welcome</li>
+</ul>
+
+<div class="page-break" id="owner-register"></div>
+<h2>26. Merchant Registration Module</h2>
+<p class="ar">وحدة تسجيل التاجر الجديد</p>
+
+<div class="module-box">
+<h4>UI: <code>app/welcome.tsx</code> — Owner tab</h4>
+<p><strong>Toggle:</strong> Login ↔ Register as merchant (<code>owner_register_link</code>)</p>
+<p><strong>Register fields:</strong></p>
+<ol>
+  <li>Business name (<code>shopName</code>)</li>
+  <li>Owner full name (<code>name</code>)</li>
+  <li>Egypt mobile phone — validated</li>
+  <li>Business address</li>
+  <li>Shop type chips: wash, maintenance, parts, accessories</li>
+  <li>Area chips: from catalog areas (Maadi, Nasr City, …)</li>
+  <li>Email + password (strong password rules)</li>
+</ol>
+<p><strong>Submit:</strong> <code>registerOwner()</code> in ShopAuthContext</p>
+</div>
+
+<div class="module-box">
+<h4>Backend: <code>lib/shop/ownerRegistrationRepository.ts</code></h4>
+<ol>
+  <li><code>supabase.auth.signUp</code> with metadata (name, phone, account_type=shop_owner)</li>
+  <li><code>supabase.rpc('register_shop_owner', { p_shop_name, p_shop_type, p_area_id, … })</code></li>
+  <li>On RPC failure → signOut and return invalid</li>
+  <li>On success → session restored as pending_owner</li>
+</ol>
+</div>
+
+<div class="module-box">
+<h4>Login while pending</h4>
+<p>Credentials valid but <code>login()</code> returns <code>pending_approval</code>.</p>
+<p>AppBootstrap keeps user on /welcome with pending message — no access to /shop or customer booking as owner.</p>
+</div>
+
+<div class="page-break" id="admin-lib"></div>
+<h2>27. New Library Modules (Admin)</h2>
+<p class="ar">ملفات الكود الجديدة</p>
+
+<table>
+  <tr><th>File</th><th>Exports / purpose</th></tr>
+  <tr><td><code>lib/admin/adminRepository.ts</code></td><td>listPendingOwnerRequests, listActiveMerchants, fetchPlatformStats, approveShopOwner, rejectShopOwner</td></tr>
+  <tr><td><code>lib/shop/ownerRegistrationRepository.ts</code></td><td>registerShopOwner(input) → signUp + RPC</td></tr>
+  <tr><td><code>lib/shop/shopStaffUser.ts</code></td><td>fetchAppStaffUser, resolveShopSession — extended for admin + pending_owner</td></tr>
+  <tr><td><code>context/ShopAuthContext.tsx</code></td><td>isAdmin, isPendingOwner, registerOwner, pending_approval login result</td></tr>
+  <tr><td><code>components/AppBootstrap.tsx</code></td><td>Admin → /admin; pending → /welcome?pending=1</td></tr>
+  <tr><td><code>components/admin/AdminPanel.tsx</code></td><td>Full Super Admin UI</td></tr>
+  <tr><td><code>app/admin/_layout.tsx</code></td><td>Stack layout for admin route</td></tr>
+  <tr><td><code>supabase/apply-pitstop-2.0-step5-admin-approval.sql</code></td><td>Enum, RLS, RPCs, is_platform_admin()</td></tr>
+</table>
+
+<h3>Context flags quick reference</h3>
+<table>
+  <tr><th>Flag</th><th>When true</th><th>Route</th></tr>
+  <tr><td>isAdmin</td><td>users.role = admin</td><td>/admin</td></tr>
+  <tr><td>isPendingOwner</td><td>users.role = pending_owner</td><td>/welcome (blocked)</td></tr>
+  <tr><td>isOwner</td><td>users.role = owner, active</td><td>/shop</td></tr>
+  <tr><td>isBranchManager</td><td>users.role = branch_manager</td><td>/shop (branch filtered)</td></tr>
+</table>
+
+<p class="footer">PitStop Master System Documentation · car-care-eg · Includes Super Admin, UI modules, and flowcharts</p>
+
+</body>
+</html>

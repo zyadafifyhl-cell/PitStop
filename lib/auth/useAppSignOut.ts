@@ -12,7 +12,7 @@ type SignOutOptions = {
 /** Sign out customer/guest and shop owner session, then return to welcome. */
 export function useAppSignOut() {
   const { logout: logoutCustomer } = useCustomerAuth();
-  const { logout: logoutShop, shop } = useShopAuth();
+  const { logout: logoutShop, shop, staff } = useShopAuth();
   const [busy, setBusy] = useState(false);
 
   const signOut = useCallback(
@@ -20,7 +20,7 @@ export function useAppSignOut() {
       if (busy) return;
       setBusy(true);
       try {
-        if (shop) await logoutShop();
+        if (shop || staff) await logoutShop();
         await logoutCustomer();
         const focus =
           options?.welcomeFocus === 'owner'
@@ -33,7 +33,7 @@ export function useAppSignOut() {
         setBusy(false);
       }
     },
-    [busy, shop, logoutShop, logoutCustomer],
+    [busy, shop, staff, logoutShop, logoutCustomer],
   );
 
   return { signOut, busy };

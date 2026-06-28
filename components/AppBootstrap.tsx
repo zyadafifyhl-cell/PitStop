@@ -1,4 +1,4 @@
-import { useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
+import { useGlobalSearchParams, usePathname, useRouter, type Href } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef } from 'react';
 
@@ -26,7 +26,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const params = useGlobalSearchParams();
   const { ready: customerReady, customer, isGuest, hasSession, busy: customerBusy } = useCustomerAuth();
-  const { ready: shopReady, shop } = useShopAuth();
+  const { ready: shopReady, shop, staff, isAdmin, isPendingOwner, busy: shopBusy } = useShopAuth();
   const splashHidden = useRef(false);
 
   const authReady = customerReady && shopReady;
@@ -43,8 +43,24 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     if (!authReady) return;
 
     const isPublic = isPublicPath(pathname);
-    const isLoggedIn = !!customer || !!shop || isGuest;
-    const authPending = customerBusy || (hasSession && !customer && !shop);
+    const isLoggedIn = !!customer || !!shop || isGuest || !!staff;
+    const authPending =
+      customerBusy || shopBusy || (hasSession && !customer && !shop && !staff);
+
+    if (isAdmin) {
+      const onAdminArea = pathname === '/admin' || pathname.startsWith('/admin/');
+      if (!onAdminArea) {
+        router.replace('/admin' as Href);
+      }
+      return;
+    }
+
+    if (isPendingOwner) {
+      if (pathname !== '/welcome' && !isPublic) {
+        router.replace('/welcome?focus=owner&pending=1');
+      }
+      return;
+    }
 
     if (shop) {
       const onShopArea = pathname === '/shop' || pathname.startsWith('/shop/');
@@ -70,9 +86,13 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     authReady,
     customer,
     shop,
+    staff,
     isGuest,
+    isAdmin,
+    isPendingOwner,
     hasSession,
     customerBusy,
+    shopBusy,
     pathname,
     router,
     params.returnTo,

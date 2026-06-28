@@ -13,8 +13,9 @@ import {
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { BookingProgressTimeline } from '@/components/customer/BookingProgressTimeline';
 import { getShopById } from '@/lib/booking/catalogRepository';
-import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
+import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel, toDateYmd } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { clearCustomerBookingHistory, listBookingsForPhone, updateBookingStatus } from '@/lib/booking/storage';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
@@ -36,6 +37,14 @@ function serviceLabel(booking: Booking, locale: 'en' | 'ar'): string {
 
 function formatDisplayPhone(phone: string): string {
   return phone.startsWith('+20') ? `0${phone.slice(3)}` : phone;
+}
+
+function isBookingToday(scheduledAt: string): boolean {
+  return toDateYmd(new Date(scheduledAt)) === toDateYmd(new Date());
+}
+
+function showsProgressTimeline(status: BookingStatus): boolean {
+  return status === 'pending' || status === 'confirmed' || status === 'in_progress' || status === 'done';
 }
 
 export default function MyBookingsScreen() {
@@ -205,6 +214,7 @@ export default function MyBookingsScreen() {
           const badgeColor = STATUS_BADGE_COLORS[item.status];
           const price =
             item.servicePriceEgp != null ? formatEgp(item.servicePriceEgp, locale) : formatEgp(0, locale);
+          const showTimeline = isBookingToday(item.scheduledAt) && showsProgressTimeline(item.status);
 
           return (
             <View
@@ -214,10 +224,14 @@ export default function MyBookingsScreen() {
                 <Text style={[styles.shopName, { color: theme.text }]} numberOfLines={2}>
                   {shopName}
                 </Text>
-                <View style={[styles.statusBadge, { backgroundColor: badgeColor }]}>
-                  <Text style={styles.statusBadgeText}>{bookingStatusLabel(item.status, locale)}</Text>
-                </View>
+                {!showTimeline ? (
+                  <View style={[styles.statusBadge, { backgroundColor: badgeColor }]}>
+                    <Text style={styles.statusBadgeText}>{bookingStatusLabel(item.status, locale)}</Text>
+                  </View>
+                ) : null}
               </View>
+
+              {showTimeline ? <BookingProgressTimeline status={item.status} /> : null}
 
               <View style={styles.fieldRow}>
                 <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{serviceFieldLabel}</Text>

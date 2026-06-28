@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { createElement, useCallback, useMemo, useState } from 'react';
+import React, { createElement, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -89,7 +89,13 @@ const webListScrollStyle =
 export default function ShopScreen() {
   const theme = useAppTheme();
   const { t, tp, locale } = useI18n();
-  const { ready, shop, busy, login } = useShopAuth();
+  const { ready, shop, busy, login, isAdmin } = useShopAuth();
+
+  useEffect(() => {
+    if (ready && isAdmin) {
+      router.replace('/admin');
+    }
+  }, [ready, isAdmin]);
   const { signOut } = useAppSignOut();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -261,6 +267,10 @@ export default function ShopScreen() {
     }
     if (result === 'shop_not_found') {
       userAlert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
+      return;
+    }
+    if (result === 'ok_admin') {
+      router.replace('/admin');
       return;
     }
     if (result !== 'ok') {

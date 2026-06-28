@@ -17,11 +17,12 @@ import {
   isShopStaffEmailRemote,
 } from '@/lib/booking/catalogRepository';
 import { normalizePhoneE164 } from '@/lib/phone';
+import { beginAuthMutation, endAuthMutation, isAuthMutationInProgress } from '@/lib/auth/authMutationLock';
 import { getSupabase } from '@/lib/supabase/client';
 
 const SESSION_KEY = '@pitstop/customer-session';
 const GUEST_KEY = '@pitstop/guest-session';
-type LoginResult = 'ok' | 'invalid' | 'email_not_confirmed' | 'not_configured';
+type LoginResult = 'ok' | 'invalid' | 'email_not_confirmed' | 'email_login_disabled' | 'not_configured';
 type RegisterResult = 'ok' | 'check_email' | 'email_taken' | 'invalid' | 'weak_password' | 'not_configured';
 
 type CustomerAuthContextValue = {
@@ -127,15 +128,21 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     const supabase = getSupabase();
     if (!supabase) return;
-    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (signingOutRef.current) return;
-      setHasSession(!!session?.user);
-      const match = session?.user ? await resolveCustomerFromUser(session.user) : null;
-      setCustomer(match);
-      if (match) {
-        setIsGuest(false);
-        AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-      }
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (signingOutRef.current || isAuthMutationInProgress()) return;
+      // Defer Supabase calls — async work inside this callback deadlocks signInWithPassword.
+      setTimeout(() => {
+        if (isAuthMutationInProgress()) return;
+        void (async () => {
+          setHasSession(!!session?.user);
+          const match = session?.user ? await resolveCustomerFromUser(session.user) : null;
+          setCustomer(match);
+          if (match) {
+            setIsGuest(false);
+            AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+          }
+        })();
+      }, 0);
     });
     return () => data.subscription.unsubscribe();
   }, [resolveCustomerFromUser]);
@@ -148,6 +155,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
+    beginAuthMutation();
     setBusy(true);
     try {
       const supabase = getSupabase();
@@ -164,6 +172,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       const { data, error } = await Promise.race([authPromise, timeoutPromise]);
       if (error) {
         const message = error.message.toLowerCase();
+        if (message.includes('email logins are disabled')) return 'email_login_disabled';
         if (message.includes('email not confirmed')) return 'email_not_confirmed';
         return 'invalid';
       }
@@ -183,12 +192,14 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       if (error instanceof Error && error.message === 'timeout') return 'not_configured';
       return 'invalid';
     } finally {
+      endAuthMutation();
       setBusy(false);
     }
   }, [customerFromUser, resolveCustomerFromUser]);
 
   const register = useCallback(
     async (input: { name: string; email: string; phone: string; password: string }) => {
+      beginAuthMutation();
       setBusy(true);
       try {
         const supabase = getSupabase();
@@ -229,6 +240,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       } catch {
         return 'invalid';
       } finally {
+        endAuthMutation();
         setBusy(false);
       }
     },
