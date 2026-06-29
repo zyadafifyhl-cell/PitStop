@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import React, {
   createContext,
@@ -18,7 +17,9 @@ import {
 } from '@/lib/booking/catalogRepository';
 import { normalizePhoneE164 } from '@/lib/phone';
 import { beginAuthMutation, endAuthMutation, isAuthMutationInProgress } from '@/lib/auth/authMutationLock';
+import { tabAuthStorage } from '@/lib/storage/webTabAuthStorage';
 import { getSupabase } from '@/lib/supabase/client';
+import { signOutCurrentTab } from '@/lib/supabase/webTabAuthIsolation';
 
 const SESSION_KEY = '@pitstop/customer-session';
 const GUEST_KEY = '@pitstop/guest-session';
@@ -100,17 +101,17 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
             setCustomer(match);
             if (match) {
               setIsGuest(false);
-              await AsyncStorage.removeItem(GUEST_KEY);
+              await tabAuthStorage.removeItem(GUEST_KEY);
             } else {
-              const guestSession = await AsyncStorage.getItem(GUEST_KEY);
+              const guestSession = await tabAuthStorage.getItem(GUEST_KEY);
               setIsGuest(guestSession === '1');
             }
           }
         } else {
           setHasSession(false);
-          await AsyncStorage.removeItem(SESSION_KEY);
+          await tabAuthStorage.removeItem(SESSION_KEY);
           if (!cancelled) {
-            const guestSession = await AsyncStorage.getItem(GUEST_KEY);
+            const guestSession = await tabAuthStorage.getItem(GUEST_KEY);
             setIsGuest(guestSession === '1');
           }
         }
@@ -139,7 +140,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
           setCustomer(match);
           if (match) {
             setIsGuest(false);
-            AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+            tabAuthStorage.removeItem(GUEST_KEY).catch(() => {});
           }
         })();
       }, 0);
@@ -151,7 +152,7 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     setCustomer(null);
     setHasSession(false);
     setIsGuest(true);
-    await AsyncStorage.setItem(GUEST_KEY, '1');
+    await tabAuthStorage.setItem(GUEST_KEY, '1');
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -182,8 +183,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
         if (data.user && !data.user.email_confirmed_at) return 'email_not_confirmed';
         return 'invalid';
       }
-      await AsyncStorage.setItem(SESSION_KEY, match.id);
-      await AsyncStorage.removeItem(GUEST_KEY);
+      await tabAuthStorage.setItem(SESSION_KEY, match.id);
+      await tabAuthStorage.removeItem(GUEST_KEY);
       setIsGuest(false);
       setHasSession(true);
       setCustomer(match);
@@ -227,8 +228,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
         if (data.session?.user) {
           const match = customerFromUser(data.session.user);
           if (match) {
-            await AsyncStorage.setItem(SESSION_KEY, match.id);
-            await AsyncStorage.removeItem(GUEST_KEY);
+            await tabAuthStorage.setItem(SESSION_KEY, match.id);
+            await tabAuthStorage.removeItem(GUEST_KEY);
             setIsGuest(false);
             setHasSession(true);
             setCustomer(match);
@@ -287,8 +288,9 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     setIsGuest(false);
     setHasSession(false);
     try {
-      await AsyncStorage.multiRemove([SESSION_KEY, GUEST_KEY]);
-      await getSupabase()?.auth.signOut();
+      await tabAuthStorage.multiRemove([SESSION_KEY, GUEST_KEY]);
+      const supabase = getSupabase();
+      if (supabase) await signOutCurrentTab(supabase.auth.signOut.bind(supabase.auth));
     } finally {
       signingOutRef.current = false;
     }

@@ -29,6 +29,7 @@ async function writeMap(map: ExtrasMap): Promise<void> {
 }
 
 function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
+  const washShopStatus = parseWashShopStatus(row?.washShopStatus);
   return {
     shopId,
     profileImageUrl: row?.profileImageUrl,
@@ -51,13 +52,21 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     weeklyHours: row?.weeklyHours,
     services: (row?.services ?? []).filter((service) => service.active),
     offers: (row?.offers ?? []).filter((offer) => offer.active && new Date(offer.validUntil).getTime() > Date.now()),
-    washShopStatus: row?.washShopStatus,
-    vacationReturnDate: row?.vacationReturnDate,
-    vacationMessage: row?.vacationMessage?.trim() || undefined,
-    vacationMessageAr: row?.vacationMessageAr?.trim() || undefined,
+    washShopStatus,
+    vacationReturnDate:
+      washShopStatus === 'vacation' ? row?.vacationReturnDate?.trim() || undefined : undefined,
+    vacationMessage:
+      washShopStatus === 'vacation' ? row?.vacationMessage?.trim() || undefined : undefined,
+    vacationMessageAr:
+      washShopStatus === 'vacation' ? row?.vacationMessageAr?.trim() || undefined : undefined,
     activeBranchId: row?.activeBranchId,
     updatedAt: row?.updatedAt ?? nowIso(),
   };
+}
+
+function parseWashShopStatus(value: unknown): ShopExtras['washShopStatus'] | undefined {
+  if (value === 'open' || value === 'closed' || value === 'busy' || value === 'vacation') return value;
+  return undefined;
 }
 
 export async function getShopExtras(shopId: string): Promise<ShopExtras> {
@@ -105,11 +114,27 @@ export async function setShopProfileInfo(
 
 export async function setShopProfileImage(shopId: string, imageUrl: string): Promise<ShopExtras> {
   const clean = imageUrl.trim();
+  const map = await readMap();
+  const row = normalizeExtras(shopId, map[shopId]);
+  const previousProfile = row.profileImageUrl;
+  row.profileImageUrl = clean || undefined;
+  if (previousProfile && previousProfile !== clean) {
+    row.imageUrls = row.imageUrls.filter((url) => url !== previousProfile);
+  }
+  row.updatedAt = nowIso();
+  map[shopId] = row;
+  await writeMap(map);
+  return row;
+}
+
+/** Cover banner only — index 0 of imageUrls; does not change profileImageUrl. */
+export async function setShopCoverImage(shopId: string, imageUrl: string): Promise<ShopExtras> {
+  const clean = imageUrl.trim();
   if (!clean) return getShopExtras(shopId);
   const map = await readMap();
   const row = normalizeExtras(shopId, map[shopId]);
-  row.profileImageUrl = clean;
-  row.imageUrls = [clean, ...row.imageUrls.filter((x) => x !== clean)].slice(0, 8);
+  const gallery = row.imageUrls.slice(1).filter((url) => url !== clean && url !== row.profileImageUrl);
+  row.imageUrls = [clean, ...gallery].slice(0, 8);
   row.updatedAt = nowIso();
   map[shopId] = row;
   await writeMap(map);
@@ -121,7 +146,11 @@ export async function addShopImage(shopId: string, imageUrl: string): Promise<Sh
   if (!clean) return getShopExtras(shopId);
   const map = await readMap();
   const row = normalizeExtras(shopId, map[shopId]);
-  row.imageUrls = [clean, ...row.imageUrls.filter((x) => x !== clean)].slice(0, 8);
+  if (clean === row.profileImageUrl || row.imageUrls.includes(clean)) return row;
+  const cover = row.imageUrls[0];
+  const gallery = row.imageUrls.slice(1).filter((url) => url !== clean);
+  row.imageUrls = cover ? [cover, ...gallery, clean] : [clean, ...gallery];
+  row.imageUrls = row.imageUrls.slice(0, 8);
   row.updatedAt = nowIso();
   map[shopId] = row;
   await writeMap(map);
@@ -245,6 +274,33 @@ export async function cancelShopOffer(shopId: string, offerId: string): Promise<
   row.offers = row.offers.map((offer) =>
     offer.id === offerId ? { ...offer, active: false } : offer,
   ).filter((offer) => offer.active);
+  row.updatedAt = nowIso();
+  map[shopId] = row;
+  await writeMap(map);
+  return row;
+}
+
+/** Persist owner branch operating status for customer-facing wash screens. */
+export async function setWashShopStatus(
+  shopId: string,
+  input: {
+    washShopStatus: NonNullable<ShopExtras['washShopStatus']>;
+    vacationReturnDate?: string;
+    vacationMessage?: string;
+    vacationMessageAr?: string;
+    activeBranchId?: string;
+  },
+): Promise<ShopExtras> {
+  const map = await readMap();
+  const row = normalizeExtras(shopId, {
+    ...map[shopId],
+    shopId,
+    washShopStatus: input.washShopStatus,
+    vacationReturnDate: input.washShopStatus === 'vacation' ? input.vacationReturnDate : undefined,
+    vacationMessage: input.washShopStatus === 'vacation' ? input.vacationMessage : undefined,
+    vacationMessageAr: input.washShopStatus === 'vacation' ? input.vacationMessageAr : undefined,
+    activeBranchId: input.activeBranchId ?? map[shopId]?.activeBranchId,
+  });
   row.updatedAt = nowIso();
   map[shopId] = row;
   await writeMap(map);

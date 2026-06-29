@@ -57,9 +57,12 @@ function RootStack() {
       <Stack.Screen name="service/[type]/index" options={{ title: t('area_pick_title') }} />
       <Stack.Screen name="service/[type]/[areaId]" options={{ title: t('shops_screen_title') }} />
       <Stack.Screen name="book/[shopId]" options={{ title: t('book_screen_title') }} />
+      <Stack.Screen name="shop-profile/[shopId]" options={{ title: t('shop_profile_screen_title') }} />
+      <Stack.Screen name="driver-network/[postId]" options={{ title: t('feed_post_screen_title') }} />
       <Stack.Screen name="parts-shop/[shopId]" options={{ title: t('parts_shop_screen_title') }} />
       <Stack.Screen name="nearby/[type]" options={{ title: t('nearby_title') }} />
       <Stack.Screen name="settings/vehicles" options={{ title: t('settings_vehicle_management') }} />
+      <Stack.Screen name="points-marketplace" options={{ title: t('loyalty_marketplace_screen_title') }} />
       <Stack.Screen name="auth-required" options={{ title: t('guest_gate_header') }} />
       <Stack.Screen name="reset-password" options={{ title: t('customer_reset_password_title') }} />
       <Stack.Screen name="login" options={{ title: t('auth_login_title') }} />

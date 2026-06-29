@@ -10,6 +10,7 @@ import React, {
 
 import * as garageSync from '@/lib/garageSync';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { signOutCurrentTab } from '@/lib/supabase/webTabAuthIsolation';
 
 type AuthContextValue = {
   configured: boolean;
@@ -113,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     if (!sb) return;
-    await sb.auth.signOut();
+    await signOutCurrentTab(sb.auth.signOut.bind(sb.auth));
   }, [sb]);
 
   const value = useMemo(

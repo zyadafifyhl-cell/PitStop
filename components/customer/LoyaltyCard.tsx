@@ -1,52 +1,38 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { router } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { LOYALTY_STAMPS_GOAL } from '@/lib/booking/loyaltyStampsStorage';
+import { LOYALTY_POINTS_PER_DONE_BOOKING } from '@/lib/booking/loyaltyPointsStorage';
 
 type Props = {
-  stamps: number;
+  points: number;
 };
 
-export function LoyaltyCard({ stamps }: Props) {
+export function LoyaltyCard({ points }: Props) {
   const theme = useAppTheme();
   const { t } = useI18n();
-  const filled = Math.min(stamps, LOYALTY_STAMPS_GOAL);
 
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.header}>
-        <FontAwesome name="ticket" size={18} color={theme.accent} />
-        <Text style={[styles.title, { color: theme.text }]}>{t('loyalty_card_title')}</Text>
+        <FontAwesome name="star" size={18} color={theme.accent} />
+        <Text style={[styles.title, { color: theme.text }]}>{t('loyalty_points_card_title')}</Text>
       </View>
-      <Text style={[styles.lead, { color: theme.textMuted }]}>{t('loyalty_card_lead')}</Text>
-      <View style={styles.stampsRow}>
-        {Array.from({ length: LOYALTY_STAMPS_GOAL }, (_, index) => {
-          const active = index < filled;
-          return (
-            <View
-              key={index}
-              style={[
-                styles.stamp,
-                {
-                  backgroundColor: active ? theme.accentSoft : theme.bgElevated,
-                  borderColor: active ? theme.accent : theme.border,
-                },
-              ]}>
-              <FontAwesome
-                name="car"
-                size={18}
-                color={active ? theme.accent : theme.textDim}
-              />
-            </View>
-          );
-        })}
+      <View style={[styles.pointsRow, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+        <Text style={[styles.pointsValue, { color: theme.accent }]}>{points}</Text>
+        <Text style={[styles.pointsLabel, { color: theme.textMuted }]}>{t('loyalty_points_card_label')}</Text>
       </View>
-      <Text style={[styles.progress, { color: theme.text }]}>
-        {t('loyalty_card_progress').replace('{count}', String(filled)).replace('{goal}', String(LOYALTY_STAMPS_GOAL))}
+      <Text style={[styles.lead, { color: theme.textMuted }]}>
+        {t('loyalty_points_card_lead').replace('{points}', String(LOYALTY_POINTS_PER_DONE_BOOKING))}
       </Text>
+      <Pressable
+        onPress={() => router.push('/points-marketplace')}
+        style={[styles.marketBtn, { borderColor: theme.accent, backgroundColor: theme.bgElevated }]}>
+        <Text style={[styles.marketBtnText, { color: theme.accent }]}>{t('loyalty_marketplace_link')}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -62,23 +48,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 6,
-  },
-  title: { fontSize: 17, fontWeight: '800' },
-  lead: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
-  stampsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
     marginBottom: 10,
   },
-  stamp: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+  title: { fontSize: 17, fontWeight: '800' },
+  pointsRow: {
     borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
     alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 10,
   },
-  progress: { fontSize: 14, fontWeight: '700' },
+  pointsValue: { fontSize: 36, fontWeight: '900' },
+  pointsLabel: { fontSize: 13, fontWeight: '700', marginTop: 2 },
+  lead: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
+  marketBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  marketBtnText: { fontSize: 13, fontWeight: '800' },
 });

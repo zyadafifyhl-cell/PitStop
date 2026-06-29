@@ -12,18 +12,16 @@ import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { getSavedCarProfile, saveCarProfile } from '@/lib/booking/carProfileStorage';
-import { getShopById } from '@/lib/booking/catalogRepository';
+import { getShopById, listShopsByType } from '@/lib/booking/catalogRepository';
+import { getAreaById } from '@/lib/booking/areas';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { listBookingsForPhone } from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
-import type { LoyaltyRewardCoupon } from '@/lib/booking/loyaltyStampsStorage';
 import {
-  consumePendingLoyaltyReward,
-  getLoyaltyStamps,
-  syncLoyaltyFromBookings,
-} from '@/lib/booking/loyaltyStampsStorage';
+  getLoyaltyPoints,
+  syncLoyaltyPointsFromBookings,
+} from '@/lib/booking/loyaltyPointsStorage';
 import { listAllShopExtras } from '@/lib/booking/shopExtrasStorage';
-import { listShopsByType } from '@/lib/booking/catalogRepository';
 
 export default function HomeScreen() {
   const { t, tp, locale } = useI18n();
@@ -37,12 +35,11 @@ export default function HomeScreen() {
   const [carTypeDraft, setCarTypeDraft] = useState('');
   const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
   const [liveOffers, setLiveOffers] = useState<
-    Array<{ shopId: string; shopName: string; shopType: ShopType; offer: ShopOffer }>
+    Array<{ shopId: string; shopName: string; shopArea: string; shopType: ShopType; offer: ShopOffer }>
   >([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
-  const [loyaltyStamps, setLoyaltyStamps] = useState(0);
-  const [loyaltyReward, setLoyaltyReward] = useState<LoyaltyRewardCoupon | null>(null);
+  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
 
   const serviceCards = useMemo(
     () =>
@@ -84,15 +81,20 @@ export default function HomeScreen() {
     if (!catalogReady) return;
     const extrasRows = await listAllShopExtras();
     const extrasByShop = new Map(extrasRows.map((row) => [row.shopId, row]));
-    const cards: Array<{ shopId: string; shopName: string; shopType: ShopType; offer: ShopOffer }> = [];
+    const cards: Array<{ shopId: string; shopName: string; shopArea: string; shopType: ShopType; offer: ShopOffer }> = [];
 
     for (const shopType of ['wash', 'maintenance'] as ShopType[]) {
       for (const shop of listShopsByType(shopType)) {
         const extras = extrasByShop.get(shop.id);
         if (!extras?.offers.length) continue;
         const shopName = locale === 'ar' ? shop.nameAr : shop.name;
+        const area = getAreaById(shop.areaId);
+        const shopArea =
+          locale === 'ar'
+            ? area?.nameAr || area?.name || shop.addressAr.split(',')[0] || shop.areaId
+            : area?.name || shop.address.split(',')[0] || shop.areaId;
         for (const offer of extras.offers) {
-          cards.push({ shopId: shop.id, shopName, shopType, offer });
+          cards.push({ shopId: shop.id, shopName, shopArea, shopType, offer });
         }
       }
     }
@@ -108,8 +110,7 @@ export default function HomeScreen() {
       setNextBooking(null);
       setSavedCarType('');
       setCarTypeDraft('');
-      setLoyaltyStamps(0);
-      setLoyaltyReward(null);
+      setLoyaltyPoints(0);
       return;
     }
 
@@ -117,13 +118,9 @@ export default function HomeScreen() {
       getSavedCarProfile(customer.id),
       customer.phone ? listBookingsForPhone(customer.phone) : Promise.resolve([]),
     ]);
-    await syncLoyaltyFromBookings(bookings, { customerId: customer.id, phone: customer.phone });
-    const [stamps, pendingReward] = await Promise.all([
-      getLoyaltyStamps({ customerId: customer.id, phone: customer.phone }),
-      consumePendingLoyaltyReward({ customerId: customer.id, phone: customer.phone }),
-    ]);
-    setLoyaltyStamps(stamps);
-    if (pendingReward) setLoyaltyReward(pendingReward);
+    await syncLoyaltyPointsFromBookings(bookings, { customerId: customer.id, phone: customer.phone });
+    const points = await getLoyaltyPoints({ customerId: customer.id, phone: customer.phone });
+    setLoyaltyPoints(points);
     const carType = profile?.carType ?? '';
     setSavedCarType(carType);
     setCarTypeDraft(carType);
@@ -201,7 +198,7 @@ export default function HomeScreen() {
         </Pressable>
       ) : null}
 
-      {customer && !isGuest ? <LoyaltyCard stamps={loyaltyStamps} /> : null}
+      {customer && !isGuest ? <LoyaltyCard points={loyaltyPoints} /> : null}
 
       <View style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Text style={[styles.cardTitle, { color: theme.text }]}>{t('home_car_profile_title')}</Text>
@@ -280,17 +277,19 @@ export default function HomeScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.offersCarousel}>
-          {liveOffers.map(({ shopId, shopName, shopType, offer }) => (
+          {liveOffers.map(({ shopId, shopName, shopArea, shopType, offer }) => (
             <Pressable
               key={offer.id}
-              onPress={() => router.push(`/shop-profile/${shopId}` as Href)}
+              onPress={() =>
+                router.push(`/shop-profile/${shopId}?offerId=${encodeURIComponent(offer.id)}` as Href)
+              }
               style={[styles.offerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.offerEyebrow, { color: theme.accent }]}>{shopTypeLabel(shopType, locale)}</Text>
               <Text style={[styles.offerTitle, { color: theme.text }]} numberOfLines={2}>
                 {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
               </Text>
-              <Text style={[styles.offerMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                {shopName}
+              <Text style={[styles.offerMeta, { color: theme.text }]} numberOfLines={1}>
+                {shopName} — {shopArea}
               </Text>
             </Pressable>
           ))}
@@ -317,35 +316,6 @@ export default function HomeScreen() {
             <Text style={[styles.modalBody, { color: theme.textMuted }]}>{saveNotice?.body}</Text>
             <Pressable
               onPress={() => setSaveNotice(null)}
-              style={[styles.modalBtnPrimary, { backgroundColor: theme.accent, marginTop: 16 }]}>
-              <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={!!loyaltyReward}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setLoyaltyReward(null)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('loyalty_reward_title')}</Text>
-            <Text style={[styles.modalBody, { color: theme.textMuted }]}>{t('loyalty_reward_body')}</Text>
-            <Text style={[styles.rewardCodeLabel, { color: theme.textMuted }]}>{t('loyalty_reward_code_label')}</Text>
-            <Text style={[styles.rewardCode, { color: theme.accent, backgroundColor: theme.accentSoft }]}>
-              {loyaltyReward?.code}
-            </Text>
-            {loyaltyReward ? (
-              <Text style={[styles.modalBody, { color: theme.textDim, marginTop: 10 }]}>
-                {tp('loyalty_reward_expires', {
-                  date: new Date(loyaltyReward.expiresAt).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
-                })}
-              </Text>
-            ) : null}
-            <Pressable
-              onPress={() => setLoyaltyReward(null)}
               style={[styles.modalBtnPrimary, { backgroundColor: theme.accent, marginTop: 16 }]}>
               <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
             </Pressable>

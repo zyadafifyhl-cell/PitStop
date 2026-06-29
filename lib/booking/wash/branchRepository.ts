@@ -116,6 +116,8 @@ function mapBranchRow(row: BranchRow, services: ShopService[]): WashBranch {
     coupons: [],
     shopStatus: row.shop_status as WashShopStatus,
     vacationMode: parseVacation(row.vacation_mode),
+    latitude: row.latitude ?? undefined,
+    longitude: row.longitude ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -232,14 +234,74 @@ function branchPatchToRow(patch: Partial<WashBranch>): Record<string, unknown> {
   if (patch.weeklyHours != null) row.weekly_hours = patch.weeklyHours;
   if (patch.shopStatus != null) row.shop_status = patch.shopStatus;
   if (patch.vacationMode != null) row.vacation_mode = patch.vacationMode;
+  if (patch.latitude != null) row.latitude = patch.latitude;
+  if (patch.longitude != null) row.longitude = patch.longitude;
   return row;
 }
 
-export async function updateBranchRemote(branchId: string, patch: Partial<WashBranch>): Promise<boolean> {
+/** Resolve a local branch id (e.g. "main") to the Supabase UUID row. */
+export async function resolveRemoteBranchId(shopId: string, branchId: string): Promise<string | null> {
+  if (isUuid(branchId)) return branchId;
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('shop_branches')
+    .select('id, slug, is_default, sort_order')
+    .eq('shop_id', shopId)
+    .eq('is_active', true)
+    .order('is_default', { ascending: false })
+    .order('sort_order', { ascending: true });
+
+  if (error || !data?.length) {
+    if (error) console.warn('resolveRemoteBranchId:', error.message);
+    return null;
+  }
+
+  const preferred =
+    data.find((row) => row.id === branchId) ??
+    data.find((row) => row.slug === branchId) ??
+    data.find((row) => row.slug === 'main') ??
+    data.find((row) => row.is_default) ??
+    data[0];
+
+  return preferred?.id ?? null;
+}
+
+export async function updateBranchRemote(
+  branchId: string,
+  patch: Partial<WashBranch>,
+  shopId?: string,
+): Promise<boolean> {
   const supabase = getSupabase();
   if (!supabase) return false;
+
+  let targetId = branchId;
+  if (!isUuid(branchId)) {
+    if (!shopId) return false;
+    const resolved = await resolveRemoteBranchId(shopId, branchId);
+    if (!resolved) return false;
+    targetId = resolved;
+  }
+
   const row = branchPatchToRow(patch);
-  const { error } = await supabase.from('shop_branches').update(row).eq('id', branchId);
+  const { error } = await supabase.from('shop_branches').update(row).eq('id', targetId);
+  if (error) console.warn('updateBranchRemote:', error.message);
+  return !error;
+}
+
+export async function updateShopLocationRemote(
+  shopId: string,
+  latitude: number,
+  longitude: number,
+): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { error } = await supabase
+    .from('shops')
+    .update({ latitude, longitude, updated_at: new Date().toISOString() })
+    .eq('id', shopId);
+  if (error) console.warn('updateShopLocationRemote:', error.message);
   return !error;
 }
 
@@ -277,6 +339,7 @@ export async function addBranchRemote(
   shop: Shop,
   name: string,
   nameAr?: string,
+  coords?: { latitude: number; longitude: number },
 ): Promise<WashBranch | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
@@ -294,8 +357,8 @@ export async function addBranchRemote(
       address: shop.address,
       address_ar: shop.addressAr,
       phone: shop.phone,
-      latitude: shop.latitude,
-      longitude: shop.longitude,
+      latitude: coords?.latitude ?? shop.latitude,
+      longitude: coords?.longitude ?? shop.longitude,
       profile_name: name.trim(),
       profile_name_ar: nameAr?.trim() || shop.nameAr,
       weekly_hours: defaultWeeklyHours(),
@@ -361,4 +424,30 @@ export async function removeBranchEmployeeRemote(employeeId: string): Promise<bo
 
 export async function persistActiveBranchRemote(shopId: string, branchId: string): Promise<void> {
   await writeActiveBranchId(shopId, branchId);
+}
+
+/** Default / main branch coordinates for customer maps & directions. */
+export async function fetchDefaultBranchCoordinates(
+  shopId: string,
+): Promise<{ latitude: number; longitude: number } | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('shop_branches')
+    .select('latitude, longitude, is_default, slug')
+    .eq('shop_id', shopId)
+    .eq('is_active', true)
+    .order('is_default', { ascending: false })
+    .order('sort_order', { ascending: true })
+    .limit(10);
+
+  const rows = data ?? [];
+  const preferred =
+    rows.find((row) => row.is_default && row.latitude != null && row.longitude != null) ??
+    rows.find((row) => row.slug === 'main' && row.latitude != null && row.longitude != null) ??
+    rows.find((row) => row.latitude != null && row.longitude != null);
+
+  if (!preferred?.latitude || !preferred?.longitude) return null;
+  return { latitude: Number(preferred.latitude), longitude: Number(preferred.longitude) };
 }

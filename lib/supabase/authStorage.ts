@@ -1,30 +1,34 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-function useWebStorage(): boolean {
-  return Platform.OS === 'web' && typeof localStorage !== 'undefined';
+/**
+ * Web: sessionStorage so each browser tab keeps its own Supabase session.
+ * Duplicate tab → independent owner/customer login in parallel.
+ * Native: AsyncStorage.
+ */
+function useWebTabStorage(): boolean {
+  return Platform.OS === 'web' && typeof sessionStorage !== 'undefined';
 }
 
-/** Persist Supabase auth session (localStorage on web for reliable auth). */
 export const supabaseAuthStorage = {
   getItem: (key: string) => {
-    if (useWebStorage()) {
-      return Promise.resolve(localStorage.getItem(key));
+    if (useWebTabStorage()) {
+      return Promise.resolve(sessionStorage.getItem(key));
     }
     if (typeof window === 'undefined') return Promise.resolve(null);
     return AsyncStorage.getItem(key);
   },
   setItem: (key: string, value: string) => {
-    if (useWebStorage()) {
-      localStorage.setItem(key, value);
+    if (useWebTabStorage()) {
+      sessionStorage.setItem(key, value);
       return Promise.resolve();
     }
     if (typeof window === 'undefined') return Promise.resolve();
     return AsyncStorage.setItem(key, value);
   },
   removeItem: (key: string) => {
-    if (useWebStorage()) {
-      localStorage.removeItem(key);
+    if (useWebTabStorage()) {
+      sessionStorage.removeItem(key);
       return Promise.resolve();
     }
     if (typeof window === 'undefined') return Promise.resolve();

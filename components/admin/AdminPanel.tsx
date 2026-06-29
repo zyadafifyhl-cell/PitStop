@@ -15,23 +15,31 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
   approveShopOwner,
+  deleteModerationContent,
+  dismissModerationReport,
+  fetchMerchantLedger,
   fetchPlatformStats,
   listActiveMerchants,
+  listModerationQueue,
   listPendingOwnerRequests,
   rejectShopOwner,
+  settleMerchantPlatformFees,
+  toggleShopPremium,
   type ActiveMerchant,
+  type MerchantLedgerRow,
+  type ModerationQueueItem,
   type PendingOwnerRequest,
   type PlatformStats,
 } from '@/lib/admin/adminRepository';
-import { formatEgp } from '@/lib/booking/reporting';
 import { shopTypeLabel } from '@/lib/booking/format';
-import { userAlert } from '@/lib/ui/userAlert';
+import { formatEgp } from '@/lib/booking/reporting';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
+import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 
-type AdminTab = 'dashboard' | 'pending' | 'merchants';
+type AdminTab = 'dashboard' | 'pending' | 'merchants' | 'moderation';
 
 export function AdminPanel() {
-  const { t, locale } = useI18n();
+  const { t, locale, isRTL } = useI18n();
   const theme = useAppTheme();
   const { staff } = useShopAuth();
   const { signOut } = useAppSignOut();
@@ -41,18 +49,24 @@ export function AdminPanel() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [pending, setPending] = useState<PendingOwnerRequest[]>([]);
   const [merchants, setMerchants] = useState<ActiveMerchant[]>([]);
+  const [ledger, setLedger] = useState<MerchantLedgerRow[]>([]);
+  const [moderation, setModeration] = useState<ModerationQueueItem[]>([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextStats, nextPending, nextMerchants] = await Promise.all([
+      const [nextStats, nextPending, nextMerchants, nextLedger, nextModeration] = await Promise.all([
         fetchPlatformStats(),
         listPendingOwnerRequests(),
         listActiveMerchants(),
+        fetchMerchantLedger(),
+        listModerationQueue(),
       ]);
       setStats(nextStats);
       setPending(nextPending);
       setMerchants(nextMerchants);
+      setLedger(nextLedger);
+      setModeration(nextModeration);
     } finally {
       setLoading(false);
     }
@@ -94,6 +108,99 @@ export function AdminPanel() {
     }
   }
 
+  async function onTogglePremium(row: ActiveMerchant) {
+    const next = !row.isPremium;
+    const confirmed = await userConfirm(
+      t('admin_premium_confirm_title'),
+      (next ? t('admin_premium_confirm_enable_body') : t('admin_premium_confirm_disable_body')).replace(
+        '{shop}',
+        row.shopName,
+      ),
+      { confirmLabel: t('admin_premium_confirm_btn'), cancelLabel: t('alert_cancel') },
+    );
+    if (!confirmed) return;
+    await executeTogglePremium(row, next);
+  }
+
+  async function executeTogglePremium(row: ActiveMerchant, next: boolean) {
+    setBusyId(row.shopId);
+    setMerchants((prev) =>
+      prev.map((merchant) => (merchant.shopId === row.shopId ? { ...merchant, isPremium: next } : merchant)),
+    );
+    try {
+      await toggleShopPremium(row.shopId, next);
+      userAlert(t('admin_premium_updated_title'), t('admin_premium_updated_body'));
+      await reload();
+    } catch (error) {
+      setMerchants((prev) =>
+        prev.map((merchant) =>
+          merchant.shopId === row.shopId ? { ...merchant, isPremium: row.isPremium } : merchant,
+        ),
+      );
+      userAlert(
+        t('admin_action_fail_title'),
+        error instanceof Error ? error.message : t('admin_action_fail_body'),
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onSettleLedger(row: MerchantLedgerRow) {
+    const confirmed = await userConfirm(
+      t('admin_ledger_settle_confirm_title'),
+      t('admin_ledger_settle_confirm_body').replace('{shop}', row.shopName),
+      { confirmLabel: t('admin_ledger_settle_btn'), cancelLabel: t('alert_cancel') },
+    );
+    if (!confirmed) return;
+
+    setBusyId(row.shopId);
+    try {
+      await settleMerchantPlatformFees(row.shopId);
+      await reload();
+      userAlert(t('admin_ledger_settled_title'), t('admin_ledger_settled_body'));
+    } catch (error) {
+      userAlert(
+        t('admin_action_fail_title'),
+        error instanceof Error ? error.message : t('admin_action_fail_body'),
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onDismissReport(item: ModerationQueueItem) {
+    setBusyId(item.id);
+    try {
+      await dismissModerationReport(item);
+      await reload();
+      userAlert(t('admin_moderation_dismissed_title'), t('admin_moderation_dismissed_body'));
+    } catch (error) {
+      userAlert(
+        t('admin_action_fail_title'),
+        error instanceof Error ? error.message : t('admin_action_fail_body'),
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onDeleteReported(item: ModerationQueueItem) {
+    setBusyId(item.id);
+    try {
+      await deleteModerationContent(item);
+      await reload();
+      userAlert(t('admin_moderation_deleted_title'), t('admin_moderation_deleted_body'));
+    } catch (error) {
+      userAlert(
+        t('admin_action_fail_title'),
+        error instanceof Error ? error.message : t('admin_action_fail_body'),
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const tabBtn = (key: AdminTab, label: string) => (
     <Pressable
       key={key}
@@ -106,6 +213,12 @@ export function AdminPanel() {
       <Text style={[styles.tabBtnText, { color: tab === key ? theme.onAccent : theme.text }]}>{label}</Text>
     </Pressable>
   );
+
+  function moderationKindLabel(item: ModerationQueueItem): string {
+    if (item.kind === 'post') return t('admin_moderation_kind_post');
+    if (item.kind === 'comment') return t('admin_moderation_kind_comment');
+    return t('admin_moderation_kind_review');
+  }
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
@@ -123,6 +236,7 @@ export function AdminPanel() {
           {tabBtn('dashboard', t('admin_tab_dashboard'))}
           {tabBtn('pending', t('admin_tab_pending'))}
           {tabBtn('merchants', t('admin_tab_merchants'))}
+          {tabBtn('moderation', t('admin_tab_moderation'))}
         </ScrollView>
       </View>
 
@@ -147,7 +261,65 @@ export function AdminPanel() {
                   <StatCard theme={theme} label={t('admin_stat_pending_owners')} value={String(stats.pendingOwnerCount)} />
                   <StatCard theme={theme} label={t('admin_stat_active_merchants')} value={String(stats.activeMerchantCount)} />
                 </View>
-                <Text style={[styles.feeNote, { color: theme.textDim }]}>{t('admin_platform_fee_note')}</Text>
+                <Text style={[styles.feeNote, { color: theme.textDim }, isRTL && styles.textRtl]}>
+                  {t('admin_platform_fee_note')}
+                </Text>
+              </OwnerSectionCard>
+
+              <OwnerSectionCard theme={theme} title={t('admin_ledger_title')} subtitle={t('admin_ledger_lead')}>
+                {ledger.length === 0 ? (
+                  <Text style={{ color: theme.textMuted }}>{t('admin_ledger_empty')}</Text>
+                ) : (
+                  <>
+                    <View style={[styles.ledgerHeader, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                      <Text style={[styles.ledgerHeadCell, styles.ledgerMerchantCol, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                        {t('admin_ledger_col_merchant')}
+                      </Text>
+                      <Text style={[styles.ledgerHeadCell, styles.ledgerNumCol, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                        {t('admin_ledger_col_outstanding')}
+                      </Text>
+                    </View>
+                    {ledger.map((row) => (
+                      <View
+                        key={row.shopId}
+                        style={[styles.ledgerRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                        <View style={styles.ledgerMerchantCol}>
+                          <Text style={[styles.rowTitle, { color: theme.text }]}>{row.shopName}</Text>
+                          <Text style={{ color: theme.textMuted }}>
+                            {shopTypeLabel(row.shopType, locale)} · {row.ownerEmail}
+                          </Text>
+                          <Text style={{ color: theme.textDim, marginTop: 4 }}>
+                            {t('admin_ledger_col_bookings')}: {row.completedBookings} · {t('admin_ledger_col_gross')}:{' '}
+                            {formatEgp(row.grossRevenueEgp, locale)}
+                          </Text>
+                          <Text style={{ color: theme.textDim, marginTop: 2 }}>
+                            {t('admin_ledger_col_settled')}:{' '}
+                            {new Date(row.lastSettledAt).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
+                          </Text>
+                        </View>
+                        <View style={styles.ledgerActionsCol}>
+                          <Text style={[styles.ledgerFee, { color: theme.accent }]}>
+                            {formatEgp(row.outstandingFeeEgp, locale)}
+                          </Text>
+                          <Pressable
+                            onPress={() => onSettleLedger(row)}
+                            disabled={busyId === row.shopId || row.outstandingFeeEgp <= 0}
+                            style={[
+                              styles.settleBtn,
+                              {
+                                borderColor: theme.accent,
+                                opacity: busyId === row.shopId || row.outstandingFeeEgp <= 0 ? 0.5 : 1,
+                              },
+                            ]}>
+                            <Text style={{ color: theme.accent, fontWeight: '800', fontSize: 12 }}>
+                              {t('admin_ledger_settle_btn')}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
               </OwnerSectionCard>
             </>
           ) : null}
@@ -201,6 +373,77 @@ export function AdminPanel() {
                     <Text style={{ color: theme.textMuted }}>
                       {t('admin_merchant_branches')}: {row.branchCount}
                     </Text>
+                    <View style={[styles.premiumRow, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.premiumLabel, { color: theme.text }]}>{t('admin_premium_toggle_label')}</Text>
+                        <Text style={[styles.premiumHint, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                          {row.isPremium ? t('admin_premium_toggle_on') : t('admin_premium_toggle_off')}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => onTogglePremium(row)}
+                        disabled={busyId === row.shopId}
+                        style={[
+                          styles.premiumToggle,
+                          {
+                            backgroundColor: row.isPremium ? theme.accent : theme.bgElevated,
+                            borderColor: row.isPremium ? theme.accent : theme.border,
+                            opacity: busyId === row.shopId ? 0.6 : 1,
+                          },
+                        ]}>
+                        <View
+                          style={[
+                            styles.premiumKnob,
+                            {
+                              backgroundColor: row.isPremium ? theme.onAccent : theme.textDim,
+                              alignSelf: row.isPremium ? 'flex-end' : 'flex-start',
+                            },
+                          ]}
+                        />
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              )}
+            </OwnerSectionCard>
+          ) : null}
+
+          {tab === 'moderation' ? (
+            <OwnerSectionCard theme={theme} title={t('admin_moderation_title')} subtitle={t('admin_moderation_lead')}>
+              {moderation.length === 0 ? (
+                <Text style={{ color: theme.textMuted }}>{t('admin_moderation_empty')}</Text>
+              ) : (
+                moderation.map((item) => (
+                  <View key={`${item.kind}-${item.id}`} style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                    <Text style={[styles.kindBadge, { color: theme.accent, backgroundColor: theme.accentSoft }]}>
+                      {moderationKindLabel(item)}
+                    </Text>
+                    <Text style={[styles.rowTitle, { color: theme.text, marginTop: 8 }]}>{item.title}</Text>
+                    {item.shopName ? (
+                      <Text style={{ color: theme.textMuted }}>
+                        {t('admin_moderation_shop_label')}: {item.shopName}
+                      </Text>
+                    ) : null}
+                    <Text style={{ color: theme.textMuted, marginTop: 4 }} numberOfLines={4}>
+                      {item.body}
+                    </Text>
+                    <Text style={{ color: theme.textDim, marginTop: 4 }}>
+                      {new Date(item.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
+                    </Text>
+                    <View style={styles.actionRow}>
+                      <Pressable
+                        onPress={() => onDeleteReported(item)}
+                        disabled={busyId === item.id}
+                        style={[styles.rejectBtn, { backgroundColor: theme.danger, borderColor: theme.danger, opacity: busyId === item.id ? 0.6 : 1 }]}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{t('admin_moderation_delete_btn')}</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => onDismissReport(item)}
+                        disabled={busyId === item.id}
+                        style={[styles.approveBtn, { borderColor: theme.border, borderWidth: 1, backgroundColor: theme.bgElevated }]}>
+                        <Text style={{ color: theme.text, fontWeight: '800' }}>{t('admin_moderation_dismiss_btn')}</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 ))
               )}
@@ -246,9 +489,71 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 18, fontWeight: '900' },
   statLabel: { fontSize: 11, marginTop: 4 },
   feeNote: { fontSize: 11, marginTop: 12, lineHeight: 16 },
+  textRtl: { writingDirection: 'rtl', textAlign: 'right' },
   rowCard: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 10 },
   rowTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   approveBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   rejectBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1 },
+  premiumRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  premiumLabel: { fontSize: 14, fontWeight: '800' },
+  premiumHint: { fontSize: 12, marginTop: 2, lineHeight: 17 },
+  premiumToggle: {
+    width: 52,
+    height: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  premiumKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
+  ledgerHeader: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  ledgerHeadCell: { fontSize: 12, fontWeight: '800' },
+  ledgerRow: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  ledgerMerchantCol: { flex: 1 },
+  ledgerActionsCol: { alignItems: 'flex-end', justifyContent: 'space-between', minWidth: 120, gap: 8 },
+  ledgerNumCol: { textAlign: 'right' },
+  ledgerFee: { fontSize: 16, fontWeight: '900' },
+  settleBtn: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  kindBadge: {
+    alignSelf: 'flex-start',
+    fontSize: 11,
+    fontWeight: '800',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
 });

@@ -18,7 +18,9 @@ insert into public.areas (id, name, name_ar, city, city_ar) values
 
   ('october', '6th October', '6 أكتوبر', 'Giza', 'الجيزة'),
 
-  ('heliopolis', 'Heliopolis', 'مصر الجديدة', 'Cairo', 'القاهرة')
+  ('heliopolis', 'Heliopolis', 'مصر الجديدة', 'Cairo', 'القاهرة'),
+
+  ('el-rehab', 'El Rehab', 'الرحاب', 'Cairo', 'القاهرة')
 
 on conflict (id) do update set
 
@@ -43,6 +45,8 @@ values
   ('shop-wash-city', 'City Shine Wash', 'مغسلة سيتي شاين', 'wash', 'nasr-city', 'Abbas El Akkad St.', 'شارع عباس العقاد', '+201055667788', 30.0511, 31.3656, 'wash2@demo.com', 4.6),
 
   ('shop-wash-mohandessin', 'Premium Wash Mohandessin', 'مغسلة Premium المهندسين', 'wash', 'mohandessin', 'Gameat El Dewal', 'جامعة الدول', '+201066778899', 30.0626, 31.2, 'wash3@demo.com', 4.7),
+
+  ('shop-wash-rehab', 'Rehab City Auto Wash', 'مغسلة الرحاب', 'wash', 'el-rehab', 'El Rehab City, New Cairo', 'مدينة الرحاب، القاهرة الجديدة', '+201088887766', 30.0244, 31.4939, 'rehab.wash@demo.com', 4.8),
 
   ('shop-maint-autofix', 'AutoFix Service Center', 'مركز AutoFix للصيانة', 'maintenance', 'october', 'Industrial Zone, 6th October', 'المنطقة الصناعية، 6 أكتوبر', '+201011223344', 29.9285, 30.9188, 'maintenance@demo.com', 4.9),
 

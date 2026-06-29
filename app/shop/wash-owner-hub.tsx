@@ -15,6 +15,7 @@ import {
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
   cancelBookingReminders,
@@ -29,7 +30,10 @@ import {
   updateBookingStatus,
 } from '@/lib/booking/storage';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
+import { getActiveWashBranch } from '@/lib/booking/wash/washBranchStorage';
+import type { WashBranch } from '@/lib/booking/wash/types';
 import { openPhone } from '@/lib/linking/contact';
+import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { WashCenterNotification } from '@/lib/booking/wash/types';
 import {
   clearWashNotifications,
@@ -64,6 +68,8 @@ export default function WashOwnerHubScreen() {
   const [busy, setBusy] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
   const [rejectNote, setRejectNote] = useState('');
+  const [walkInOpen, setWalkInOpen] = useState(false);
+  const [walkInBranch, setWalkInBranch] = useState<WashBranch | null>(null);
 
   useEffect(() => {
     if (rawTab === 'orders' || rawTab === 'history' || rawTab === 'notifications') {
@@ -115,18 +121,22 @@ export default function WashOwnerHubScreen() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  async function openWalkInModal() {
+    if (!shop || !staff || (staff.role !== 'owner' && staff.role !== 'branch_manager')) return;
+    const branchStaff = staff as ShopStaffUser;
+    const branch = await getActiveWashBranch(shop, { staff: branchStaff });
+    setWalkInBranch(branch);
+    setWalkInOpen(true);
+  }
+
+  function branchLabel(branch: WashBranch): string {
+    return locale === 'ar' ? branch.nameAr || branch.name : branch.name;
+  }
+
   async function onBookingStatusChange(booking: Booking, status: BookingStatus, note?: string) {
     if (!shop) return;
     await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
     if (status === 'confirmed') {
-      await pushCustomerNotification({
-        customerId: booking.customerId,
-        customerPhone: booking.customerPhone,
-        kind: 'booking_approved',
-        shopId: shop.id,
-        bookingId: booking.id,
-        scheduledAt: booking.scheduledAt,
-      });
       await scheduleBookingReminders({
         bookingId: booking.id,
         shopId: shop.id,
@@ -438,11 +448,18 @@ export default function WashOwnerHubScreen() {
             )}
           </>
         ) : tab === 'orders' ? (
-          orderBookings.length === 0 ? (
-            <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_active_requests_empty')}</Text>
-          ) : (
-            orderBookings.map((b) => renderBookingCard(b, 'orders'))
-          )
+          <>
+            <Pressable
+              onPress={openWalkInModal}
+              style={[styles.primaryBtn, { backgroundColor: theme.accent, marginBottom: 12 }]}>
+              <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
+            </Pressable>
+            {orderBookings.length === 0 ? (
+              <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_active_requests_empty')}</Text>
+            ) : (
+              orderBookings.map((b) => renderBookingCard(b, 'orders'))
+            )}
+          </>
         ) : historyBookings.length === 0 ? (
           <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_booking_history_empty')}</Text>
         ) : (
@@ -480,6 +497,20 @@ export default function WashOwnerHubScreen() {
           </View>
         </View>
       </Modal>
+
+      {shop && walkInBranch ? (
+        <WalkInBookingModal
+          visible={walkInOpen}
+          onClose={() => setWalkInOpen(false)}
+          shop={shop}
+          branchId={walkInBranch.id}
+          branchLabel={branchLabel(walkInBranch)}
+          services={walkInBranch.services ?? []}
+          onCreated={() => {
+            void refresh();
+          }}
+        />
+      ) : null}
     </View>
   );
 }

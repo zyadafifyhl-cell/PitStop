@@ -1,6 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import React, { createElement, useCallback, useEffect, useMemo, useState } from 'react';
@@ -20,6 +21,9 @@ import {
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
+import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
+import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -64,6 +68,7 @@ import {
   saveWashBranchServices,
   saveWashBranchStatus,
   saveWashBranchWeeklyHours,
+  saveBranchCoordinates,
   setActiveWashBranch,
   updateActiveWashBranch,
   type WashBranchContext,
@@ -206,13 +211,14 @@ function applyBranchToForms(branch: WashBranch, setters: {
   setProfileEmail: (v: string) => void;
   setMoreInfo: (v: string) => void;
   setMoreInfoAr: (v: string) => void;
-  setBasePrice: (v: string) => void;
   setWeeklyHours: (v: ShopDayHours[]) => void;
   setShopStatus: (v: WashShopStatus) => void;
   setVacationMode: (v: WashVacationMode) => void;
   setVacationReturnDate: (v: string) => void;
   setVacationMessage: (v: string) => void;
   setVacationMessageAr: (v: string) => void;
+  setBranchLatitude: (v: number | null) => void;
+  setBranchLongitude: (v: number | null) => void;
 }) {
   setters.setProfileName(branch.profileName ?? branch.name);
   setters.setProfileNameAr(branch.profileNameAr ?? branch.nameAr ?? '');
@@ -222,19 +228,20 @@ function applyBranchToForms(branch: WashBranch, setters: {
   setters.setProfileEmail(branch.profileEmail ?? '');
   setters.setMoreInfo(branch.moreInfo ?? '');
   setters.setMoreInfoAr(branch.moreInfoAr ?? '');
-  setters.setBasePrice(branch.servicePriceEgp != null ? String(branch.servicePriceEgp) : '');
   setters.setWeeklyHours(branch.weeklyHours?.length ? branch.weeklyHours : defaultWeeklyHours());
   setters.setShopStatus(branch.shopStatus ?? 'open');
   setters.setVacationMode(branch.vacationMode ?? { enabled: false });
   setters.setVacationReturnDate(branch.vacationMode?.returnDate ?? '');
   setters.setVacationMessage(branch.vacationMode?.customerMessage ?? '');
   setters.setVacationMessageAr(branch.vacationMode?.customerMessageAr ?? '');
+  setters.setBranchLatitude(branch.latitude ?? null);
+  setters.setBranchLongitude(branch.longitude ?? null);
 }
 
 export function WashOwnerPanel({ shop, onLogout }: Props) {
   const theme = useAppTheme();
-  const { t, locale } = useI18n();
-  const { shopStaff, isOwner, isBranchManager } = useShopAuth();
+  const { t, locale, isRTL } = useI18n();
+  const { shopStaff, isOwner, isBranchManager, isPremium } = useShopAuth();
 
   const branchCtx = useMemo<WashBranchContext | undefined>(
     () => (shopStaff ? { staff: shopStaff } : undefined),
@@ -258,7 +265,9 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const [profileEmail, setProfileEmail] = useState('');
   const [moreInfo, setMoreInfo] = useState('');
   const [moreInfoAr, setMoreInfoAr] = useState('');
-  const [basePrice, setBasePrice] = useState('');
+  const [branchLatitude, setBranchLatitude] = useState<number | null>(null);
+  const [branchLongitude, setBranchLongitude] = useState<number | null>(null);
+  const [capturingGps, setCapturingGps] = useState(false);
 
   const [weeklyHours, setWeeklyHours] = useState<ShopDayHours[]>([]);
   const [selectedHoursDay, setSelectedHoursDay] = useState<ShopDayHours['day']>(1);
@@ -278,6 +287,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(null);
   const [addBranchModalVisible, setAddBranchModalVisible] = useState(false);
+  const [premiumModalVisible, setPremiumModalVisible] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchNameAr, setNewBranchNameAr] = useState('');
 
@@ -303,6 +313,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const [managerEmail, setManagerEmail] = useState('');
   const [managerPassword, setManagerPassword] = useState('');
   const [managerBusy, setManagerBusy] = useState(false);
+  const [walkInModalVisible, setWalkInModalVisible] = useState(false);
 
   const formSetters = useMemo(
     () => ({
@@ -314,13 +325,14 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       setProfileEmail,
       setMoreInfo,
       setMoreInfoAr,
-      setBasePrice,
       setWeeklyHours,
       setShopStatus,
       setVacationMode,
       setVacationReturnDate,
       setVacationMessage,
       setVacationMessageAr,
+      setBranchLatitude,
+      setBranchLongitude,
     }),
     [],
   );
@@ -349,12 +361,17 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       setBookings(scopedBookings);
       setReviews(reviewRows.length ? reviewRows : seedDemoReviews(shop.id));
       setUnreadNotifCount(unread);
-      const stats = await computeWashAnalytics(shop.id, scopedBookings);
+      const stats = await computeWashAnalytics(shop.id, scopedBookings, {
+        branchId: branch?.id,
+        branchServices: branch?.services ?? [],
+        locale,
+        noServiceDataLabel: t('wash_analytics_no_service_data'),
+      });
       setAnalytics(stats);
     } finally {
       setLoading(false);
     }
-  }, [shop, branchCtx, shopStaff, syncBranchForms]);
+  }, [shop, branchCtx, shopStaff, syncBranchForms, locale, t]);
 
   useEffect(() => {
     if (!activeBranch || !isUuid(activeBranch.id)) {
@@ -391,6 +408,8 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       : profileName || shop.name;
   const coverImage = activeBranch?.imageUrls?.[0];
   const profileImage = activeBranch?.profileImageUrl;
+  const displayLatitude = activeBranch?.latitude ?? branchLatitude;
+  const displayLongitude = activeBranch?.longitude ?? branchLongitude;
 
   const reportRange = useMemo(
     () => resolveCustomRange(reportStartYmd, reportEndYmd),
@@ -443,8 +462,62 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     [analytics],
   );
 
+  function requestPremiumUpgrade() {
+    setPremiumModalVisible(true);
+  }
+
+  function onSelectBranchOrUpgrade(branchId: string) {
+    if (!isPremium && branchId !== branchState?.activeBranchId) {
+      requestPremiumUpgrade();
+      return;
+    }
+    onSelectBranch(branchId);
+  }
+
+  function onAddBranchPress() {
+    if (!isPremium) {
+      requestPremiumUpgrade();
+      return;
+    }
+    setAddBranchModalVisible(true);
+  }
+
   function showNotice(title: string, body: string) {
     setSaveNotice({ title, body });
+  }
+
+  async function onCaptureBranchGps() {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(t('wash_branch_gps_denied_title'), t('wash_branch_gps_denied_body'));
+      return;
+    }
+    setCapturingGps(true);
+    try {
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      setBranchLatitude(lat);
+      setBranchLongitude(lng);
+      const { branch, remoteSaved } = await saveBranchCoordinates(shop, lat, lng, branchCtx);
+      syncBranchForms(branch);
+      if (remoteSaved) {
+        showNotice(t('wash_branch_gps_saved_title'), t('wash_branch_gps_saved_body_synced'));
+      } else {
+        showNotice(t('wash_branch_gps_saved_title'), t('wash_branch_gps_saved_body_local_only'));
+      }
+    } catch {
+      Alert.alert(t('wash_branch_gps_fail_title'), t('wash_branch_gps_fail_body'));
+    } finally {
+      setCapturingGps(false);
+    }
+  }
+
+  function branchCoordsPatch():
+    | { latitude: number; longitude: number }
+    | Record<string, never> {
+    if (branchLatitude == null || branchLongitude == null) return {};
+    return { latitude: branchLatitude, longitude: branchLongitude };
   }
 
   async function onSelectBranch(branchId: string) {
@@ -461,7 +534,15 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       Alert.alert(t('wash_branch_invalid_title'), t('wash_branch_invalid_body'));
       return;
     }
-    const state = await addWashBranch(shop, name, newBranchNameAr.trim() || undefined, branchCtx);
+    const state = await addWashBranch(
+      shop,
+      name,
+      newBranchNameAr.trim() || undefined,
+      branchCtx,
+      branchLatitude != null && branchLongitude != null
+        ? { latitude: branchLatitude, longitude: branchLongitude }
+        : undefined,
+    );
     setBranchState(state);
     const branch = state.branches.find((b) => b.id === state.activeBranchId);
     if (branch) syncBranchForms(branch);
@@ -583,7 +664,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       Alert.alert(t('wash_profile_invalid_title'), t('wash_profile_invalid_body'));
       return;
     }
-    const branch = await updateActiveWashBranch(shop, {
+    const { branch } = await updateActiveWashBranch(shop, {
       profileName: profileName.trim(),
       profileNameAr: profileNameAr.trim() || undefined,
       profileAddress: profileAddress.trim(),
@@ -592,20 +673,10 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       profileEmail: profileEmail.trim() || undefined,
       moreInfo: moreInfo.trim() || undefined,
       moreInfoAr: moreInfoAr.trim() || undefined,
+      ...branchCoordsPatch(),
     }, branchCtx);
     syncBranchForms(branch);
     showNotice(t('wash_profile_saved_title'), t('wash_profile_saved_body'));
-  }
-
-  async function onSaveBasePrice() {
-    const price = Number(basePrice);
-    if (Number.isNaN(price) || price < 0) {
-      showNotice(t('wash_price_invalid_title'), t('wash_price_invalid_body'));
-      return;
-    }
-    const branch = await updateActiveWashBranch(shop, { servicePriceEgp: price }, branchCtx);
-    syncBranchForms(branch);
-    showNotice(t('wash_price_saved_title'), t('wash_price_saved_body'));
   }
 
   async function onPickGalleryImage() {
@@ -624,8 +695,9 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       if (picked.canceled || !picked.assets?.length) return;
       const uri = picked.assets[0].uri;
       if (!uri || !activeBranch) return;
-      const branch = await updateActiveWashBranch(shop, {
-        imageUrls: [...(activeBranch.imageUrls ?? []), uri],
+      const gallery = (activeBranch.imageUrls ?? []).slice(1).filter((url) => url !== uri);
+      const { branch } = await updateActiveWashBranch(shop, {
+        imageUrls: [uri, ...gallery],
       }, branchCtx);
       syncBranchForms(branch);
     } finally {
@@ -649,7 +721,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       if (picked.canceled || !picked.assets?.length) return;
       const uri = picked.assets[0].uri;
       if (!uri) return;
-      const branch = await updateActiveWashBranch(shop, { profileImageUrl: uri }, branchCtx);
+      const { branch } = await updateActiveWashBranch(shop, { profileImageUrl: uri }, branchCtx);
       syncBranchForms(branch);
     } finally {
       setPickingImage(false);
@@ -658,7 +730,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
   async function onRemoveGalleryImage(url: string) {
     if (!activeBranch) return;
-    const branch = await updateActiveWashBranch(shop, {
+    const { branch } = await updateActiveWashBranch(shop, {
       imageUrls: activeBranch.imageUrls.filter((u) => u !== url),
     }, branchCtx);
     syncBranchForms(branch);
@@ -924,14 +996,6 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   async function onBookingStatusChange(booking: Booking, status: BookingStatus, note?: string) {
     await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
     if (status === 'confirmed') {
-      await pushCustomerNotification({
-        customerId: booking.customerId,
-        customerPhone: booking.customerPhone,
-        kind: 'booking_approved',
-        shopId: shop.id,
-        bookingId: booking.id,
-        scheduledAt: booking.scheduledAt,
-      });
       await scheduleBookingReminders({
         bookingId: booking.id,
         shopId: shop.id,
@@ -1086,6 +1150,11 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         <Text style={[styles.meta, { color: theme.textMuted }]}>
           {t('wash_booking_service')}: {serviceName}
         </Text>
+        {booking.bookingType === 'walk_in' ? (
+          <Text style={[styles.meta, { color: theme.accent }]}>
+            {t('walk_in_booking_badge')}
+          </Text>
+        ) : null}
         <Text style={[styles.meta, { color: theme.textMuted }]}>
           {t('wash_booking_price')}: {price}
         </Text>
@@ -1192,9 +1261,22 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
               <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
                 {branchDisplayName(activeBranch, locale)}
               </Text>
+              <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 6 }, isRTL && styles.textRtl]}>
+                {t('wash_branch_manager_scope_hint')}
+              </Text>
             </View>
           </View>
-        ) : (
+        ) : isOwner && !isPremium && activeBranch ? (
+          <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <View style={styles.branchSelect}>
+              <Text style={[styles.branchLabel, { color: theme.textMuted }]}>{t('wash_branch_label')}</Text>
+              <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
+                {branchDisplayName(activeBranch, locale)}
+              </Text>
+              <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 6 }, isRTL && styles.textRtl]}>{t('premium_branch_free_hint')}</Text>
+            </View>
+          </View>
+        ) : isOwner && isPremium ? (
           <View style={styles.branchTabsWrap}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
               {(branchState?.branches ?? []).map((branch) => {
@@ -1202,7 +1284,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
                 return (
                   <Pressable
                     key={branch.id}
-                    onPress={() => onSelectBranch(branch.id)}
+                    onPress={() => onSelectBranchOrUpgrade(branch.id)}
                     style={[
                       styles.branchTab,
                       {
@@ -1218,16 +1300,14 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
                   </Pressable>
                 );
               })}
-              {isOwner ? (
-                <Pressable
-                  onPress={() => setAddBranchModalVisible(true)}
-                  style={[styles.branchTab, { backgroundColor: theme.card, borderColor: theme.accent, borderStyle: 'dashed' }]}>
-                  <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
-                </Pressable>
-              ) : null}
+              <Pressable
+                onPress={onAddBranchPress}
+                style={[styles.branchTab, { backgroundColor: theme.card, borderColor: theme.accent, borderStyle: 'dashed' }]}>
+                <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
+              </Pressable>
             </ScrollView>
           </View>
-        )}
+        ) : null}
 
         {loading && !analytics ? (
           <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} />
@@ -1239,10 +1319,14 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
             <View style={styles.statGrid}>
               {renderStatCard(t('wash_stat_today_bookings'), String(analytics.todayBookings))}
               {renderStatCard(t('wash_stat_pending'), String(analytics.pendingRequests), true)}
-              {renderStatCard(t('wash_stat_monthly_revenue'), formatEgp(analytics.monthlyRevenue, locale))}
-              {renderStatCard(t('wash_stat_avg_rating'), analytics.averageRating.toFixed(1))}
-              {renderStatCard(t('wash_stat_total_customers'), String(analytics.totalCustomers))}
-              {renderStatCard(t('wash_stat_returning'), String(analytics.returningCustomers))}
+              {isOwner && isPremium ? (
+                <>
+                  {renderStatCard(t('wash_stat_monthly_revenue'), formatEgp(analytics.monthlyRevenue, locale))}
+                  {renderStatCard(t('wash_stat_avg_rating'), analytics.averageRating.toFixed(1))}
+                  {renderStatCard(t('wash_stat_total_customers'), String(analytics.totalCustomers))}
+                  {renderStatCard(t('wash_stat_returning'), String(analytics.returningCustomers))}
+                </>
+              ) : null}
             </View>
           </OwnerSectionCard>
         ) : null}
@@ -1307,13 +1391,18 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           ) : null}
         </OwnerSectionCard>
 
-        {/* Analytics widgets */}
+        {/* Analytics widgets — operational metrics for all staff; revenue owner-only */}
         {analytics ? (
-          <OwnerSectionCard theme={theme} title={t('wash_analytics_title')} subtitle={t('wash_analytics_lead')}>
-            <Text style={[styles.metaStrong, { color: theme.text }]}>
-              {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
-            </Text>
-            <Text style={[styles.meta, { color: theme.textMuted, marginTop: 8 }]}>
+          <OwnerSectionCard
+            theme={theme}
+            title={t('wash_analytics_title')}
+            subtitle={t(isBranchManager ? 'wash_analytics_lead_manager' : 'wash_analytics_lead')}>
+            {isOwner && isPremium ? (
+              <Text style={[styles.metaStrong, { color: theme.text }]}>
+                {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
+              </Text>
+            ) : null}
+            <Text style={[styles.meta, { color: theme.textMuted, marginTop: isOwner && isPremium ? 8 : 0 }]}>
               {t('wash_analytics_peak_hour')}: {analytics.peakHourLabel}
             </Text>
             <Text style={[styles.meta, { color: theme.textMuted }]}>
@@ -1344,6 +1433,11 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
         {/* Orders & history shortcuts */}
         <OwnerSectionCard theme={theme} title={t('wash_hub_shortcuts_title')} subtitle={t('wash_hub_shortcuts_lead')}>
+          <Pressable
+            onPress={() => setWalkInModalVisible(true)}
+            style={[styles.walkInBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+            <Text style={[styles.walkInBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
+          </Pressable>
           <View style={styles.shortcutRow}>
             <Pressable
               onPress={() => router.push('/shop/wash-owner-hub?tab=notifications')}
@@ -1382,6 +1476,28 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           <TextInput placeholder={t('wash_profile_address_ar_placeholder')} placeholderTextColor={theme.textDim} value={profileAddressAr} onChangeText={setProfileAddressAr} style={fieldStyle} />
           <TextInput placeholder={t('wash_profile_more_info_placeholder')} placeholderTextColor={theme.textDim} value={moreInfo} onChangeText={setMoreInfo} multiline style={[fieldStyle, styles.noteInput]} />
           <TextInput placeholder={t('wash_profile_more_info_ar_placeholder')} placeholderTextColor={theme.textDim} value={moreInfoAr} onChangeText={setMoreInfoAr} multiline style={[fieldStyle, styles.noteInput]} />
+          <Pressable
+            onPress={onCaptureBranchGps}
+            disabled={capturingGps}
+            style={[styles.secondaryBtn, { borderColor: theme.accent, opacity: capturingGps ? 0.65 : 1 }]}>
+            <Text style={[styles.secondaryBtnText, { color: theme.accent }]}>
+              {capturingGps ? t('wash_branch_gps_capturing') : t('wash_branch_gps_button')}
+            </Text>
+          </Pressable>
+          {displayLatitude != null && displayLongitude != null ? (
+            <View style={[styles.gpsCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+              <Text style={[styles.gpsCardLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {t('wash_branch_gps_coords_label')}
+              </Text>
+              <Text style={[styles.gpsCardValue, { color: theme.text }, isRTL && styles.textRtl]}>
+                {t('wash_branch_gps_coords')
+                  .replace('{lat}', displayLatitude.toFixed(5))
+                  .replace('{lng}', displayLongitude.toFixed(5))}
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.emptyHint, { color: theme.textDim }, isRTL && styles.textRtl]}>{t('wash_branch_gps_empty')}</Text>
+          )}
           <Pressable onPress={onSaveProfile} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
             <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_profile_save')}</Text>
           </Pressable>
@@ -1410,15 +1526,8 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           )}
         </OwnerSectionCard>
 
-        {/* Base price */}
-        <OwnerSectionCard theme={theme} title={t('wash_base_price_title')}>
-          <TextInput placeholder={t('wash_base_price_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={basePrice} onChangeText={setBasePrice} style={fieldStyle} />
-          <Pressable onPress={onSaveBasePrice} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_base_price_save')}</Text>
-          </Pressable>
-        </OwnerSectionCard>
-
         {/* Services CRUD */}
+        <PremiumFeatureGate>
         <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
           <Pressable onPress={() => openServiceEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
             <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_service_add')}</Text>
@@ -1460,6 +1569,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
             ))
           )}
         </OwnerSectionCard>
+        </PremiumFeatureGate>
 
         {/* Weekly hours — pick one day */}
         <OwnerSectionCard theme={theme} title={t('wash_hours_title')} subtitle={t('wash_hours_lead')}>
@@ -1517,6 +1627,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         </OwnerSectionCard>
 
         {/* Coupons */}
+        <PremiumFeatureGate>
         <OwnerSectionCard theme={theme} title={t('wash_coupons_title')} subtitle={t('wash_coupons_lead')}>
           <Pressable onPress={() => openCouponEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
             <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_coupon_add')}</Text>
@@ -1555,8 +1666,10 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
             ))
           )}
         </OwnerSectionCard>
+        </PremiumFeatureGate>
 
         {isOwner && activeBranch && isUuid(activeBranch.id) ? (
+          <PremiumFeatureGate>
           <OwnerSectionCard theme={theme} title={t('wash_manager_title')} subtitle={t('wash_manager_lead')}>
             {branchManager ? (
               <View style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
@@ -1617,10 +1730,14 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
               </>
             )}
           </OwnerSectionCard>
+          </PremiumFeatureGate>
         ) : null}
 
         {activeBranch && isUuid(activeBranch.id) ? (
-          <OwnerSectionCard theme={theme} title={t('wash_employees_title')} subtitle={t('wash_employees_lead')}>
+          <OwnerSectionCard
+            theme={theme}
+            title={t('wash_employees_title')}
+            subtitle={t(isBranchManager ? 'wash_employees_lead_manager' : 'wash_employees_lead')}>
             <TextInput
               placeholder={t('wash_employee_name_placeholder')}
               placeholderTextColor={theme.textDim}
@@ -1678,7 +1795,10 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         ) : null}
 
         {/* Reviews */}
-        <OwnerSectionCard theme={theme} title={t('wash_reviews_title')} subtitle={t('wash_reviews_lead')}>
+        <OwnerSectionCard
+          theme={theme}
+          title={t('wash_reviews_title')}
+          subtitle={t(isBranchManager ? 'wash_reviews_lead_manager' : 'wash_reviews_lead')}>
           {reviews.filter((r) => !r.hidden).length === 0 ? (
             <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_reviews_empty')}</Text>
           ) : (
@@ -1719,7 +1839,9 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           )}
         </OwnerSectionCard>
 
-        {/* PDF reports */}
+        {/* PDF reports — owner-only financial suite */}
+        {isOwner ? (
+        <PremiumFeatureGate>
         <OwnerSectionCard theme={theme} title={t('wash_report_title')} subtitle={t('wash_report_lead')}>
           <View style={styles.customRangeWrap}>
             <BookingDatePicker
@@ -1787,7 +1909,25 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
             </Text>
           </Pressable>
         </OwnerSectionCard>
+        </PremiumFeatureGate>
+        ) : null}
       </ScrollView>
+
+      <PremiumUpgradeModal visible={premiumModalVisible} onClose={() => setPremiumModalVisible(false)} />
+
+      {activeBranch ? (
+        <WalkInBookingModal
+          visible={walkInModalVisible}
+          onClose={() => setWalkInModalVisible(false)}
+          shop={shop}
+          branchId={activeBranch.id}
+          branchLabel={branchDisplayName(activeBranch, locale)}
+          services={activeBranch.services ?? []}
+          onCreated={() => {
+            void refreshAll();
+          }}
+        />
+      ) : null}
 
       {/* Add branch modal */}
       <Modal visible={addBranchModalVisible} transparent animationType="fade" onRequestClose={() => setAddBranchModalVisible(false)}>
@@ -1796,6 +1936,21 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
             <Text style={[styles.modalTitle, { color: theme.text }]}>{t('wash_branch_add_title')}</Text>
             <TextInput placeholder={t('wash_branch_name_placeholder')} placeholderTextColor={theme.textDim} value={newBranchName} onChangeText={setNewBranchName} style={fieldStyle} />
             <TextInput placeholder={t('wash_branch_name_ar_placeholder')} placeholderTextColor={theme.textDim} value={newBranchNameAr} onChangeText={setNewBranchNameAr} style={fieldStyle} />
+            <Pressable
+              onPress={onCaptureBranchGps}
+              disabled={capturingGps}
+              style={[styles.secondaryBtn, { borderColor: theme.accent, marginTop: 8, opacity: capturingGps ? 0.65 : 1 }]}>
+              <Text style={[styles.secondaryBtnText, { color: theme.accent }]}>
+                {capturingGps ? t('wash_branch_gps_capturing') : t('wash_branch_gps_button')}
+              </Text>
+            </Pressable>
+            {branchLatitude != null && branchLongitude != null ? (
+              <Text style={[styles.meta, { color: theme.textMuted, marginTop: 8 }]}>
+                {t('wash_branch_gps_coords')
+                  .replace('{lat}', branchLatitude.toFixed(5))
+                  .replace('{lng}', branchLongitude.toFixed(5))}
+              </Text>
+            ) : null}
             <View style={styles.modalActions}>
               <Pressable onPress={() => setAddBranchModalVisible(false)} style={[styles.modalBtnSecondary, { borderColor: theme.border }]}>
                 <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('alert_cancel')}</Text>
@@ -1966,6 +2121,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   roleBadgeText: { fontSize: 12, fontWeight: '800' },
+  walkInBtn: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  walkInBtnText: { fontSize: 14, fontWeight: '800', textAlign: 'center' },
   shortcutRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   shortcutCard: {
     flexGrow: 1,
@@ -2019,6 +2183,27 @@ const styles = StyleSheet.create({
   albumImage: { width: '100%', height: 120 },
   removePhotoBtn: { paddingVertical: 8, alignItems: 'center' },
   emptyHint: { fontSize: 13, lineHeight: 19, marginTop: 10 },
+  textRtl: {
+    writingDirection: 'rtl',
+    textAlign: 'right',
+  },
+  gpsCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+    gap: 4,
+  },
+  gpsCardLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  gpsCardValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
   empty: { textAlign: 'center', marginTop: 8 },
   serviceRow: {
     borderWidth: 1,

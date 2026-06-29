@@ -135,6 +135,9 @@ export function buildOwnerReportHtml(params: {
     winch: bookings.filter((b) => b.shopType === 'winch').length,
   };
 
+  const walkInCount = bookings.filter((b) => b.bookingType === 'walk_in').length;
+  const appCount = bookings.length - walkInCount;
+
   const totals = bookings.reduce(
     (acc, booking) => {
       const money = normalizeBookingMoney(booking);
@@ -152,11 +155,20 @@ export function buildOwnerReportHtml(params: {
     .map((b, idx) => {
       const when = new Date(b.scheduledAt).toLocaleString(isAr ? 'ar-EG' : 'en-EG');
       const money = normalizeBookingMoney(b);
+      const sourceLabel =
+        b.bookingType === 'walk_in'
+          ? isAr
+            ? 'زيارة مباشرة'
+            : 'Walk-in'
+          : isAr
+            ? 'تطبيق'
+            : 'App';
       return `
       <tr>
         <td>${idx + 1}</td>
         <td>${escapeHtml(when)}</td>
-        <td>${escapeHtml(b.customerPhone)}</td>
+        <td>${escapeHtml(sourceLabel)}</td>
+        <td>${escapeHtml(b.customerPhone || (isAr ? '—' : '-'))}</td>
         <td>${escapeHtml(b.carType)}</td>
         <td>${escapeHtml(b.carColor || (isAr ? '—' : '-'))}</td>
         <td>${escapeHtml(b.status)}</td>
@@ -242,6 +254,8 @@ export function buildOwnerReportHtml(params: {
     <div class="card"><div class="label">${isAr ? 'ملغي' : 'Cancelled'}</div><div class="value">${statusCount.cancelled}</div></div>
     <div class="card"><div class="label">${isAr ? 'صيانة' : 'Maintenance'}</div><div class="value">${typeCount.maintenance}</div></div>
     <div class="card"><div class="label">${isAr ? 'غسيل / قطع / ونش' : 'Wash / Parts / Winch'}</div><div class="value">${typeCount.wash + typeCount.parts + typeCount.winch}</div></div>
+    <div class="card"><div class="label">${isAr ? 'حجوزات التطبيق' : 'App bookings'}</div><div class="value">${appCount}</div></div>
+    <div class="card"><div class="label">${isAr ? 'زيارات مباشرة' : 'Walk-in POS'}</div><div class="value">${walkInCount}</div></div>
     <div class="card"><div class="label">${isAr ? 'إجمالي المبيعات' : 'Gross sales'}</div><div class="value">${formatEgp(totals.gross, locale)}</div></div>
     <div class="card"><div class="label">${isAr ? 'عمولة المنصة' : 'Platform fee'}</div><div class="value">${formatEgp(totals.fee, locale)}</div></div>
     <div class="card"><div class="label">${isAr ? 'صافي المحل' : 'Owner net'}</div><div class="value">${formatEgp(totals.net, locale)}</div></div>
@@ -253,6 +267,7 @@ export function buildOwnerReportHtml(params: {
       <tr>
         <th>#</th>
         <th>${isAr ? 'الموعد' : 'Scheduled at'}</th>
+        <th>${isAr ? 'المصدر' : 'Source'}</th>
         <th>${isAr ? 'رقم العميل' : 'Customer phone'}</th>
         <th>${isAr ? 'نوع السيارة' : 'Car type'}</th>
         <th>${isAr ? 'اللون' : 'Color'}</th>
@@ -263,7 +278,7 @@ export function buildOwnerReportHtml(params: {
       </tr>
     </thead>
     <tbody>
-      ${rows || `<tr><td colspan="9">${isAr ? 'لا توجد حجوزات في هذه الفترة' : 'No bookings for this period'}</td></tr>`}
+      ${rows || `<tr><td colspan="10">${isAr ? 'لا توجد حجوزات في هذه الفترة' : 'No bookings for this period'}</td></tr>`}
     </tbody>
   </table>
 </div>

@@ -11,6 +11,7 @@ type NotificationMessages = {
   bookingReminderSoon: string;
   partsConfirmed: string;
   partsDeclined: string;
+  reviewOwnerReply: string;
 };
 
 export function formatCustomerNotificationLine(
@@ -40,6 +41,9 @@ export function formatCustomerNotificationLine(
   if (notification.kind === 'parts_order_confirmed') {
     return messages.partsConfirmed.replace('{shop}', shopName);
   }
+  if (notification.kind === 'review_owner_reply') {
+    return messages.reviewOwnerReply.replace('{shop}', shopName);
+  }
   return messages.partsDeclined.replace('{shop}', shopName);
 }
 
@@ -47,10 +51,15 @@ export function customerNotificationIsApproved(notification: CustomerNotificatio
   return (
     notification.kind === 'booking_approved' ||
     notification.kind === 'parts_order_confirmed' ||
-    notification.kind === 'booking_reminder'
+    notification.kind === 'booking_reminder' ||
+    notification.kind === 'review_owner_reply'
   );
 }
 
 export function customerNotificationIsReminder(notification: CustomerNotification): boolean {
   return notification.kind === 'booking_reminder';
+}
+
+export function customerNotificationIsReviewReply(notification: CustomerNotification): boolean {
+  return notification.kind === 'review_owner_reply';
 }

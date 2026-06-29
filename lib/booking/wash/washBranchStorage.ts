@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { patchShopCoordinates } from '@/lib/booking/catalogRepository';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import type { Shop, ShopDayHours, ShopOffer, ShopService } from '@/lib/booking/types';
@@ -9,8 +10,10 @@ import {
   addBranchRemote,
   fetchWashBranchStateFromRemote,
   persistActiveBranchRemote,
+  resolveRemoteBranchId,
   saveBranchServicesRemote,
   updateBranchRemote,
+  updateShopLocationRemote,
 } from '@/lib/booking/wash/branchRepository';
 import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
 
@@ -97,6 +100,8 @@ async function branchFromExtras(shop: Shop, extras: Awaited<ReturnType<typeof ge
     customerMessageAr: extras.vacationMessageAr,
   };
   branch.scheduleSavedAt = extras.scheduleSavedAt;
+  branch.latitude = shop.latitude;
+  branch.longitude = shop.longitude;
   return branch;
 }
 
@@ -167,9 +172,10 @@ export async function addWashBranch(
   name: string,
   nameAr?: string,
   ctx?: WashBranchContext,
+  coords?: { latitude: number; longitude: number },
 ): Promise<WashBranchState> {
   if (ctx?.staff) {
-    const remoteBranch = await addBranchRemote(shop, name, nameAr);
+    const remoteBranch = await addBranchRemote(shop, name, nameAr, coords);
     if (remoteBranch) {
       const state = await getWashBranchState(shop, ctx);
       state.branches = [...state.branches.filter((b) => b.id !== remoteBranch.id), remoteBranch];
@@ -184,6 +190,13 @@ export async function addWashBranch(
 
   const state = await getWashBranchState(shop, ctx);
   const branch = emptyBranch(name.trim() || 'New branch', nameAr?.trim());
+  if (coords) {
+    branch.latitude = coords.latitude;
+    branch.longitude = coords.longitude;
+  } else {
+    branch.latitude = shop.latitude;
+    branch.longitude = shop.longitude;
+  }
   state.branches = [...state.branches, branch];
   state.activeBranchId = branch.id;
   state.updatedAt = nowIso();
@@ -191,6 +204,12 @@ export async function addWashBranch(
   await syncWashBranchToShopExtras(shop.id, branch);
   return state;
 }
+
+export type WashBranchUpdateResult = {
+  branch: WashBranch;
+  /** True when coordinates/profile were written to Supabase (when configured). */
+  remoteSaved: boolean;
+};
 
 export async function updateActiveWashBranch(
   shop: Shop,
@@ -220,10 +239,12 @@ export async function updateActiveWashBranch(
       | 'shopStatus'
       | 'vacationMode'
       | 'scheduleSavedAt'
+      | 'latitude'
+      | 'longitude'
     >
   >,
   ctx?: WashBranchContext,
-): Promise<WashBranch> {
+): Promise<WashBranchUpdateResult> {
   const state = await getWashBranchState(shop, ctx);
   const activeId = state.activeBranchId;
   state.branches = state.branches.map((branch) => {
@@ -232,17 +253,45 @@ export async function updateActiveWashBranch(
   });
   state.updatedAt = nowIso();
   await cacheState(shop.id, state);
-  const active = activeBranchFromState(state);
+  let active = activeBranchFromState(state);
+  let remoteSaved = !ctx?.staff;
 
-  if (ctx?.staff && isUuid(active.id)) {
-    await updateBranchRemote(active.id, patch);
-    if (patch.services) {
-      await saveBranchServicesRemote(shop.id, active.id, active.services);
+  if (ctx?.staff) {
+    remoteSaved = false;
+    let remoteBranchId = isUuid(active.id) ? active.id : await resolveRemoteBranchId(shop.id, active.id);
+    if (remoteBranchId && !isUuid(active.id)) {
+      state.branches = state.branches.map((branch) =>
+        branch.id === active.id ? { ...branch, id: remoteBranchId! } : branch,
+      );
+      if (state.activeBranchId === active.id) state.activeBranchId = remoteBranchId;
+      await cacheState(shop.id, state);
+      active = activeBranchFromState(state);
+    }
+
+    if (remoteBranchId) {
+      remoteSaved = await updateBranchRemote(remoteBranchId, patch, shop.id);
+      if (patch.latitude != null && patch.longitude != null) {
+        const shopSaved = await updateShopLocationRemote(shop.id, patch.latitude, patch.longitude);
+        remoteSaved = remoteSaved && shopSaved;
+        if (shopSaved) patchShopCoordinates(shop.id, patch.latitude, patch.longitude);
+      }
+      if (patch.services) {
+        await saveBranchServicesRemote(shop.id, remoteBranchId, active.services);
+      }
     }
   }
 
   await syncWashBranchToShopExtras(shop.id, active);
-  return active;
+  return { branch: active, remoteSaved };
+}
+
+export async function saveBranchCoordinates(
+  shop: Shop,
+  latitude: number,
+  longitude: number,
+  ctx?: WashBranchContext,
+): Promise<WashBranchUpdateResult> {
+  return updateActiveWashBranch(shop, { latitude, longitude }, ctx);
 }
 
 export async function deleteWashBranch(
@@ -267,7 +316,8 @@ export async function saveWashBranchServices(
   services: ShopService[],
   ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { services }, ctx);
+  const { branch } = await updateActiveWashBranch(shop, { services }, ctx);
+  return branch;
 }
 
 export async function saveWashBranchWeeklyHours(
@@ -275,7 +325,7 @@ export async function saveWashBranchWeeklyHours(
   weeklyHours: ShopDayHours[],
   ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  return updateActiveWashBranch(
+  const { branch } = await updateActiveWashBranch(
     shop,
     {
       weeklyHours,
@@ -283,6 +333,7 @@ export async function saveWashBranchWeeklyHours(
     },
     ctx,
   );
+  return branch;
 }
 
 export async function saveWashBranchCoupons(
@@ -290,7 +341,8 @@ export async function saveWashBranchCoupons(
   coupons: WashCoupon[],
   ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { coupons }, ctx);
+  const { branch } = await updateActiveWashBranch(shop, { coupons }, ctx);
+  return branch;
 }
 
 export async function saveWashBranchOffers(
@@ -298,7 +350,8 @@ export async function saveWashBranchOffers(
   offers: ShopOffer[],
   ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { offers }, ctx);
+  const { branch } = await updateActiveWashBranch(shop, { offers }, ctx);
+  return branch;
 }
 
 export async function saveWashBranchStatus(
@@ -307,5 +360,6 @@ export async function saveWashBranchStatus(
   vacationMode: WashVacationMode,
   ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  return updateActiveWashBranch(shop, { shopStatus, vacationMode }, ctx);
+  const { branch } = await updateActiveWashBranch(shop, { shopStatus, vacationMode }, ctx);
+  return branch;
 }

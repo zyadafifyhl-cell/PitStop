@@ -4,6 +4,8 @@ export type StoreCategory = 'parts' | 'accessories';
 
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'done' | 'in_progress' | 'no_show';
 
+export type BookingType = 'app' | 'walk_in';
+
 export type Shop = {
   id: string;
   name: string;
@@ -17,6 +19,8 @@ export type Shop = {
   longitude: number;
   ownerEmail: string;
   rating?: number;
+  /** SaaS tier — unlocks premium wash owner CMS sections. */
+  isPremium?: boolean;
 };
 
 export type Booking = {
@@ -36,6 +40,8 @@ export type Booking = {
   ownerRejectionNote?: string;
   customerName?: string;
   branchId?: string;
+  /** app = mobile booking; walk_in = branch POS / offline customer. */
+  bookingType?: BookingType;
   /** Gross service price paid by customer in EGP. */
   servicePriceEgp?: number;
   /** Platform commission in EGP for this booking. */
@@ -222,7 +228,8 @@ export type CustomerNotificationKind =
   | 'booking_declined'
   | 'booking_reminder'
   | 'parts_order_confirmed'
-  | 'parts_order_cancelled';
+  | 'parts_order_cancelled'
+  | 'review_owner_reply';
 
 export type CustomerNotification = {
   id: string;
@@ -233,10 +240,13 @@ export type CustomerNotification = {
   shopId: string;
   bookingId?: string;
   orderId?: string;
+  reviewId?: string;
   scheduledAt?: string;
   ownerNote?: string;
   /** Minutes before appointment (booking_reminder only). */
   reminderMinutesBefore?: number;
+  /** High-priority flag for confirmed booking alerts. */
+  highPriority?: boolean;
 };
 
 export type CustomerInvoice = {

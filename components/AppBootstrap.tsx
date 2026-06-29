@@ -1,3 +1,4 @@
+import * as Linking from 'expo-linking';
 import { useGlobalSearchParams, usePathname, useRouter, type Href } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef } from 'react';
@@ -5,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { resolveReturnTo } from '@/lib/auth/returnTo';
+import { parsePitstopDeepLink } from '@/lib/linking/share';
 
 const PUBLIC_PATHS = ['/welcome', '/reset-password', '/auth-required', '/login', '/verify'];
 
@@ -30,6 +32,22 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const splashHidden = useRef(false);
 
   const authReady = customerReady && shopReady;
+
+  useEffect(() => {
+    function openDeepLink(url: string) {
+      const path = parsePitstopDeepLink(url);
+      if (path) router.push(path as Href);
+    }
+
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) openDeepLink(url);
+      })
+      .catch(() => {});
+
+    const subscription = Linking.addEventListener('url', ({ url }) => openDeepLink(url));
+    return () => subscription.remove();
+  }, [router]);
 
   useEffect(() => {
     if (!authReady) return;

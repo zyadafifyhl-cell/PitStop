@@ -1,35 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import type { ShopReview } from '@/lib/booking/types';
-
-const REVIEWS_KEY = '@pitstop/shop-reviews/v1';
-type ReviewMap = Record<string, ShopReview[]>;
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-function id(): string {
-  return `rev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-async function readMap(): Promise<ReviewMap> {
-  try {
-    const raw = await AsyncStorage.getItem(REVIEWS_KEY);
-    const parsed = raw ? (JSON.parse(raw) as ReviewMap) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-async function writeMap(map: ReviewMap): Promise<void> {
-  await AsyncStorage.setItem(REVIEWS_KEY, JSON.stringify(map));
-}
+import {
+  addShopReviewSynced,
+  listShopReviewsSynced,
+  setReviewHiddenSynced,
+  setReviewOwnerReplySynced,
+  setReviewReportedSynced,
+  toggleReviewLikeSynced,
+} from '@/lib/booking/reviewRepository';
 
 export async function listShopReviews(shopId: string): Promise<ShopReview[]> {
-  const map = await readMap();
-  return (map[shopId] ?? []).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return listShopReviewsSynced(shopId);
 }
 
 export async function addShopReview(input: {
@@ -39,58 +19,27 @@ export async function addShopReview(input: {
   rating: number;
   body: string;
 }): Promise<ShopReview> {
-  const map = await readMap();
-  const row: ShopReview = {
-    id: id(),
-    shopId: input.shopId,
-    customerId: input.customerId,
-    customerName: input.customerName.trim(),
-    rating: Math.max(1, Math.min(5, Math.round(input.rating))),
-    body: input.body.trim(),
-    likes: 0,
-    likedBy: [],
-    createdAt: nowIso(),
-  };
-  map[input.shopId] = [row, ...(map[input.shopId] ?? [])].slice(0, 100);
-  await writeMap(map);
-  return row;
+  return addShopReviewSynced(input);
 }
 
 export async function toggleReviewLike(shopId: string, reviewId: string, customerId: string): Promise<void> {
-  const map = await readMap();
-  map[shopId] = (map[shopId] ?? []).map((row) => {
-    if (row.id !== reviewId) return row;
-    const liked = row.likedBy.includes(customerId);
-    return {
-      ...row,
-      likedBy: liked ? row.likedBy.filter((id) => id !== customerId) : [...row.likedBy, customerId],
-      likes: liked ? Math.max(0, row.likes - 1) : row.likes + 1,
-    };
-  });
-  await writeMap(map);
+  return toggleReviewLikeSynced(shopId, reviewId, customerId);
 }
 
 export async function setReviewOwnerReply(shopId: string, reviewId: string, ownerReply: string): Promise<void> {
-  const map = await readMap();
-  map[shopId] = (map[shopId] ?? []).map((row) =>
-    row.id === reviewId ? { ...row, ownerReply: ownerReply.trim() || undefined } : row,
-  );
-  await writeMap(map);
+  return setReviewOwnerReplySynced(shopId, reviewId, ownerReply);
 }
 
 export async function setReviewHidden(shopId: string, reviewId: string, hidden: boolean): Promise<void> {
-  const map = await readMap();
-  map[shopId] = (map[shopId] ?? []).map((row) => (row.id === reviewId ? { ...row, hidden } : row));
-  await writeMap(map);
+  return setReviewHiddenSynced(shopId, reviewId, hidden);
 }
 
 export async function setReviewReported(shopId: string, reviewId: string, reported: boolean): Promise<void> {
-  const map = await readMap();
-  map[shopId] = (map[shopId] ?? []).map((row) => (row.id === reviewId ? { ...row, reported } : row));
-  await writeMap(map);
+  return setReviewReportedSynced(shopId, reviewId, reported);
 }
 
 export function seedDemoReviews(shopId: string): ShopReview[] {
+  const now = new Date().toISOString();
   return [
     {
       id: 'demo-rev-1',
@@ -100,7 +49,7 @@ export function seedDemoReviews(shopId: string): ShopReview[] {
       body: 'Excellent service.',
       likes: 12,
       likedBy: [],
-      createdAt: nowIso(),
+      createdAt: now,
     },
     {
       id: 'demo-rev-2',
@@ -110,7 +59,7 @@ export function seedDemoReviews(shopId: string): ShopReview[] {
       body: 'Premium package is worth the price.',
       likes: 5,
       likedBy: [],
-      createdAt: nowIso(),
+      createdAt: now,
     },
   ];
 }

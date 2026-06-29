@@ -1,5 +1,5 @@
 import * as Location from 'expo-location';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,9 +16,11 @@ import { ShopListCard } from '@/components/ui/ShopListCard';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
-import { formatDistance, listShopsSortedByDistance } from '@/lib/booking/nearby';
+import { formatDistanceAway, listShopsSortedByDistance, type ShopWithDistance } from '@/lib/booking/nearby';
+import { listWashBranchesSortedByDistance, type WashBranchListing } from '@/lib/booking/washBranchNearby';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
+import type { ShopExtras } from '@/lib/booking/types';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { parseShopType } from '@/lib/booking/serviceType';
@@ -38,7 +40,7 @@ export default function NearbyScreen() {
   const type = parseShopType(rawType);
   const [loading, setLoading] = useState(true);
   const [locationDenied, setLocationDenied] = useState(false);
-  const [shops, setShops] = useState<ReturnType<typeof listShopsSortedByDistance>>([]);
+  const [shops, setShops] = useState<(ShopWithDistance | WashBranchListing)[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<NearbyFilter>('all');
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
@@ -63,7 +65,11 @@ export default function NearbyScreen() {
     } catch {
       setLocationDenied(true);
     }
-    setShops(listShopsSortedByDistance(type, lat, lng));
+    if (type === 'wash') {
+      setShops(await listWashBranchesSortedByDistance(lat, lng));
+    } else {
+      setShops(listShopsSortedByDistance(type, lat, lng));
+    }
     if (customer?.id) {
       setFavoriteIds(await listFavoriteShopIds(customer.id));
     } else {
@@ -75,6 +81,12 @@ export default function NearbyScreen() {
   useEffect(() => {
     if (catalogReady) load();
   }, [catalogReady, load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (catalogReady) load();
+    }, [catalogReady, load]),
+  );
 
   const filteredShops = useMemo(() => {
     let rows = shops.slice();
@@ -172,7 +184,7 @@ export default function NearbyScreen() {
 
           {filteredShops.map((shop, index) => (
             <NearbyShopCard
-              key={shop.id}
+              key={'branchId' in shop ? `${shop.id}-${shop.branchId}` : shop.id}
               shop={shop}
               index={index}
               locale={locale}
@@ -195,7 +207,7 @@ function NearbyShopCard({
   t,
   filter,
 }: {
-  shop: ReturnType<typeof listShopsSortedByDistance>[number];
+  shop: ShopWithDistance | WashBranchListing;
   index: number;
   locale: 'en' | 'ar';
   theme: ReturnType<typeof useAppTheme>;
@@ -203,20 +215,27 @@ function NearbyShopCard({
   filter: NearbyFilter;
 }) {
   const [openNow, setOpenNow] = useState<boolean | null>(null);
+  const [washShopStatus, setWashShopStatus] = useState<ShopExtras['washShopStatus']>();
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const extras = await getShopExtras(shop.id);
       const status = getShopOpenStatus(extras);
-      if (!cancelled) setOpenNow(status.isOpen);
+      if (!cancelled) {
+        setOpenNow(status.isOpen);
+        setWashShopStatus(extras.washShopStatus);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [shop.id]);
 
-  if (filter === 'open_now' && openNow === false) return null;
+  const keepVisibleDespiteOpenFilter =
+    shop.type === 'wash' && (washShopStatus === 'closed' || washShopStatus === 'vacation');
+
+  if (filter === 'open_now' && openNow === false && !keepVisibleDespiteOpenFilter) return null;
 
   return (
     <ShopListCard
@@ -231,7 +250,7 @@ function NearbyShopCard({
       }
       rating={shop.rating}
       phone={shop.phone}
-      distanceLabel={formatDistance(shop.distanceKm, locale)}
+      distanceLabel={formatDistanceAway(shop.distanceKm, locale)}
       bookLabel={t('shop_card_view_details')}
       onCall={() =>
         openPhone(shop.phone).catch(() =>

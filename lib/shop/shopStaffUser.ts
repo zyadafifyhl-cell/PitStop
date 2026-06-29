@@ -128,9 +128,27 @@ export async function fetchShopStaffUser(userId: string, email: string): Promise
   return toShopStaffUser(staff);
 }
 
+async function enrichShopPremium(shop: Shop): Promise<Shop> {
+  const supabase = getSupabase();
+  if (!supabase) return { ...shop, isPremium: shop.isPremium === true };
+
+  try {
+    const { data } = await supabase
+      .from('shops')
+      .select('is_premium')
+      .eq('id', shop.id)
+      .maybeSingle();
+    return { ...shop, isPremium: data?.is_premium === true };
+  } catch {
+    return { ...shop, isPremium: shop.isPremium === true };
+  }
+}
+
 export async function resolveShopForStaff(staff: ShopStaffUser): Promise<Shop | null> {
   await ensureCatalog();
-  return getShopById(staff.shopId) ?? null;
+  const shop = getShopById(staff.shopId);
+  if (!shop) return null;
+  return enrichShopPremium(shop);
 }
 
 export async function resolveShopSession(

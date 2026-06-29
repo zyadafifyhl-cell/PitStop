@@ -2,10 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
 import { formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
-import { recordWashBookingDone } from '@/lib/booking/loyaltyStampsStorage';
-import type { Booking, BookingStatus } from '@/lib/booking/types';
+import { awardLoyaltyPointsOnDone } from '@/lib/booking/loyaltyPointsStorage';
+import { handleBookingConfirmed } from '@/lib/booking/bookingLifecycle';
+import type { Booking, BookingStatus, BookingType } from '@/lib/booking/types';
+import { resolveRemoteBranchId } from '@/lib/booking/wash/branchRepository';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
-import { phoneLookupVariants, phonesEqual } from '@/lib/phone';
+import { normalizePhoneE164, phoneLookupVariants, phonesEqual } from '@/lib/phone';
 import { sendShopPushForBooking } from '@/lib/push/shopPush';
 import { getSupabase } from '@/lib/supabase/client';
 
@@ -80,32 +82,118 @@ function isUuid(value: string | undefined): value is string {
 type BookingRow = {
   id: string;
   shop_id: string;
+  branch_id?: string | null;
   shop_type: Booking['shopType'];
   customer_id?: string | null;
-  customer_phone: string;
+  customer_phone?: string | null;
+  customer_name?: string | null;
   car_type: string;
   car_color: string | null;
+  service_id?: string | null;
+  service_name?: string | null;
+  service_name_ar?: string | null;
   service_price_egp: number | string | null;
   platform_fee_egp: number | string | null;
+  customer_notes?: string | null;
+  owner_rejection_note?: string | null;
+  booking_type?: BookingType | null;
   scheduled_at: string;
   status: BookingStatus;
   created_at: string;
+};
+
+export type CreateBookingOptions = {
+  bookingType?: BookingType;
+  initialStatus?: BookingStatus;
+  /** Skip owner push notification (walk-in POS). */
+  skipOwnerPush?: boolean;
+};
+
+export type WalkInBookingInput = {
+  shopId: string;
+  branchId: string;
+  carType: string;
+  customerPhone?: string;
+  serviceId?: string;
+  serviceName: string;
+  serviceNameAr?: string;
+  servicePriceEgp: number;
+  serviceDurationMinutes?: number;
+  customerNotes?: string;
 };
 
 function mapBookingRow(row: BookingRow): Booking {
   return {
     id: row.id,
     shopId: row.shop_id,
+    branchId: row.branch_id ?? undefined,
     shopType: row.shop_type,
     customerId: row.customer_id ?? undefined,
-    customerPhone: row.customer_phone,
+    customerPhone: row.customer_phone ?? '',
+    customerName: row.customer_name ?? undefined,
     carType: row.car_type,
     carColor: row.car_color ?? '',
+    serviceId: row.service_id ?? undefined,
+    serviceName: row.service_name ?? undefined,
+    serviceNameAr: row.service_name_ar ?? undefined,
     servicePriceEgp: Number(row.service_price_egp ?? 0),
     platformFeeEgp: Number(row.platform_fee_egp ?? 0),
+    customerNotes: row.customer_notes ?? undefined,
+    ownerRejectionNote: row.owner_rejection_note ?? undefined,
+    bookingType: row.booking_type ?? 'app',
     scheduledAt: row.scheduled_at,
     status: row.status,
     createdAt: row.created_at,
+  };
+}
+
+async function resolveBranchIdForRemote(shopId: string, branchId: string): Promise<string | undefined> {
+  if (isUuid(branchId)) return branchId;
+  const resolved = await resolveRemoteBranchId(shopId, branchId);
+  return resolved ?? undefined;
+}
+
+async function resolveWalkInCustomerId(phone?: string): Promise<string | undefined> {
+  const trimmed = phone?.trim();
+  if (!trimmed) return undefined;
+
+  const supabase = getSupabase();
+  if (!supabase) return undefined;
+
+  const normalized = normalizePhoneE164(trimmed) ?? trimmed;
+  const { data, error } = await supabase.rpc('resolve_customer_id_by_phone', { p_phone: normalized });
+  if (error || !data) return undefined;
+  return isUuid(String(data)) ? String(data) : undefined;
+}
+
+function buildBookingInsertRow(
+  input: Omit<Booking, 'id' | 'status' | 'createdAt'>,
+  params: {
+    servicePriceEgp: number;
+    platformFeeEgp: number;
+    status: BookingStatus;
+    bookingType: BookingType;
+    branchId?: string;
+  },
+): Record<string, unknown> {
+  return {
+    shop_id: input.shopId,
+    branch_id: params.branchId ?? null,
+    shop_type: input.shopType,
+    customer_id: isUuid(input.customerId) ? input.customerId : null,
+    customer_phone: input.customerPhone?.trim() || null,
+    customer_name: input.customerName ?? null,
+    car_type: input.carType,
+    car_color: input.carColor || '',
+    service_id: isUuid(input.serviceId) ? input.serviceId : null,
+    service_name: input.serviceName ?? null,
+    service_name_ar: input.serviceNameAr ?? null,
+    service_price_egp: params.servicePriceEgp,
+    platform_fee_egp: params.platformFeeEgp,
+    customer_notes: input.customerNotes ?? null,
+    booking_type: params.bookingType,
+    scheduled_at: input.scheduledAt,
+    status: params.status,
   };
 }
 
@@ -198,7 +286,11 @@ export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
 
 export async function createBooking(
   input: Omit<Booking, 'id' | 'status' | 'createdAt'>,
+  options?: CreateBookingOptions,
 ): Promise<Booking> {
+  const bookingType = options?.bookingType ?? input.bookingType ?? 'app';
+  const initialStatus = options?.initialStatus ?? 'pending';
+  const branchId = input.branchId ? await resolveBranchIdForRemote(input.shopId, input.branchId) : undefined;
   const servicePriceEgp = Math.max(
     0,
     Math.round((input.servicePriceEgp ?? defaultServicePriceEgp(input.shopType)) * 100) / 100,
@@ -206,10 +298,12 @@ export async function createBooking(
   const platformFeeEgp = Math.round(servicePriceEgp * PLATFORM_FEE_RATE * 100) / 100;
   const booking: Booking = {
     ...input,
+    branchId: branchId ?? input.branchId,
+    bookingType,
     servicePriceEgp,
     platformFeeEgp,
     id: newId(),
-    status: 'pending',
+    status: initialStatus,
     createdAt: new Date().toISOString(),
   };
 
@@ -217,36 +311,39 @@ export async function createBooking(
   if (supabase) {
     const { data, error } = await supabase
       .from('bookings')
-      .insert({
-        shop_id: input.shopId,
-        shop_type: input.shopType,
-        customer_id: isUuid(input.customerId) ? input.customerId : null,
-        customer_phone: input.customerPhone,
-        car_type: input.carType,
-        car_color: input.carColor,
-        service_price_egp: servicePriceEgp,
-        platform_fee_egp: platformFeeEgp,
-        scheduled_at: input.scheduledAt,
-        status: 'pending',
-      })
+      .insert(
+        buildBookingInsertRow(input, {
+          servicePriceEgp,
+          platformFeeEgp,
+          status: initialStatus,
+          bookingType,
+          branchId,
+        }),
+      )
       .select('*')
       .single();
 
     if (!error && data) {
       const created = mapBookingRow(data as BookingRow);
       await upsertLocalBooking(created);
-      await pushOwnerNotification({
-        shopId: created.shopId,
-        kind: 'service_booking',
-        customerPhone: created.customerPhone,
-        bookingId: created.id,
-        shopType: created.shopType,
-        carType: created.carType,
-        scheduledAt: created.scheduledAt,
-        totalEgp: created.servicePriceEgp,
-      });
-      await notifyWashOwnerBooking(created, 'new_booking');
-      await sendOwnerBookingPush(created);
+      if (bookingType !== 'walk_in') {
+        await pushOwnerNotification({
+          shopId: created.shopId,
+          kind: 'service_booking',
+          customerPhone: created.customerPhone,
+          bookingId: created.id,
+          shopType: created.shopType,
+          carType: created.carType,
+          scheduledAt: created.scheduledAt,
+          totalEgp: created.servicePriceEgp,
+        });
+        await notifyWashOwnerBooking(created, 'new_booking');
+        if (!options?.skipOwnerPush) {
+          await sendOwnerBookingPush(created);
+        }
+      } else {
+        await notifyWashOwnerBooking(created, 'new_booking');
+      }
       return created;
     }
     if (error) {
@@ -255,19 +352,64 @@ export async function createBooking(
   }
 
   await upsertLocalBooking(booking);
-  await pushOwnerNotification({
-    shopId: booking.shopId,
-    kind: 'service_booking',
-    customerPhone: booking.customerPhone,
-    bookingId: booking.id,
-    shopType: booking.shopType,
-    carType: booking.carType,
-    scheduledAt: booking.scheduledAt,
-    totalEgp: booking.servicePriceEgp,
-  });
-  await notifyWashOwnerBooking(booking, 'new_booking');
-  await sendOwnerBookingPush(booking);
+  if (bookingType !== 'walk_in') {
+    await pushOwnerNotification({
+      shopId: booking.shopId,
+      kind: 'service_booking',
+      customerPhone: booking.customerPhone,
+      bookingId: booking.id,
+      shopType: booking.shopType,
+      carType: booking.carType,
+      scheduledAt: booking.scheduledAt,
+      totalEgp: booking.servicePriceEgp,
+    });
+    await notifyWashOwnerBooking(booking, 'new_booking');
+    if (!options?.skipOwnerPush) {
+      await sendOwnerBookingPush(booking);
+    }
+  } else {
+    await notifyWashOwnerBooking(booking, 'new_booking');
+  }
   return booking;
+}
+
+export async function createWalkInBooking(input: WalkInBookingInput): Promise<Booking> {
+  const carType = input.carType.trim();
+  if (!carType) {
+    throw new Error('Car type is required');
+  }
+  if (!input.serviceName.trim()) {
+    throw new Error('Service is required');
+  }
+
+  const phoneRaw = input.customerPhone?.trim();
+  const customerPhone = phoneRaw ? normalizePhoneE164(phoneRaw) ?? phoneRaw : undefined;
+  const customerId = customerPhone ? await resolveWalkInCustomerId(customerPhone) : undefined;
+
+  return createBooking(
+    {
+      shopId: input.shopId,
+      shopType: 'wash',
+      branchId: input.branchId,
+      customerId,
+      customerPhone: customerPhone ?? '',
+      carType,
+      carColor: '',
+      scheduledAt: new Date().toISOString(),
+      serviceId: input.serviceId,
+      serviceName: input.serviceName,
+      serviceNameAr: input.serviceNameAr,
+      serviceDurationMinutes: input.serviceDurationMinutes,
+      servicePriceEgp: input.servicePriceEgp,
+      customerNotes: input.customerNotes?.trim() || undefined,
+      bookingType: 'walk_in',
+    },
+    {
+      bookingType: 'walk_in',
+      initialStatus: 'in_progress',
+      skipOwnerPush: true,
+    },
+  );
 }
 
 export async function updateBookingStatus(
@@ -316,8 +458,12 @@ export async function updateBookingStatus(
     await notifyWashOwnerBooking(updated, 'cancelled_booking');
   }
 
+  if (updated && status === 'confirmed' && previousStatus !== 'confirmed') {
+    await handleBookingConfirmed({ booking: updated, previousStatus });
+  }
+
   if (updated && status === 'done' && previousStatus !== 'done') {
-    await recordWashBookingDone(updated, previousStatus);
+    await awardLoyaltyPointsOnDone(updated, previousStatus);
   }
 
   return updated;

@@ -1,6 +1,6 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { router, type Href } from 'expo-router';
-import React from 'react';
+import { router, type Href, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SettingsRow } from '@/components/ui/SettingsRow';
@@ -9,6 +9,7 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
+import { getLoyaltyPoints } from '@/lib/booking/loyaltyPointsStorage';
 import {
   openSupportEmail,
   openSupportPhone,
@@ -27,6 +28,26 @@ export default function SettingsScreen() {
   const [privacyPassword, setPrivacyPassword] = React.useState('');
   const [languageOpen, setLanguageOpen] = React.useState(false);
   const [termsVisible, setTermsVisible] = React.useState(false);
+  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
+
+  const refreshPoints = useCallback(async () => {
+    if (!customer || isGuest) {
+      setLoyaltyPoints(0);
+      return;
+    }
+    const points = await getLoyaltyPoints({ customerId: customer.id, phone: customer.phone });
+    setLoyaltyPoints(points);
+  }, [customer, isGuest]);
+
+  useEffect(() => {
+    refreshPoints();
+  }, [refreshPoints]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshPoints();
+    }, [refreshPoints]),
+  );
 
   const themeLabel =
     preference === 'system'
@@ -83,6 +104,16 @@ export default function SettingsScreen() {
           <Text style={[styles.profileName, { color: theme.text }]}>{customer.name}</Text>
           <Text style={[styles.profileMeta, { color: theme.textMuted }]}>{customer.email}</Text>
           <Text style={[styles.profileMeta, { color: theme.textMuted }]}>{customer.phone.replace('+20', '0')}</Text>
+          <View style={[styles.pointsCard, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+            <Text style={[styles.pointsLabel, { color: theme.textMuted }]}>{t('loyalty_points_settings_title')}</Text>
+            <Text style={[styles.pointsValue, { color: theme.accent }]}>{loyaltyPoints}</Text>
+            <Text style={[styles.pointsHint, { color: theme.textMuted }]}>{t('loyalty_points_settings_hint')}</Text>
+          </View>
+          <Pressable
+            onPress={() => router.push('/points-marketplace' as Href)}
+            style={[styles.marketplaceBtn, { borderColor: theme.accent, backgroundColor: theme.bgElevated }]}>
+            <Text style={[styles.marketplaceBtnText, { color: theme.accent }]}>{t('loyalty_marketplace_link')}</Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -349,6 +380,24 @@ const styles = StyleSheet.create({
   },
   profileName: { fontSize: 20, fontWeight: '800' },
   profileMeta: { fontSize: 14, marginTop: 4 },
+  pointsCard: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+  },
+  pointsLabel: { fontSize: 13, fontWeight: '700' },
+  pointsValue: { fontSize: 34, fontWeight: '900', marginVertical: 4 },
+  pointsHint: { fontSize: 12, textAlign: 'center', lineHeight: 18 },
+  marketplaceBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  marketplaceBtnText: { fontSize: 14, fontWeight: '800' },
   section: {
     fontSize: 17,
     fontWeight: '800',

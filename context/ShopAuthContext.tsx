@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { tabAuthStorage } from '@/lib/storage/webTabAuthStorage';
 import React, {
   createContext,
   useCallback,
@@ -19,6 +19,7 @@ import type { Shop } from '@/lib/booking/types';
 import { isStaffInviteLocked } from '@/lib/auth/staffInviteLock';
 import { beginAuthMutation, endAuthMutation, isAuthMutationInProgress } from '@/lib/auth/authMutationLock';
 import { getSupabase } from '@/lib/supabase/client';
+import { signOutCurrentTab } from '@/lib/supabase/webTabAuthIsolation';
 
 export type ShopLoginResult =
   | 'ok'
@@ -46,6 +47,7 @@ type ShopAuthContextValue = {
   isBranchManager: boolean;
   isAdmin: boolean;
   isPendingOwner: boolean;
+  isPremium: boolean;
   busy: boolean;
   login: (email: string, password: string) => Promise<ShopLoginResult>;
   registerOwner: (input: RegisterShopOwnerInput) => Promise<ShopRegisterResult>;
@@ -57,7 +59,7 @@ const ShopAuthContext = createContext<ShopAuthContextValue | null>(null);
 const SESSION_KEY = '@pitstop/shop-session';
 
 async function persistSession(staff: AppStaffUser): Promise<void> {
-  await AsyncStorage.setItem(SESSION_KEY, staff.email);
+  await tabAuthStorage.setItem(SESSION_KEY, staff.email);
 }
 
 export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
@@ -80,7 +82,7 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
     setShop(null);
     setStaff(null);
     setShopStaff(null);
-    await AsyncStorage.removeItem(SESSION_KEY);
+    await tabAuthStorage.removeItem(SESSION_KEY);
     return resolved;
   }, []);
 
@@ -120,7 +122,7 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
             setShop(null);
             setStaff(null);
             setShopStaff(null);
-            await AsyncStorage.removeItem(SESSION_KEY);
+            await tabAuthStorage.removeItem(SESSION_KEY);
             return;
           }
           await applySession(session.user.id, session.user.email);
@@ -209,8 +211,9 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
     setStaff(null);
     setShopStaff(null);
     try {
-      await AsyncStorage.removeItem(SESSION_KEY);
-      await getSupabase()?.auth.signOut();
+      await tabAuthStorage.removeItem(SESSION_KEY);
+      const supabase = getSupabase();
+      if (supabase) await signOutCurrentTab(supabase.auth.signOut.bind(supabase.auth));
     } finally {
       signingOutRef.current = false;
     }
@@ -226,6 +229,7 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
       isBranchManager: staff?.role === 'branch_manager',
       isAdmin: staff?.role === 'admin',
       isPendingOwner: staff?.role === 'pending_owner',
+      isPremium: shop?.isPremium === true,
       busy,
       login,
       registerOwner,

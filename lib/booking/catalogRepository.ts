@@ -27,6 +27,7 @@ type ShopRow = {
   longitude: number;
   owner_email: string;
   rating: number | string | null;
+  is_premium?: boolean | null;
 };
 
 let areasCache: Area[] = [];
@@ -109,6 +110,7 @@ function mapShopRow(row: ShopRow): Shop {
     longitude: row.longitude,
     ownerEmail: row.owner_email,
     rating: row.rating != null ? Number(row.rating) : undefined,
+    isPremium: row.is_premium === true,
   };
 }
 
@@ -133,6 +135,15 @@ export function listAreasForServiceType(
 
 export function getShopById(id: string): Shop | undefined {
   return shopsCache.find((shop) => shop.id === id);
+}
+
+/** Keep in-memory catalog in sync after owner updates shop GPS. */
+export function patchShopCoordinates(shopId: string, latitude: number, longitude: number): void {
+  const shop = shopsCache.find((row) => row.id === shopId);
+  if (!shop) return;
+  shop.latitude = latitude;
+  shop.longitude = longitude;
+  void saveCatalogToStorage();
 }
 
 export function getShopByOwnerEmail(email: string): Shop | undefined {

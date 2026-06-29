@@ -15,29 +15,32 @@ import {
 } from 'react-native';
 
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
+import { ServiceMultiPicker } from '@/components/booking/ServiceMultiPicker';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getSavedCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
 import {
   buildScheduledIso,
   defaultBookingDateYmd,
+  formatBookingDateTime,
   formatShopScheduleLine,
   shopTypeLabel,
 } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import {
   buildSlotsForShopDate,
-  getServiceById,
+  getActiveServices,
   shopHasCustomerSchedule,
   type SlotAvailability,
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
-import { createBooking, listBookingsForShop, saveCustomerPhone } from '@/lib/booking/storage';
+import { createBooking, getSavedCustomerPhone, listBookingsForShop, saveCustomerPhone } from '@/lib/booking/storage';
 import { getPrimaryVehicle } from '@/lib/booking/vehicleStorage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
@@ -45,11 +48,38 @@ import { userAlert } from '@/lib/ui/userAlert';
 import { normalizePhoneE164 } from '@/lib/phone';
 import type { Booking, ShopExtras } from '@/lib/booking/types';
 
+function resolveBookingPhone(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const local = trimmed.startsWith('+20') ? `0${trimmed.slice(3)}` : trimmed;
+  return normalizePhoneE164(local);
+}
+
 export default function BookShopScreen() {
-  const { shopId, serviceId: rawServiceId } = useLocalSearchParams<{ shopId: string; serviceId?: string }>();
-  const serviceId = Array.isArray(rawServiceId) ? rawServiceId[0] : rawServiceId;
+  const {
+    shopId,
+    serviceId: rawServiceId,
+    serviceIds: rawServiceIds,
+    offerId: rawOfferId,
+  } = useLocalSearchParams<{
+    shopId: string;
+    serviceId?: string;
+    serviceIds?: string;
+    offerId?: string;
+  }>();
+  const legacyServiceId = Array.isArray(rawServiceId) ? rawServiceId[0] : rawServiceId;
+  const serviceIdsParam = Array.isArray(rawServiceIds) ? rawServiceIds[0] : rawServiceIds;
+  const offerId = Array.isArray(rawOfferId) ? rawOfferId[0] : rawOfferId;
+  const initialServiceIds = useMemo(() => {
+    if (serviceIdsParam) {
+      return serviceIdsParam.split(',').map((s: string) => s.trim()).filter(Boolean);
+    }
+    if (legacyServiceId) return [legacyServiceId];
+    return [];
+  }, [serviceIdsParam, legacyServiceId]);
   const colorScheme = useColorScheme();
   const palette = Colors[colorScheme ?? 'light'];
+  const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
   const { customer, isGuest } = useCustomerAuth();
   const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
@@ -59,8 +89,7 @@ export default function BookShopScreen() {
     [catalogReady, catalogVersion, shopId],
   );
 
-  const defaultPhone = customer?.phone.replace('+20', '0') ?? '';
-  const [phone, setPhone] = useState(defaultPhone);
+  const [resolvedPhone, setResolvedPhone] = useState('');
   const [carType, setCarType] = useState('');
   const [savedCarType, setSavedCarType] = useState('');
   const [editingSavedCar, setEditingSavedCar] = useState(false);
@@ -71,13 +100,58 @@ export default function BookShopScreen() {
   const [timeSlot, setTimeSlot] = useState('');
   const [saving, setSaving] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
+  const [receiptSummary, setReceiptSummary] = useState<{
+    shopName: string;
+    serviceLabels: string[];
+    totalPrice: number;
+    totalMinutes: number;
+    scheduledAt: string;
+    timeSlot: string;
+  } | null>(null);
   const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
   const [shopBookings, setShopBookings] = useState<Booking[]>([]);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>(initialServiceIds);
 
-  const selectedService = useMemo(
-    () => getServiceById(shopExtras, serviceId),
-    [shopExtras, serviceId],
+  const activeServices = useMemo(() => getActiveServices(shopExtras), [shopExtras]);
+
+  useEffect(() => {
+    if (initialServiceIds.length) {
+      setSelectedServiceIds(initialServiceIds);
+      return;
+    }
+    if (activeServices[0]?.id) {
+      setSelectedServiceIds([activeServices[0].id]);
+    }
+  }, [initialServiceIds.join(','), activeServices.map((s) => s.id).join(',')]);
+
+  const selectedServices = useMemo(
+    () =>
+      selectedServiceIds
+        .map((id) => activeServices.find((s) => s.id === id))
+        .filter((s): s is NonNullable<typeof s> => !!s),
+    [selectedServiceIds, activeServices],
   );
+
+  const activeOffer = useMemo(
+    () => (offerId ? shopExtras?.offers.find((o) => o.id === offerId && o.active) : undefined),
+    [offerId, shopExtras],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const profilePhone = customer?.phone?.trim();
+      if (profilePhone) {
+        if (!cancelled) setResolvedPhone(profilePhone);
+        return;
+      }
+      const saved = await getSavedCustomerPhone();
+      if (!cancelled && saved?.trim()) setResolvedPhone(saved.trim());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [customer?.phone, customer?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,9 +206,12 @@ export default function BookShopScreen() {
   const hasOwnerSchedule = shopHasCustomerSchedule(shopExtras) || shopHasSavedSchedule(shopExtras);
 
   const slotExtras = useMemo(() => {
-    if (!shopExtras || !selectedService) return shopExtras;
-    return { ...shopExtras, serviceDurationMinutes: selectedService.durationMinutes };
-  }, [shopExtras, selectedService]);
+    if (!shopExtras) return shopExtras;
+    const duration =
+      selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0) ||
+      shopExtras.serviceDurationMinutes;
+    return { ...shopExtras, serviceDurationMinutes: duration };
+  }, [shopExtras, selectedServices]);
 
   const timeSlots = useMemo((): TimeSlotOption[] => {
     if (!hasOwnerSchedule) return [];
@@ -170,19 +247,27 @@ export default function BookShopScreen() {
         pathname: '/auth-required',
         params: {
           intent: 'booking',
-          returnTo: buildBookReturnTo(String(shopId), serviceId),
+          returnTo: buildBookReturnTo(
+            String(shopId),
+            selectedServiceIds.length ? selectedServiceIds : undefined,
+            offerId,
+          ),
         },
       });
       return;
     }
     if (!shop) return;
-    const normalizedPhone = normalizePhoneE164(phone);
+    const normalizedPhone = resolveBookingPhone(resolvedPhone);
     if (!normalizedPhone) {
-      userAlert(t('auth_phone_invalid_title'), t('auth_phone_invalid_body'));
+      userAlert(t('book_missing_title'), t('book_missing_phone_profile'));
       return;
     }
     if (!carType.trim()) {
       userAlert(t('book_missing_title'), t('book_missing_car_type'));
+      return;
+    }
+    if (shop.type === 'wash' && activeServices.length && selectedServices.length === 0) {
+      userAlert(t('book_missing_title'), t('book_missing_service'));
       return;
     }
     const scheduledAt = buildScheduledIso(dateYmd, timeSlot);
@@ -191,10 +276,22 @@ export default function BookShopScreen() {
       return;
     }
 
-    const serviceName = selectedService?.name;
-    const serviceNameAr = selectedService?.nameAr;
-    const serviceDurationMinutes = selectedService?.durationMinutes;
-    const servicePriceEgp = selectedService?.priceEgp ?? shopExtras?.servicePriceEgp;
+    const serviceName = selectedServices.map((s) => s.name).join(' + ') || undefined;
+    const serviceNameAr =
+      selectedServices.map((s) => s.nameAr || s.name).join(' + ') || undefined;
+    const serviceDurationMinutes =
+      selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0) || undefined;
+    const servicePriceEgp =
+      selectedServices.reduce((sum, s) => sum + s.priceEgp, 0) ||
+      (shop.type === 'wash' ? activeServices[0]?.priceEgp : shopExtras?.servicePriceEgp);
+    const offerNote = activeOffer
+      ? locale === 'ar'
+        ? activeOffer.titleAr || activeOffer.title
+        : activeOffer.title
+      : undefined;
+    const notesCombined = [offerNote ? `${t('book_offer_applied')}: ${offerNote}` : '', customerNotes.trim()]
+      .filter(Boolean)
+      .join('\n');
 
     setSaving(true);
     try {
@@ -206,15 +303,23 @@ export default function BookShopScreen() {
         carType: carType.trim(),
         carColor: carColor.trim(),
         scheduledAt,
-        serviceId: selectedService?.id ?? serviceId,
+        serviceId: selectedServices[0]?.id,
         serviceName,
         serviceNameAr,
         serviceDurationMinutes,
         servicePriceEgp,
-        customerNotes: customerNotes.trim() || undefined,
+        customerNotes: notesCombined || undefined,
         vehicleId,
       });
       await saveCustomerPhone(normalizedPhone);
+      setReceiptSummary({
+        shopName,
+        serviceLabels,
+        totalPrice,
+        totalMinutes,
+        scheduledAt,
+        timeSlot,
+      });
       setSuccessVisible(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('book_submit_fail_body');
@@ -224,8 +329,9 @@ export default function BookShopScreen() {
     }
   }
 
-  function onViewBookings() {
+  function onFinalizeBooking() {
     setSuccessVisible(false);
+    setReceiptSummary(null);
     router.replace('/bookings');
   }
 
@@ -239,11 +345,11 @@ export default function BookShopScreen() {
       : shopExtras?.profileAddress || shop.address;
   const shopPhone = shopExtras?.profilePhone || shop.phone;
 
-  const serviceLabel = selectedService
-    ? locale === 'ar'
-      ? selectedService.nameAr || selectedService.name
-      : selectedService.name
-    : null;
+  const serviceLabels = selectedServices.map((s) =>
+    locale === 'ar' ? s.nameAr || s.name : s.name,
+  );
+  const totalPrice = selectedServices.reduce((sum, s) => sum + s.priceEgp, 0);
+  const totalMinutes = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
 
   const selectedSlot = timeSlots.find((s) => s.time === timeSlot);
 
@@ -257,21 +363,22 @@ export default function BookShopScreen() {
           {shopTypeLabel(shop.type, locale)} · {shopAddress}
         </Text>
 
-        {selectedService ? (
-          <View
-            style={[
-              styles.serviceCard,
-              {
-                borderColor: colorScheme === 'dark' ? '#444' : '#ddd',
-                backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#f8fafc',
-              },
-            ]}>
-            <Text style={[styles.serviceName, { color: palette.text }]}>{serviceLabel}</Text>
-            <Text style={[styles.serviceMeta, { color: palette.tabIconDefault }]}>
-              {formatEgp(selectedService.priceEgp, locale)} · {selectedService.durationMinutes}{' '}
-              {locale === 'ar' ? 'دقيقة' : 'min'}
+        {activeOffer ? (
+          <View style={[styles.offerBanner, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+            <Text style={[styles.offerBannerTitle, { color: theme.accent }]}>{t('book_offer_banner')}</Text>
+            <Text style={[styles.offerBannerBody, { color: theme.text }]}>
+              {locale === 'ar' ? activeOffer.titleAr || activeOffer.title : activeOffer.title}
             </Text>
           </View>
+        ) : null}
+
+        {shop.type === 'wash' && activeServices.length > 0 ? (
+          <ServiceMultiPicker
+            services={activeServices}
+            selectedIds={selectedServiceIds}
+            onChange={setSelectedServiceIds}
+            disabled={saving}
+          />
         ) : null}
 
         <View style={styles.shopContactRow}>
@@ -290,14 +397,23 @@ export default function BookShopScreen() {
         </View>
 
         <Text style={[styles.label, { color: palette.text }]}>{t('book_your_phone_label')}</Text>
-        <TextInput
-          placeholder={t('auth_phone_placeholder')}
-          placeholderTextColor={palette.tabIconDefault}
-          keyboardType="phone-pad"
-          value={phone}
-          onChangeText={setPhone}
-          style={inputStyle(colorScheme, palette)}
-        />
+        <View
+          style={[
+            styles.savedCarCard,
+            {
+              borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
+              backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+            },
+          ]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.savedCarLabel, { color: palette.tabIconDefault }]}>
+              {t('book_phone_from_profile')}
+            </Text>
+            <Text style={[styles.savedCarText, { color: palette.text }]}>
+              {resolvedPhone ? formatPhoneDisplay(resolvedPhone) : t('book_phone_missing_profile')}
+            </Text>
+          </View>
+        </View>
 
         <Text style={[styles.label, { color: palette.text }]}>{t('book_car_type_label')}</Text>
         {savedCarType && !editingSavedCar ? (
@@ -368,7 +484,7 @@ export default function BookShopScreen() {
             {formatShopScheduleLine(
               shopExtras.workOpenTime,
               shopExtras.workCloseTime,
-              selectedService?.durationMinutes ?? shopExtras.serviceDurationMinutes,
+              selectedServices[0]?.durationMinutes ?? shopExtras.serviceDurationMinutes,
               locale,
             )}
           </Text>
@@ -431,10 +547,19 @@ export default function BookShopScreen() {
             ]}>
             <Text style={[styles.summaryTitle, { color: palette.text }]}>{t('book_summary_title')}</Text>
             <Text style={[styles.summaryLine, { color: palette.text }]}>{shopName}</Text>
-            {serviceLabel ? (
+            {serviceLabels.length ? (
+              serviceLabels.map((label) => (
+                <Text key={label} style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+                  · {label}
+                </Text>
+              ))
+            ) : null}
+            {totalPrice > 0 ? (
               <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
-                {serviceLabel}
-                {selectedService ? ` · ${formatEgp(selectedService.priceEgp, locale)}` : ''}
+                {formatEgp(totalPrice, locale)}
+                {totalMinutes > 0
+                  ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}`
+                  : ''}
               </Text>
             ) : null}
             <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
@@ -456,32 +581,75 @@ export default function BookShopScreen() {
 
         <Pressable
           onPress={onSubmit}
-          disabled={saving || !timeSlot || selectedSlot?.status === 'booked'}
+          disabled={saving || !timeSlot || !resolvedPhone || selectedSlot?.status === 'booked'}
           style={[
             styles.primaryBtn,
-            { backgroundColor: palette.tint, opacity: saving || !timeSlot ? 0.65 : 1 },
+            {
+              backgroundColor: palette.tint,
+              opacity: saving || !timeSlot || !resolvedPhone ? 0.65 : 1,
+            },
           ]}>
           <Text style={styles.primaryBtnText}>{saving ? t('book_saving') : t('book_submit')}</Text>
         </Pressable>
       </ScrollView>
 
-      <Modal visible={successVisible} transparent animationType="fade" onRequestClose={onViewBookings}>
+      <Modal visible={successVisible} transparent animationType="fade" onRequestClose={onFinalizeBooking}>
         <View style={styles.successBackdrop}>
           <View
             style={[
               styles.successCard,
               {
-                backgroundColor: colorScheme === 'dark' ? '#111' : '#fff',
-                borderColor: colorScheme === 'dark' ? '#333' : '#ddd',
+                backgroundColor: theme.card,
+                borderColor: theme.border,
               },
             ]}>
-            <View style={[styles.successIconWrap, { backgroundColor: palette.tint }]}>
-              <FontAwesome name="check" size={28} color="#fff" />
+            <View style={[styles.successIconWrap, { backgroundColor: theme.accent }]}>
+              <FontAwesome name="check" size={28} color={theme.onAccent} />
             </View>
-            <Text style={[styles.successTitle, { color: palette.text }]}>{t('book_success_title')}</Text>
-            <Text style={[styles.successBody, { color: palette.tabIconDefault }]}>{t('book_success_body')}</Text>
-            <Pressable onPress={onViewBookings} style={[styles.successBtn, { backgroundColor: palette.tint }]}>
-              <Text style={styles.successBtnText}>{t('book_success_view_bookings')}</Text>
+            <Text style={[styles.successTitle, { color: theme.text }]}>{t('book_receipt_title')}</Text>
+            <Text style={[styles.successLead, { color: theme.textMuted }]}>{t('book_receipt_lead')}</Text>
+
+            <View style={[styles.receiptCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+              <Text style={[styles.receiptShop, { color: theme.text }]}>{receiptSummary?.shopName ?? shopName}</Text>
+
+              {receiptSummary?.serviceLabels.length ? (
+                <View style={styles.receiptSection}>
+                  <Text style={[styles.receiptLabel, { color: theme.textMuted }]}>{t('book_receipt_services')}</Text>
+                  {receiptSummary.serviceLabels.map((label) => (
+                    <Text key={label} style={[styles.receiptBullet, { color: theme.text }]}>
+                      · {label}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+
+              <View style={styles.receiptSection}>
+                <Text style={[styles.receiptLabel, { color: theme.textMuted }]}>{t('book_receipt_total')}</Text>
+                <Text style={[styles.receiptValue, { color: theme.text }]}>
+                  {formatEgp(receiptSummary?.totalPrice ?? totalPrice, locale)}
+                  {(receiptSummary?.totalMinutes ?? totalMinutes) > 0
+                    ? ` · ${receiptSummary?.totalMinutes ?? totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}`
+                    : ''}
+                </Text>
+              </View>
+
+              <View style={styles.receiptSection}>
+                <Text style={[styles.receiptLabel, { color: theme.textMuted }]}>{t('book_receipt_appointment')}</Text>
+                <Text style={[styles.receiptValue, { color: theme.text }]}>
+                  {receiptSummary?.scheduledAt
+                    ? formatBookingDateTime(receiptSummary.scheduledAt, locale)
+                    : `${dateYmd} · ${timeSlot}`}
+                </Text>
+                {receiptSummary?.timeSlot ? (
+                  <Text style={[styles.receiptMeta, { color: theme.textMuted }]}>
+                    {t('book_receipt_slot')}: {receiptSummary.timeSlot}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            <Pressable onPress={onFinalizeBooking} style={[styles.successBtn, { backgroundColor: theme.accent }]}>
+              <Text style={[styles.successBtnText, { color: theme.onAccent }]}>{t('book_receipt_finalize')}</Text>
             </Pressable>
           </View>
         </View>
@@ -537,6 +705,9 @@ const styles = StyleSheet.create({
   serviceCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 12 },
   serviceName: { fontSize: 17, fontWeight: '800', marginBottom: 4 },
   serviceMeta: { fontSize: 14, fontWeight: '600' },
+  offerBanner: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
+  offerBannerTitle: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },
+  offerBannerBody: { fontSize: 15, fontWeight: '800' },
   shopContactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   contactChip: {
     borderWidth: 1,
@@ -610,13 +781,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
   },
-  successTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 10 },
-  successBody: { fontSize: 15, lineHeight: 22, textAlign: 'center', marginBottom: 20 },
+  successTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 8 },
+  successLead: { fontSize: 14, lineHeight: 21, textAlign: 'center', marginBottom: 16 },
+  receiptCard: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 18,
+    gap: 12,
+  },
+  receiptShop: { fontSize: 18, fontWeight: '900' },
+  receiptSection: { gap: 4 },
+  receiptLabel: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
+  receiptBullet: { fontSize: 14, lineHeight: 20 },
+  receiptValue: { fontSize: 15, fontWeight: '800', lineHeight: 22 },
+  receiptMeta: { fontSize: 13, lineHeight: 18 },
   successBtn: {
     width: '100%',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  successBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  successBtnText: { fontWeight: '800', fontSize: 16 },
 });

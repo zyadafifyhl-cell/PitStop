@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 
 import { supabaseAuthStorage } from '@/lib/supabase/authStorage';
+import { prepareWebTabAuthIsolation } from '@/lib/supabase/webTabAuthIsolation';
 
 let singleton: SupabaseClient | null = null;
 
@@ -27,6 +28,7 @@ export function getSupabase(): SupabaseClient | null {
   const { url, anon } = readSupabaseEnv();
   if (!isSupabaseConfigured()) return null;
   if (!singleton) {
+    prepareWebTabAuthIsolation();
     singleton = createClient(url!, anon!, {
       auth: {
         storage: supabaseAuthStorage,

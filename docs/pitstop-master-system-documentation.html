@@ -65,8 +65,13 @@
   <span class="tag">Super Admin</span>
   <span class="tag">AR / EN</span>
   <span class="tag">PitStop 2.0</span>
+  <span class="tag">Premium SaaS</span>
+  <span class="tag">Branch GPS</span>
+  <span class="tag">Walk-in POS</span>
+  <span class="tag">Driver Network</span>
+  <span class="tag">Moderation</span>
 </p>
-<p class="cover-meta">Project: car-care-eg · Version 1.0.0 · Updated with Super Admin workflow</p>
+<p class="cover-meta">Project: car-care-eg · Version 2.0 · Updated Jun 2025: Walk-in POS, Driver Network, role-split owner, Admin ledger/moderation, Premium confirm (userConfirm on web), migrations 7–9</p>
 
 <h2>Table of Contents</h2>
 <ol class="toc">
@@ -97,6 +102,18 @@
   <li><a href="#admin-modules">Super Admin — Modules &amp; UI</a></li>
   <li><a href="#owner-register">Merchant Registration Module</a></li>
   <li><a href="#admin-lib">New Library Modules (Admin)</a></li>
+  <li><a href="#wash-ux">Car Wash Customer UX (Busy · Loyalty · Progress)</a></li>
+  <li><a href="#premium">SaaS Premium — Free vs Premium (Wash Owner)</a></li>
+  <li><a href="#gps">Branch GPS &amp; Customer Location Flow</a></li>
+  <li><a href="#web-tabs">Web Multi-Tab Auth Isolation</a></li>
+  <li><a href="#wash-pricing">Wash Pricing — Services Only (No Base Price)</a></li>
+  <li><a href="#walk-in-pos">Walk-in POS — Quick Counter Cashier</a></li>
+  <li><a href="#driver-network">Driver Network &amp; Community Feed</a></li>
+  <li><a href="#owner-roles">Wash Owner vs Branch Manager (Role Split)</a></li>
+  <li><a href="#admin-saas">Super Admin SaaS — Premium · Ledger · Moderation</a></li>
+  <li><a href="#media-model">Branch Profile &amp; Cover Photos</a></li>
+  <li><a href="#migrations-7-9">SQL Migrations Steps 7–9 (Checklist)</a></li>
+  <li><a href="#web-dialogs">Web Dialogs — userAlert &amp; userConfirm</a></li>
 </ol>
 
 <div class="page-break" id="arch"></div>
@@ -108,7 +125,7 @@
   <tr><th>Layer</th><th>Technology</th></tr>
   <tr><td>Mobile / Web UI</td><td>Expo Router ~54, React Native, expo-linear-gradient, expo-image</td></tr>
   <tr><td>State</td><td>React Context (auth, i18n, theme, shop catalog)</td></tr>
-  <tr><td>Local storage</td><td>AsyncStorage (bookings, extras, notifications, wash branches cache)</td></tr>
+  <tr><td>Local storage</td><td>AsyncStorage (bookings, extras, loyalty stamps, notifications, wash branches cache)</td></tr>
   <tr><td>Legacy garage</td><td>SQLite via expo-sqlite (catalog, odometer — hidden tabs)</td></tr>
   <tr><td>Backend</td><td>Supabase Auth + Postgres (optional; app works offline-first)</td></tr>
   <tr><td>Push</td><td>Expo Notifications → shop_push_tokens (native only)</td></tr>
@@ -142,12 +159,12 @@
   <tr><td>/service/[type]/[areaId]</td><td>service/[type]/[areaId].tsx</td><td>Shops in area → profile or parts shop</td></tr>
   <tr><td>/shop-profile/[shopId]</td><td>shop-profile/[shopId].tsx</td><td>Public profile: gallery, hours, services, reviews, book</td></tr>
   <tr><td>/book/[shopId]</td><td>book/[shopId].tsx</td><td>Booking form: date, slots, car, phone, notes</td></tr>
-  <tr><td>/nearby/[type]</td><td>nearby/[type].tsx</td><td>GPS discovery + filters (top rated, price, open now…)</td></tr>
+  <tr><td>/nearby/[type]</td><td>nearby/[type].tsx</td><td>GPS discovery — wash lists per branch, Haversine sort, refreshes on focus</td></tr>
   <tr><td>/parts-shop/[shopId]</td><td>parts-shop/[shopId].tsx</td><td>Parts/accessories cart + checkout</td></tr>
   <tr><td>/auth-required</td><td>auth-required.tsx</td><td>Gate before booking/purchase for guests</td></tr>
   <tr><td>/settings/vehicles</td><td>settings/vehicles.tsx</td><td>Customer vehicle list</td></tr>
   <tr><td>/shop/wash-owner-hub</td><td>shop/wash-owner-hub.tsx</td><td>Wash hub: notifications, orders, history</td></tr>
-  <tr><td>/admin</td><td>admin/index.tsx</td><td>Super Admin panel (dashboard, pending, merchants)</td></tr>
+  <tr><td>/admin</td><td>admin/index.tsx</td><td>Super Admin panel (4 tabs: dashboard, pending, merchants, moderation)</td></tr>
   <tr><td>/reset-password</td><td>reset-password.tsx</td><td>Supabase password reset deep link</td></tr>
   <tr><td>/login, /verify</td><td>login.tsx, verify.tsx</td><td>Legacy phone OTP (garage prototype)</td></tr>
   <tr><td>/car/[id], /add-car</td><td>car/, add-car.tsx</td><td>Legacy Egypt garage (SQLite odometer)</td></tr>
@@ -203,15 +220,27 @@
 <h3>Shop auth (<code>ShopAuthContext.tsx</code>)</h3>
 <ul>
   <li>Resolves from <code>public.users</code> (owner | branch_manager | admin | pending_owner) or legacy <code>shops.owner_email</code></li>
-  <li>Flags: <code>isOwner</code>, <code>isBranchManager</code>, <code>isAdmin</code>, <code>isPendingOwner</code></li>
+  <li>Flags: <code>isOwner</code>, <code>isBranchManager</code>, <code>isAdmin</code>, <code>isPendingOwner</code>, <code>isPremium</code></li>
   <li><code>registerOwner()</code> — signUp + RPC <code>register_shop_owner</code></li>
-  <li>Login results: <code>ok</code> | <code>pending_approval</code> | <code>invalid_credentials</code> | …</li>
+  <li>Login results: <code>ok</code> | <code>ok_admin</code> | <code>pending_approval</code> | <code>invalid_credentials</code> | <code>email_not_confirmed</code> | <code>email_login_disabled</code> | …</li>
   <li>Storage: <code>@pitstop/shop-session</code> (staff email)</li>
   <li>Branch manager invite uses <code>staffInviteLock</code> to prevent session hijack</li>
+  <li><strong>Web login fix:</strong> <code>lib/auth/authMutationLock.ts</code> blocks <code>onAuthStateChange</code> side effects during signIn/signUp to prevent Supabase auth deadlocks (infinite “Signing in…”)</li>
 </ul>
 
-<h3>Auth storage on web</h3>
-<p><code>lib/supabase/authStorage.ts</code> uses <code>localStorage</code> on web for reliable Supabase session persistence.</p>
+<h3>Customer auth — web deadlock fix</h3>
+<p>Both <code>CustomerAuthContext</code> and <code>ShopAuthContext</code> defer Supabase queries out of <code>onAuthStateChange</code> using <code>setTimeout(0)</code> and skip listeners while <code>beginAuthMutation()</code> is active. Welcome screen shows contextual button labels: Signing in… / Creating account… / Redirecting…</p>
+<p class="ar">إصلاح تعليق تسجيل الدخول على الويب: لا تُنفَّذ استعلامات Supabase داخل onAuthStateChange أثناء signIn.</p>
+
+<h3>Auth storage on web (per-tab sessions)</h3>
+<p>Web uses <strong>tab-isolated</strong> storage so you can test owner + customer in parallel browser tabs:</p>
+<ul>
+  <li><code>lib/supabase/authStorage.ts</code> — Supabase JWT in <code>sessionStorage</code> (not localStorage)</li>
+  <li><code>lib/storage/webTabAuthStorage.ts</code> — <code>@pitstop/customer-session</code>, <code>@pitstop/guest-session</code>, <code>@pitstop/shop-session</code> in sessionStorage</li>
+  <li><code>lib/supabase/webTabAuthIsolation.ts</code> — disables Supabase <code>BroadcastChannel</code> cross-tab sync; <code>signOut({ scope: 'local' })</code> on web so logout in one tab does not revoke the other tab’s session</li>
+  <li>Legacy Supabase keys in localStorage are cleared on first client init</li>
+</ul>
+<p class="ar">على الويب: كل تاب له session مستقل — owner في تاب و customer في تاب تاني من غير ما يتزامنوا.</p>
 
 <h3>Role hierarchy (updated)</h3>
 <div class="flow">Super Admin (platform)
@@ -243,13 +272,24 @@ Employees → roster only (branch_employees)</div>
   <li>Live promotional offers from shops</li>
   <li>Next upcoming booking snippet</li>
   <li>Car profile shortcut</li>
+  <li><strong>Loyalty card</strong> — 5-stamp wash loyalty program (logged-in customers only)</li>
 </ul>
+
+<h3>Car Wash customer UX (new)</h3>
+<ul>
+  <li><strong>Busy badge:</strong> pulsing red notice when owner sets branch status to Busy — on shop list cards and shop profile</li>
+  <li><strong>Loyalty stamps:</strong> offline-first; +1 stamp when a wash booking reaches <code>done</code>; reward coupon at 5 stamps</li>
+  <li><strong>Today’s booking progress:</strong> step timeline on My Bookings for same-day appointments (Pending → Confirmed → In Progress → Done)</li>
+</ul>
+<p class="ar">ميزات غسيل جديدة: شارة مزدحم، بطاقة ولاء 5 أختام، شريط تقدم للحجوزات اليوم.</p>
 
 <h3>Discovery</h3>
 <ul>
-  <li><strong>By area:</strong> /service/{type} → pick Maadi, Nasr City, etc.</li>
-  <li><strong>Nearby GPS:</strong> /nearby/{type} with filters (top rated, price, distance, open now, favorites)</li>
+  <li><strong>By area:</strong> /service/{type} → pick Maadi, Nasr City, El Rehab, etc.</li>
+  <li><strong>Nearby GPS:</strong> /nearby/{type} — device location permission → Haversine distance sort (closest first). For <code>wash</code>, lists each active <code>shop_branches</code> row (not just shop brand). Screen reloads on focus so owner GPS updates appear without full app restart.</li>
+  <li><strong>Directions:</strong> shop profile + list cards → Google Maps deep link (<code>https://maps.google.com/?q=lat,lng</code>) using branch coordinates when available</li>
   <li><strong>Favorites:</strong> saved shops tab (login required)</li>
+  <li><strong>Wash pricing display:</strong> customers see per-service prices on shop profile — no separate “base price” chip for wash shops</li>
 </ul>
 
 <h3>Shop profile</h3>
@@ -258,6 +298,7 @@ Employees → roster only (branch_employees)</div>
   <li>Services list with prices and duration</li>
   <li>Reviews (ratings, comments, likes, owner replies)</li>
   <li>Offers / coupons display</li>
+  <li><strong>Wash busy badge</strong> when <code>washShopStatus=busy</code> (synced from owner branch status)</li>
   <li>More info section (owner-configured)</li>
   <li>Book appointment CTA → requires login (not guest)</li>
 </ul>
@@ -265,6 +306,7 @@ Employees → roster only (branch_employees)</div>
 <h3>My bookings</h3>
 <ul>
   <li>List all bookings for customer phone/account</li>
+  <li><strong>Progress timeline</strong> for today’s active wash/service bookings (replaces static badge)</li>
   <li>Cancel pending/confirmed bookings</li>
   <li>Clear history</li>
   <li>In-app notifications for approval, decline, reminders</li>
@@ -314,22 +356,26 @@ maintenance/winch  → Generic owner UI (profile + bookings + PDF)</pre>
   <tr><td>Orders</td><td>Confirm / cancel / mark shipped; 12% platform fee on orders</td></tr>
 </table>
 
-<h3>Wash owner panel (<code>WashOwnerPanel.tsx</code>) — PitStop 2.0</h3>
+<h3>Wash owner panel (<code>WashOwnerPanel.tsx</code>) — PitStop 2.0 + Premium</h3>
 <table>
-  <tr><th>Section</th><th>Owner</th><th>Branch Manager</th></tr>
-  <tr><td>Dashboard stats</td><td>All branches</td><td>Own branch</td></tr>
-  <tr><td>Branch switcher</td><td>Yes</td><td>No</td></tr>
-  <tr><td>Create branch</td><td>Yes</td><td>No</td></tr>
-  <tr><td>Profile, gallery, base price</td><td>Per branch</td><td>Own branch</td></tr>
-  <tr><td>Services CRUD</td><td>Per branch</td><td>Own branch</td></tr>
-  <tr><td>Weekly hours + vacation</td><td>Per branch</td><td>Own branch</td></tr>
-  <tr><td>Coupons</td><td>Per branch</td><td>Own branch</td></tr>
-  <tr><td>Bookings workflow</td><td>All branches</td><td>Own branch</td></tr>
-  <tr><td>Employees roster</td><td>All branches</td><td>Own branch (add/edit)</td></tr>
-  <tr><td>Create branch manager</td><td>Yes</td><td>No</td></tr>
-  <tr><td>Reviews moderation</td><td>Yes</td><td>Yes (own branch)</td></tr>
-  <tr><td>PDF reports</td><td>All</td><td>Own branch</td></tr>
+  <tr><th>Section</th><th>Owner</th><th>Branch Manager</th><th>Premium required?</th></tr>
+  <tr><td>Dashboard stats (today + pending)</td><td>All branches</td><td>Own branch</td><td>No (Free)</td></tr>
+  <tr><td>Dashboard stats (revenue, rating, customers)</td><td>All branches</td><td>Own branch</td><td>Yes</td></tr>
+  <tr><td>Branch status (open/closed/busy/vacation)</td><td>Per branch</td><td>Own branch</td><td>No</td></tr>
+  <tr><td>Analytics widgets</td><td>Per branch</td><td>Own branch</td><td>Yes</td></tr>
+  <tr><td>Branch switcher + add branch</td><td>Yes</td><td>No (fixed branch)</td><td>Yes (Free = single branch only)</td></tr>
+  <tr><td>Profile + GPS pin + gallery</td><td>Per branch</td><td>Own branch</td><td>No</td></tr>
+  <tr><td>Services CRUD (each service has price)</td><td>Per branch</td><td>Own branch</td><td>Yes</td></tr>
+  <tr><td>Weekly hours + vacation</td><td>Per branch</td><td>Own branch</td><td>Yes</td></tr>
+  <tr><td>Coupons</td><td>Per branch</td><td>Own branch</td><td>Yes</td></tr>
+  <tr><td>Bookings workflow</td><td>All branches</td><td>Own branch</td><td>No</td></tr>
+  <tr><td>Employees roster</td><td>All branches</td><td>Own branch</td><td>Yes</td></tr>
+  <tr><td>Create branch manager</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+  <tr><td>Reviews moderation</td><td>Yes</td><td>Yes (own branch)</td><td>Yes</td></tr>
+  <tr><td>PDF reports</td><td>All</td><td>Own branch</td><td>Yes</td></tr>
 </table>
+<p><strong>Premium gate:</strong> <code>PremiumFeatureGate.tsx</code> dims locked sections; tap opens <code>PremiumUpgradeModal</code> (EN/AR). Flag from <code>shops.is_premium</code> via <code>ShopAuthContext.isPremium</code>.</p>
+<p class="ar">الخطة المجانية: إحصائيات أساسية + حالة الفرع + الملف + المعرض + الحجوزات. Premium: فروع متعددة، خدمات، تحليلات، كوبونات، مديرين، تقارير.</p>
 
 <h3>Service categories (wash)</h3>
 <p><code>exterior_wash</code> · <code>interior_cleaning</code> · <code>full_package</code> · <code>detailing</code> · <code>engine_cleaning</code> · <code>custom</code></p>
@@ -363,11 +409,11 @@ maintenance/winch  → Generic owner UI (profile + bookings + PDF)</pre>
 
 <h3>Pricing (<code>lib/booking/storage.ts</code>)</h3>
 <table>
-  <tr><th>Shop type</th><th>Default price (EGP)</th></tr>
-  <tr><td>maintenance</td><td>650</td></tr>
-  <tr><td>wash</td><td>220</td></tr>
-  <tr><td>winch</td><td>500</td></tr>
-  <tr><td>other</td><td>420</td></tr>
+  <tr><th>Shop type</th><th>Booking price source</th></tr>
+  <tr><td>wash</td><td>Selected service <code>priceEgp</code> from branch menu; fallback = first active service (no owner “base price” UI)</td></tr>
+  <tr><td>maintenance</td><td>Owner default service price in shop extras, or type default 650 EGP</td></tr>
+  <tr><td>winch</td><td>Type default 500 EGP</td></tr>
+  <tr><td>other</td><td>Type default 420 EGP</td></tr>
 </table>
 <p>Platform fee: <strong>12%</strong> of service price (shown in owner PDF reports).</p>
 
@@ -416,13 +462,15 @@ shop_push_tokens · garage_snapshots (legacy) · areas</div>
 <h3>Core tables</h3>
 <table>
   <tr><th>Table</th><th>Purpose</th></tr>
-  <tr><td>areas</td><td>Cairo/Giza districts (Maadi, Nasr City, Mohandessin, October, Heliopolis)</td></tr>
-  <tr><td>shops</td><td>Brand catalog entry; legacy owner_email</td></tr>
+  <tr><td>areas</td><td>Cairo/Giza districts + <code>el-rehab</code> (El Rehab City demo)</td></tr>
+  <tr><td>shops</td><td>Brand catalog; <code>is_premium</code>; <code>platform_fee_last_settled_at</code> for admin ledger</td></tr>
   <tr><td>users</td><td>App identity: customer, owner, branch_manager, admin</td></tr>
-  <tr><td>shop_branches</td><td>Physical branches with profile, weekly_hours, vacation_mode</td></tr>
+  <tr><td>shop_branches</td><td>Physical branches: profile, weekly_hours, vacation_mode, branch GPS <code>latitude</code>/<code>longitude</code></td></tr>
   <tr><td>branch_employees</td><td>Staff roster (full_name, phone, job_title, notes)</td></tr>
   <tr><td>branch_services</td><td>Per-branch service menu</td></tr>
-  <tr><td>bookings</td><td>Appointments with status, pricing, branch_id</td></tr>
+  <tr><td>bookings</td><td>Appointments; <code>booking_type</code> app|walk_in; status, pricing, branch_id</td></tr>
+  <tr><td>shop_reviews</td><td>Customer reviews; owner_reply; hidden; reported flags</td></tr>
+  <tr><td>posts · comments · post_votes · comment_likes</td><td>Driver Network community feed</td></tr>
   <tr><td>store</td><td>Parts/accessories SKUs with stock_qty</td></tr>
   <tr><td>parts_orders</td><td>Customer store orders</td></tr>
   <tr><td>shop_push_tokens</td><td>Expo push tokens per shop</td></tr>
@@ -449,6 +497,13 @@ shop_push_tokens · garage_snapshots (legacy) · areas</div>
   <li><code>apply-pitstop-2.0-step3-branch-manager-rpc.sql</code> — assign_branch_manager RPC</li>
   <li><code>apply-pitstop-2.0-step4-bookings-rls.sql</code> — restore booking insert policies</li>
   <li><code>apply-pitstop-2.0-step5-admin-approval.sql</code> — Super Admin, pending_owner, approve/reject RPCs</li>
+  <li><code>apply-pitstop-2.0-step6-shop-premium.sql</code> — <code>shops.is_premium boolean default false</code></li>
+  <li><code>apply-pitstop-2.0-steps-7-through-8-bundle.sql</code> — walk-in bookings, shop_reviews, community feed (posts, comments, likes)</li>
+  <li><code>apply-pitstop-2.0-step7b-walk-in-pos-refactor.sql</code> — optional alone: <code>resolve_customer_id_by_phone()</code> RPC</li>
+  <li><code>apply-pitstop-2.0-step9-admin-saas.sql</code> — admin premium RPC, merchant ledger settlement, moderation flags</li>
+  <li><code>seed-admin-user.sql</code> — link Auth user as platform admin in public.users</li>
+  <li><code>seed-el-rehab-wash.sql</code> — El Rehab area + <code>shop-wash-rehab</code> branch at 30.0244, 31.4939 + owner link (requires Auth user <code>rehab.wash@demo.com</code> first)</li>
+  <li><code>SETUP-AUTH-CHECKLIST.md</code> — step-by-step auth setup (Email provider, demo accounts)</li>
   <li><code>seed-test-data.sql</code> — optional demo manager link</li>
 </ol>
 
@@ -465,6 +520,9 @@ shop_push_tokens · garage_snapshots (legacy) · areas</div>
   <tr><td><code>register_shop_owner(...)</code></td><td>New merchant (authenticated)</td><td>Creates inactive shop + main branch; user → pending_owner</td></tr>
   <tr><td><code>approve_shop_owner(user_id, shop_id)</code></td><td>Admin</td><td>user → owner, is_active=true; shop → is_active=true (live)</td></tr>
   <tr><td><code>reject_shop_owner(user_id, shop_id)</code></td><td>Admin</td><td>Deletes shop; user → customer</td></tr>
+  <tr><td><code>admin_toggle_shop_premium(shop_id, is_premium)</code></td><td>Admin</td><td>Instantly toggles <code>shops.is_premium</code> (after confirm dialog)</td></tr>
+  <tr><td><code>admin_settle_shop_platform_fees(shop_id)</code></td><td>Admin</td><td>Sets <code>platform_fee_last_settled_at = now()</code> — resets ledger debt</td></tr>
+  <tr><td><code>resolve_customer_id_by_phone(phone)</code></td><td>Walk-in POS</td><td>Links counter phone to app customer UUID for loyalty</td></tr>
 </table>
 
 <h3>Link owner after Auth user created</h3>
@@ -480,23 +538,39 @@ where email = 'wash@demo.com';</pre>
   <tr><th>Module</th><th>Role</th></tr>
   <tr><td>lib/booking/storage.ts</td><td>Bookings CRUD, Supabase + AsyncStorage merge</td></tr>
   <tr><td>lib/booking/catalogRepository.ts</td><td>Areas/shops from Supabase + cache</td></tr>
-  <tr><td>lib/booking/shopExtrasStorage.ts</td><td>Owner profile, schedule, services, offers</td></tr>
-  <tr><td>lib/booking/shopSchedule.ts</td><td>Weekly hours, slot builder, open-now</td></tr>
+  <tr><td>lib/booking/shopExtrasStorage.ts</td><td>Owner profile, schedule, services, offers, washShopStatus sync</td></tr>
+  <tr><td>lib/booking/loyaltyStampsStorage.ts</td><td>Offline loyalty stamps + reward coupons (@pitstop/loyalty_stamps)</td></tr>
+  <tr><td>lib/booking/shopSchedule.ts</td><td>Weekly hours, slot builder, open-now, busy status labels</td></tr>
   <tr><td>lib/booking/reporting.ts</td><td>Date ranges, EGP, buildOwnerReportHtml()</td></tr>
   <tr><td>lib/booking/commerceEvents.ts</td><td>Owner/customer notifications</td></tr>
   <tr><td>lib/booking/bookingReminders.ts</td><td>60/30 min reminders (native)</td></tr>
   <tr><td>lib/booking/partsStorage.ts</td><td>Store inventory + orders</td></tr>
   <tr><td>lib/booking/wash/washBranchStorage.ts</td><td>Multi-branch state (Supabase-first + cache)</td></tr>
-  <tr><td>lib/booking/wash/branchRepository.ts</td><td>branch_employees CRUD</td></tr>
+  <tr><td>lib/booking/nearby.ts</td><td>Haversine distance, formatDistanceAway, shop sort helpers</td></tr>
+  <tr><td>lib/booking/washBranchNearby.ts</td><td>Lists wash branches from Supabase, sorts closest-first per branch pin</td></tr>
+  <tr><td>lib/linking/contact.ts</td><td>Phone, maps, openBranchDirections(), openMapsAtCoordinates()</td></tr>
+  <tr><td>lib/booking/wash/branchRepository.ts</td><td>Branch CRUD, GPS update, resolveRemoteBranchId, fetchDefaultBranchCoordinates</td></tr>
   <tr><td>lib/booking/wash/branchManagerRepository.ts</td><td>Manager account RPC + signUp flow</td></tr>
   <tr><td>lib/shop/ownerRegistrationRepository.ts</td><td>Merchant signUp + register_shop_owner RPC</td></tr>
-  <tr><td>lib/admin/adminRepository.ts</td><td>Pending list, merchants, stats, approve/reject</td></tr>
-  <tr><td>components/admin/AdminPanel.tsx</td><td>Super Admin UI (3 tabs)</td></tr>
+  <tr><td>lib/admin/adminRepository.ts</td><td>Pending, merchants, stats, ledger, moderation, premium toggle, approve/reject</td></tr>
+  <tr><td>components/admin/AdminPanel.tsx</td><td>Super Admin UI (4 tabs + confirm dialogs)</td></tr>
+  <tr><td>lib/community/postRepository.ts</td><td>Driver Network posts, comments, likes, report flags</td></tr>
+  <tr><td>components/owner/wash/WalkInBookingModal.tsx</td><td>Quick Counter Cashier (POS) walk-in form</td></tr>
+  <tr><td>lib/booking/reviewRepository.ts</td><td>Shop reviews sync + owner reply notifications</td></tr>
   <tr><td>lib/shop/shopStaffUser.ts</td><td>Resolve owner/manager/admin/pending from users</td></tr>
-  <tr><td>lib/supabase/client.ts</td><td>Supabase singleton (env → app.json → fallback)</td></tr>
+  <tr><td>lib/supabase/client.ts</td><td>Supabase singleton; calls prepareWebTabAuthIsolation() on init</td></tr>
+  <tr><td>lib/supabase/authStorage.ts</td><td>sessionStorage (web) / AsyncStorage (native) for Supabase JWT</td></tr>
+  <tr><td>lib/supabase/webTabAuthIsolation.ts</td><td>Disable BroadcastChannel; local signOut; clear legacy localStorage keys</td></tr>
+  <tr><td>lib/storage/webTabAuthStorage.ts</td><td>Per-tab customer/guest/shop session keys on web</td></tr>
+  <tr><td>components/owner/PremiumFeatureGate.tsx</td><td>Locks premium wash owner sections</td></tr>
+  <tr><td>components/owner/PremiumUpgradeModal.tsx</td><td>Upgrade CTA modal (EN/AR)</td></tr>
   <tr><td>lib/push/shopPush.ts</td><td>Expo push for owners (native)</td></tr>
   <tr><td>lib/i18n/strings.ts</td><td>~928 translation keys × EN + AR</td></tr>
-  <tr><td>lib/ui/userAlert.ts</td><td>window.alert on web (Alert.alert fallback)</td></tr>
+  <tr><td>lib/auth/authMutationLock.ts</td><td>Prevents Supabase auth deadlock during signIn/signUp</td></tr>
+  <tr><td>components/ui/WashBusyBadge.tsx</td><td>Pulsing red busy notice for customers</td></tr>
+  <tr><td>components/customer/LoyaltyCard.tsx</td><td>5-stamp loyalty card on Home</td></tr>
+  <tr><td>components/customer/BookingProgressTimeline.tsx</td><td>4-step booking progress for today</td></tr>
+  <tr><td>lib/ui/userAlert.ts</td><td>userAlert() + userConfirm() — web-safe dialogs</td></tr>
   <tr><td>lib/ai-chat.ts</td><td>OpenAI assistant</td></tr>
 </table>
 
@@ -538,14 +612,22 @@ where email = 'wash@demo.com';</pre>
 <p class="ar">حسابات تجريبية — كلمة السر: demo123</p>
 
 <h3>Platform admin</h3>
-<p><code>admin@demo.com</code> / demo123 — set role manually after step5 SQL:</p>
+<p><code>admin@demo.com</code> / demo123</p>
+<ol>
+  <li>Supabase → Authentication → Providers → Email → <strong>Enable Email provider</strong></li>
+  <li>Add user with <strong>Auto Confirm User</strong> checked</li>
+  <li>Run <code>seed-admin-user.sql</code> (or step5 + manual UPDATE)</li>
+  <li>Login: /welcome → Owner tab → redirects to <code>/admin</code></li>
+</ol>
+<p>See <code>supabase/SETUP-AUTH-CHECKLIST.md</code> for full troubleshooting.</p>
 <pre>update public.users set role = 'admin', is_active = true, shop_id = null
 where email = 'admin@demo.com';</pre>
 
 <h3>Shop owners (pre-approved in seed)</h3>
 <table>
   <tr><th>Email</th><th>Shop ID</th><th>Type</th></tr>
-  <tr><td>wash@demo.com</td><td>shop-wash-nile</td><td>wash</td></tr>
+  <tr><td>wash@demo.com</td><td>shop-wash-nile</td><td>wash (set is_premium=true in SQL to test Premium UI)</td></tr>
+  <tr><td>rehab.wash@demo.com</td><td>shop-wash-rehab</td><td>wash — El Rehab GPS demo (create Auth user + run seed-el-rehab-wash.sql)</td></tr>
   <tr><td>maintenance@demo.com</td><td>shop-maint-autofix</td><td>maintenance</td></tr>
   <tr><td>parts@demo.com</td><td>shop-parts-nasr</td><td>parts</td></tr>
   <tr><td>accessories@demo.com</td><td>shop-accessories-maadi</td><td>accessories</td></tr>
@@ -592,6 +674,7 @@ npm run ios</pre>
   <tr><td>Hybrid storage</td><td>Many features use AsyncStorage; Supabase when configured</td></tr>
   <tr><td>Guest cannot book</td><td>Login required despite guest browsing</td></tr>
   <tr><td>Merchant approval</td><td>New owners need admin approve before shop goes live</td></tr>
+  <tr><td>Loyalty coupons</td><td>Generated locally; not yet validated at checkout in book flow</td></tr>
   <tr><td>Winch not on home</td><td>In DB but no home service card</td></tr>
   <tr><td>Web push disabled</td><td>Owner push + reminders native only</td></tr>
   <tr><td>Payments</td><td>No online payment integration yet</td></tr>
@@ -601,14 +684,15 @@ npm run ios</pre>
 <h3>Future enhancements (from docs)</h3>
 <ul>
   <li>Online payments (Paymob/Fawry)</li>
-  <li>Loyalty program &amp; subscriptions</li>
+  <li>Apply loyalty coupon codes at booking checkout</li>
+  <li>Subscriptions</li>
   <li>Driver network on Supabase + moderation</li>
   <li>Vehicle cloud sync</li>
-  <li>Platform admin dashboards</li>
   <li>Multi-region (GCC expansion)</li>
   <li>Assign employees to bookings/shifts</li>
-  <li>QR check-in, queue tracking, fleet management</li>
+  <li>QR check-in, live queue ETA, fleet management</li>
 </ul>
+<p class="small"><strong>Implemented:</strong> loyalty stamps, today booking progress, wash busy badge, Super Admin, Premium SaaS tiers, branch GPS sync, web multi-tab auth, wash service-only pricing.</p>
 
 <h3>Related documents in repo</h3>
 <ul>
@@ -652,7 +736,9 @@ npm run ios</pre>
   <tr><td>Pressable + gradient btn</td><td>welcome.tsx</td><td>Login/register; pointerEvents none on gradient (web fix)</td></tr>
   <tr><td>OwnerSectionCard</td><td>WashOwnerPanel</td><td>Collapsible section with title + subtitle</td></tr>
   <tr><td>Modal confirm</td><td>shop.tsx, WashOwnerPanel</td><td>Replaces Alert.alert on web for booking decisions</td></tr>
-  <tr><td>userAlert</td><td>welcome, book, shop</td><td>window.alert on web when Alert invisible</td></tr>
+  <tr><td>userAlert</td><td>welcome, book, shop, admin</td><td>One-button messages: window.alert on web</td></tr>
+  <tr><td>userConfirm</td><td>AdminPanel</td><td>Two-button confirm: window.confirm on web (Premium, Settle)</td></tr>
+  <tr><td>userConfirm</td><td>AdminPanel</td><td>Cancel/OK: window.confirm on web (Premium toggle, Settle Balance)</td></tr>
   <tr><td>ScrollView sections</td><td>All owner panels</td><td>Long vertical CMS layout</td></tr>
   <tr><td>iframe report preview</td><td>shop.tsx, WashOwnerPanel</td><td>Scrollable HTML report before PDF</td></tr>
 </table>
@@ -758,9 +844,11 @@ ShopAuthContext resolves role
 <h4>Module A — Welcome / Auth (<code>app/welcome.tsx</code>)</h4>
 <p><strong>UI elements:</strong> Logo, language toggle, Customer | Owner mode tabs, guest button, form box.</p>
 <p><strong>Customer tab:</strong> Login ↔ Register toggle, email/password, optional vehicles on register, forgot password link.</p>
-<p><strong>Owner tab:</strong> Shop email + password, demo accounts hint.</p>
-<p><strong>Actions:</strong> onCustomerSubmit → login/register; onOwnerSubmit → shop login; continueAsGuest → home without Supabase.</p>
-<p><strong>Feedback:</strong> formMessage inline (red) + userAlert on errors; success → router.replace.</p>
+<p><strong>Owner tab:</strong> Shop email + password, demo accounts hint, merchant registration link.</p>
+<p><strong>Actions:</strong> onCustomerSubmit → login/register; onOwnerSubmit → shop login (owner or admin); continueAsGuest → home without Supabase.</p>
+<p><strong>Feedback:</strong> formMessage inline (red) + userAlert on errors; button shows Signing in… / Creating account… / Redirecting… (not stuck on “Working…”).</p>
+<p><strong>Admin routing:</strong> <code>ok_admin</code> → <code>/admin</code>; pending owner → blocked message on welcome.</p>
+<p class="ar">شاشة الدخول: تسجيل عميل/صاحب محل، ضيف، وإعادة توجيه الأدمن — مع إصلاح تعليق تسجيل الدخول على الويب.</p>
 </div>
 
 <div class="module-box">
@@ -768,19 +856,24 @@ ShopAuthContext resolves role
 <p><strong>Sections top→bottom:</strong></p>
 <ol>
   <li>Header logo + sign out (if logged in)</li>
+  <li><strong>Loyalty card</strong> (<code>LoyaltyCard</code>) — 5 car-icon stamps; visible for logged-in customers only</li>
   <li>Car profile card — saved make/model; edit modal</li>
   <li>Next booking card — upcoming appointment or empty state</li>
   <li>Live offers carousel — wash/maintenance promotions</li>
   <li>Service search + filter (all / wash only)</li>
   <li>4 service cards → navigate to /service/{type}</li>
 </ol>
+<p><strong>Loyalty reward modal:</strong> when 5th stamp unlocks, Home shows modal with coupon code <code>LOYAL-XXXXXX</code> (100% off, 90 days). Stamps sync on focus via <code>syncLoyaltyFromBookings()</code>.</p>
+<p class="ar">الرئيسية: بطاقة ولاء 5 أختام + نافذة كوبون عند اكتمال البرنامج.</p>
 </div>
 
 <div class="module-box">
 <h4>Module C — Area &amp; Shop List (<code>app/service/</code>)</h4>
 <p><strong>Step 1:</strong> Grid of Cairo/Giza areas with shop count.</p>
 <p><strong>Step 2:</strong> Shops in selected area; card shows name, rating, distance hint, open status.</p>
+<p><strong>Wash busy badge:</strong> on <code>ShopListCard</code>, when shop type is <code>wash</code> and extras <code>washShopStatus === 'busy'</code>, shows pulsing red <code>WashBusyBadge</code> (compact pill).</p>
 <p><strong>Routing:</strong> parts/accessories → parts-shop; others → shop-profile.</p>
+<p class="ar">قائمة المحلات: شارة «مزدحم» حمراء نابضة لمحلات الغسيل عندما يضبط المالك الحالة Busy.</p>
 </div>
 
 <div class="module-box">
@@ -790,6 +883,7 @@ ShopAuthContext resolves role
   <tr><td>Hero image + gallery swipe</td><td>View photos</td></tr>
   <tr><td>Name, address, phone</td><td>Call, open maps</td></tr>
   <tr><td>Schedule line</td><td>See open hours</td></tr>
+  <tr><td><strong>Busy notice</strong></td><td><code>WashBusyBadge</code> full-width when wash + busy status</td></tr>
   <tr><td>Services list</td><td>Tap service → book with serviceId</td></tr>
   <tr><td>Offers</td><td>Read promotions</td></tr>
   <tr><td>More info</td><td>Owner free-text details</td></tr>
@@ -817,7 +911,9 @@ ShopAuthContext resolves role
 <div class="module-box">
 <h4>Module F — My Bookings (<code>app/(tabs)/bookings.tsx</code>)</h4>
 <p>List cards: shop name, service, datetime, status badge, cancel button (pending/confirmed).</p>
+<p><strong>Today progress timeline:</strong> for bookings scheduled <em>today</em> with status in <code>pending | confirmed | in_progress | done</code>, the static status badge is replaced by <code>BookingProgressTimeline</code> (4 steps with accent connectors).</p>
 <p>Clear history action for done/cancelled items.</p>
+<p class="ar">حجوزاتي: شريط تقدم مباشر للحجوزات اليوم بدل الشارة الثابتة.</p>
 </div>
 
 <div class="module-box">
@@ -897,17 +993,16 @@ ShopAuthContext resolves role
   <tr><td>3</td><td>wash_analytics_*</td><td>Revenue &amp; booking charts (computed locally)</td><td>No</td></tr>
   <tr><td>4</td><td>wash_hub_*</td><td>3 shortcut buttons → wash-owner-hub tabs</td><td>No</td></tr>
   <tr><td>5</td><td>wash_branch_*</td><td>Branch tabs, add branch, rename</td><td>Owner only</td></tr>
-  <tr><td>6</td><td>wash_profile_*</td><td>Branch profile fields + save</td><td>No</td></tr>
+  <tr><td>6</td><td>wash_profile_*</td><td>Branch profile fields + <strong>GPS capture button</strong> (syncs to Supabase immediately) + save</td><td>No</td></tr>
   <tr><td>7</td><td>wash_gallery_*</td><td>Image URL list add/remove</td><td>No</td></tr>
-  <tr><td>8</td><td>wash_base_price_*</td><td>Default service price input</td><td>No</td></tr>
-  <tr><td>9</td><td>wash_services_*</td><td>Service list, add/edit modal (EN/AR, price, duration, category, visible, sort)</td><td>No</td></tr>
-  <tr><td>10</td><td>wash_hours_*</td><td>Day picker 0–6, open/close/break, copy to all days</td><td>No</td></tr>
-  <tr><td>11</td><td>wash_coupons_*</td><td>Coupon list, add percent/fixed code</td><td>No</td></tr>
-  <tr><td>12</td><td>wash_manager_*</td><td>Link email | Create login (name, email, password)</td><td>Owner only</td></tr>
-  <tr><td>13</td><td>wash_employees_*</td><td>Employee list per branch, add/edit/delete roster</td><td>No</td></tr>
-  <tr><td>14</td><td>wash_reviews_*</td><td>Hide review, reply, report</td><td>No</td></tr>
-  <tr><td>15</td><td>wash_report_*</td><td>Date range report + PDF (same engine as generic)</td><td>No</td></tr>
-  <tr><td>16</td><td>Active bookings inline</td><td>Status workflow: accept, reject+note, in progress, done, no show</td><td>Branch filtered</td></tr>
+  <tr><td>8</td><td>wash_services_*</td><td>Service list, add/edit modal (EN/AR, price, duration, category, visible, sort)</td><td>Premium</td></tr>
+  <tr><td>9</td><td>wash_hours_*</td><td>Day picker 0–6, open/close/break, copy to all days</td><td>Premium</td></tr>
+  <tr><td>10</td><td>wash_coupons_*</td><td>Coupon list, add percent/fixed code</td><td>Premium</td></tr>
+  <tr><td>11</td><td>wash_manager_*</td><td>Link email | Create login (name, email, password)</td><td>Owner + Premium</td></tr>
+  <tr><td>12</td><td>wash_employees_*</td><td>Employee list per branch, add/edit/delete roster</td><td>Premium</td></tr>
+  <tr><td>13</td><td>wash_reviews_*</td><td>Hide review, reply, report</td><td>Premium</td></tr>
+  <tr><td>14</td><td>wash_report_*</td><td>Date range report + PDF (same engine as generic)</td><td>Premium</td></tr>
+  <tr><td>15</td><td>Active bookings inline</td><td>Status workflow: accept, reject+note, in progress, done, no show</td><td>Branch filtered · Free</td></tr>
 </table>
 
 <h3>19.4 Wash owner hub screens</h3>
@@ -931,12 +1026,12 @@ ShopAuthContext resolves role
 
 <div class="screen-map">
   <div class="screen-card"><strong>/welcome</strong>Auth gateway. Customer register/login, guest, owner login. Language toggle.</div>
-  <div class="screen-card"><strong>/(tabs)/index</strong>Home hub. Services, offers, next booking, car profile.</div>
+  <div class="screen-card"><strong>/(tabs)/index</strong>Home hub. Loyalty card, services, offers, next booking, car profile.</div>
   <div class="screen-card"><strong>/service/[type]</strong>Pick geographic area.</div>
   <div class="screen-card"><strong>/service/[type]/[areaId]</strong>Shop list for area.</div>
-  <div class="screen-card"><strong>/shop-profile/[shopId]</strong>Public shop page before booking.</div>
+  <div class="screen-card"><strong>/shop-profile/[shopId]</strong>Public shop page: services + prices, directions, busy badge, book.</div>
   <div class="screen-card"><strong>/book/[shopId]</strong>Appointment form + slot picker.</div>
-  <div class="screen-card"><strong>/bookings tab</strong>Customer appointment list.</div>
+  <div class="screen-card"><strong>/bookings tab</strong>Customer appointments + today progress timeline.</div>
   <div class="screen-card"><strong>/favorites tab</strong>Saved shops (login).</div>
   <div class="screen-card"><strong>/assistant tab</strong>Driver network + AI chat.</div>
   <div class="screen-card"><strong>/settings tab</strong>App preferences.</div>
@@ -973,8 +1068,11 @@ ShopAuthContext resolves role
   <tr><td>ServiceOptionCard</td><td>components/ui/ServiceOptionCard.tsx</td><td>Home service type cards</td></tr>
   <tr><td>BookingDatePicker</td><td>components/ui/BookingDatePicker.tsx</td><td>Book screen date selection</td></tr>
   <tr><td>CustomerNotificationsBell</td><td>components/customer/CustomerNotificationsBell.tsx</td><td>In-app notification dropdown</td></tr>
+  <tr><td>WashBusyBadge</td><td>components/ui/WashBusyBadge.tsx</td><td>Pulsing red busy notice (shop list + profile)</td></tr>
+  <tr><td>LoyaltyCard</td><td>components/customer/LoyaltyCard.tsx</td><td>5-stamp loyalty card on Home</td></tr>
+  <tr><td>BookingProgressTimeline</td><td>components/customer/BookingProgressTimeline.tsx</td><td>4-step booking progress (My Bookings today)</td></tr>
   <tr><td>ShopCatalogProvider</td><td>context/ShopCatalogContext.tsx</td><td>Loads areas/shops cache for UI lists</td></tr>
-  <tr><td>userAlert</td><td>lib/ui/userAlert.ts</td><td>Cross-platform error dialogs</td></tr>
+  <tr><td>userAlert / userConfirm</td><td>lib/ui/userAlert.ts</td><td>Cross-platform alerts; confirm uses window.confirm on web</td></tr>
 </table>
 
 <h3>Context → UI binding</h3>
@@ -983,7 +1081,7 @@ ShopAuthContext resolves role
   <tr><td>I18nContext</td><td>t(), locale, isRTL</td><td>All labels; remount tabs on locale change</td></tr>
   <tr><td>ThemePreferenceContext</td><td>useAppTheme()</td><td>Colors on every screen</td></tr>
   <tr><td>CustomerAuthContext</td><td>customer, isGuest, busy</td><td>Auth gates, profile prefill</td></tr>
-  <tr><td>ShopAuthContext</td><td>shop, isOwner, isBranchManager</td><td>Panel type, branch tabs, manager section</td></tr>
+  <tr><td>ShopAuthContext</td><td>shop, isOwner, isBranchManager, isPremium</td><td>Panel type, branch tabs, premium gates</td></tr>
   <tr><td>ShopCatalogContext</td><td>ready, version</td><td>Shop lists, home offers</td></tr>
 </table>
 
@@ -1051,9 +1149,46 @@ buildOwnerReportHtml() → HTML string
   <tr><td>Bookings list</td><td>AsyncStorage merge; may differ from cloud</td></tr>
   <tr><td>Owner extras (schedule, offers)</td><td>Local shopExtrasStorage until synced</td></tr>
   <tr><td>Wash branches</td><td>Local cache + Supabase when online</td></tr>
+  <tr><td>Loyalty stamps</td><td>Fully offline AsyncStorage; stamps on wash booking done</td></tr>
+  <tr><td>Wash busy status</td><td>Owner sets in panel → shopExtrasStorage → customer badge</td></tr>
   <tr><td>Login</td><td>Requires Supabase (shows not_configured if missing)</td></tr>
   <tr><td>Admin panel</td><td>Requires Supabase + step5 RPCs; read-only offline</td></tr>
 </table>
+
+<h3>22.6 Loyalty stamp — UI ↔ data</h3>
+<div class="flow">[Owner marks wash booking → done]
+        |
+        v
+updateBookingStatus() in lib/booking/storage.ts
+        |
+        v
+recordWashBookingDone(booking, previousStatus)
+        |
+        +──► AsyncStorage @pitstop/loyalty_stamps (per customer id/phone)
+        +──► +1 stamp if wash + first time for booking id
+        +──► at 5 stamps: generate LOYAL-XXXXXX coupon, reset stamps to 0
+        |
+        v
+[Customer opens Home tab]
+        |
+        v
+syncLoyaltyFromBookings() backfills any missed done bookings
+consumePendingLoyaltyReward() → reward modal with coupon code</div>
+
+<h3>22.7 Wash busy status — owner ↔ customer</h3>
+<div class="flow">[WashOwnerPanel → Branch status → Busy]
+        |
+        v
+saveWashBranchStatus() → washBranchStorage + syncWashBranchToShopExtras()
+        |
+        v
+shopExtrasStorage.washShopStatus = 'busy' (preserved in normalizeExtras)
+        |
+        v
+ShopCatalogContext refresh → ShopListCard + shop-profile read extras
+        |
+        v
+[Customer sees WashBusyBadge — pulsing red notice]</div>
 
 <div class="page-break" id="admin-overview"></div>
 <h2>23. Super Admin — Overview &amp; Roles</h2>
@@ -1072,10 +1207,11 @@ buildOwnerReportHtml() → HTML string
 <h3>Admin capabilities</h3>
 <ul>
   <li>View platform-wide booking stats and 12% platform fee estimate</li>
-  <li>List pending merchant registration requests</li>
-  <li>Accept → atomic RPC activates user + shop</li>
-  <li>Reject → deletes shop row, resets user to customer</li>
-  <li>List active merchants with branch counts</li>
+  <li><strong>Merchant Ledger</strong> — per-shop outstanding platform fees since last settlement</li>
+  <li><strong>Settle Balance</strong> — confirm cash received → reset fee watermark</li>
+  <li>List pending merchant registration requests → Accept / Reject RPCs</li>
+  <li>List active merchants with branch counts + <strong>Premium Tier toggle</strong> (with confirmation dialog)</li>
+  <li><strong>Moderation tab</strong> — reported Driver Network posts/comments + flagged shop reviews</li>
 </ul>
 
 <div class="page-break" id="admin-flows"></div>
@@ -1153,7 +1289,63 @@ fetchPlatformStats() in adminRepository.ts
   +-- COUNT active owner users
   |
   v
-Display stat cards (OwnerSectionCard layout)</div>
+Display stat cards (OwnerSectionCard layout)
+  |
+  v
+Merchant Ledger table (fetchMerchantLedger)
+  |
+  +-- Per shop: SUM platform_fee on done bookings AFTER platform_fee_last_settled_at
+  +-- [Settle Balance] → RPC admin_settle_shop_platform_fees → watermark = now()</div>
+
+<h3>24.5 Premium tier toggle (with confirmation)</h3>
+<div class="flow">Admin → Tab C Active Merchants → tap Premium switch
+  |
+  v
+userConfirm() — "Update merchant subscription?" (EN/AR)
+  Web: window.confirm (OK = confirm, Cancel = abort)
+  Native: Alert.alert with two buttons
+  |
+  +-- Cancel → no change
+  +-- Confirm update (admin_premium_confirm_btn)
+          |
+          v
+        RPC admin_toggle_shop_premium(shop_id, is_premium)
+          |
+          v
+        shops.is_premium updated → owner /shop reflects instantly
+          (PremiumFeatureGate unlocks or locks CMS sections)
+  |
+  v
+userAlert() success toast</div>
+<p class="small"><strong>Do NOT use Alert.alert with buttons on web</strong> — buttons are invisible; toggle appears broken. Always use <code>userConfirm</code> for admin confirm flows.</p>
+
+<h3>24.6 Moderation queue</h3>
+<div class="flow">Sources of reports:
+  |
+  +-- Driver Network: user taps flag on PostCard → posts.reported = true
+  +-- Shop review: owner taps Report fake → shop_reviews.reported = true
+  |
+  v
+Admin → Tab D Moderation → listModerationQueue()
+  |
+  +-- [Delete Content] → remove row from posts / comments / shop_reviews
+  +-- [Dismiss Report] → reported = false (keep content)</div>
+
+<h3>24.7 Walk-in POS booking</h3>
+<div class="flow">Wash owner OR branch manager → /shop → Quick Counter Cashier (POS)
+  |
+  v
+WalkInBookingModal: car type (required) · phone optional + hint · service · notes
+  NO plate · title "Quick Counter Cashier (POS)"
+  |
+  v
+createWalkInBooking() → INSERT bookings
+  booking_type = walk_in · status = in_progress
+  service_price_egp from branch_services · platform_fee_egp = 12%
+  customer_id from resolve_customer_id_by_phone if phone matches app user
+  |
+  v
+Shows counter invoice (gross / fee / net) → live queue + ledger + owner PDF reports</div>
 
 <div class="page-break" id="admin-modules"></div>
 <h2>25. Super Admin — Modules &amp; UI</h2>
@@ -1174,6 +1366,7 @@ Display stat cards (OwnerSectionCard layout)</div>
   <tr><td>Pending owners</td><td>COUNT users role=pending_owner</td></tr>
   <tr><td>Active merchants</td><td>COUNT users role=owner, is_active</td></tr>
 </table>
+<p><strong>Below stats:</strong> Merchant Ledger table — outstanding 12% fees per shop + Settle Balance button.</p>
 
 <h3>Tab B — Pending requests (<code>admin_tab_pending</code>)</h3>
 <p>Each card shows: shop name, type, owner email, phone, address.</p>
@@ -1182,7 +1375,12 @@ Display stat cards (OwnerSectionCard layout)</div>
 <p>Uses <code>userAlert</code> for success/error on web.</p>
 
 <h3>Tab C — Active merchants (<code>admin_tab_merchants</code>)</h3>
-<p>Lists approved owners: shop name, type, email, active branch count from <code>shop_branches</code>.</p>
+<p>Lists approved owners: shop name, type, email, active branch count.</p>
+<p><strong>Premium Tier row:</strong> custom switch labeled <code>admin_premium_toggle_label</code>. Tap → <code>userConfirm(admin_premium_confirm_*)</code> → on OK → RPC <code>admin_toggle_shop_premium</code> → <code>userAlert</code> success.</p>
+<p><strong>Settle Balance</strong> (Tab A ledger) uses the same <code>userConfirm</code> pattern before <code>admin_settle_shop_platform_fees</code>.</p>
+
+<h3>Tab D — Moderation (<code>admin_tab_moderation</code>)</h3>
+<p>Unified queue: reported posts, comments, shop reviews. Actions: Delete Content / Dismiss Report.</p>
 
 <h3>Header actions</h3>
 <ul>
@@ -1233,7 +1431,7 @@ Display stat cards (OwnerSectionCard layout)</div>
 
 <table>
   <tr><th>File</th><th>Exports / purpose</th></tr>
-  <tr><td><code>lib/admin/adminRepository.ts</code></td><td>listPendingOwnerRequests, listActiveMerchants, fetchPlatformStats, approveShopOwner, rejectShopOwner</td></tr>
+  <tr><td><code>lib/admin/adminRepository.ts</code></td><td>listPendingOwnerRequests, listActiveMerchants, fetchPlatformStats, fetchMerchantLedger, listModerationQueue, toggleShopPremium, settleMerchantPlatformFees, dismissModerationReport, deleteModerationContent, approveShopOwner, rejectShopOwner</td></tr>
   <tr><td><code>lib/shop/ownerRegistrationRepository.ts</code></td><td>registerShopOwner(input) → signUp + RPC</td></tr>
   <tr><td><code>lib/shop/shopStaffUser.ts</code></td><td>fetchAppStaffUser, resolveShopSession — extended for admin + pending_owner</td></tr>
   <tr><td><code>context/ShopAuthContext.tsx</code></td><td>isAdmin, isPendingOwner, registerOwner, pending_approval login result</td></tr>
@@ -1249,10 +1447,384 @@ Display stat cards (OwnerSectionCard layout)</div>
   <tr><td>isAdmin</td><td>users.role = admin</td><td>/admin</td></tr>
   <tr><td>isPendingOwner</td><td>users.role = pending_owner</td><td>/welcome (blocked)</td></tr>
   <tr><td>isOwner</td><td>users.role = owner, active</td><td>/shop</td></tr>
+  <tr><td>isPremium</td><td>shops.is_premium = true for owner’s shop</td><td>/shop — unlocks wash CMS sections</td></tr>
   <tr><td>isBranchManager</td><td>users.role = branch_manager</td><td>/shop (branch filtered)</td></tr>
 </table>
 
-<p class="footer">PitStop Master System Documentation · car-care-eg · Includes Super Admin, UI modules, and flowcharts</p>
+<div class="page-break" id="wash-ux"></div>
+<h2>28. Car Wash Customer UX — Busy · Loyalty · Progress</h2>
+<p class="ar">ميزات تجربة عميل الغسيل — شارة المزدحم، الولاء، وتقدم الحجز</p>
+
+<p>This section documents the three customer-facing Car Wash features added in the latest release, plus the auth fixes that unblock login on web. All three UX features work <strong>offline-first</strong> (AsyncStorage) and do not require new Supabase tables.</p>
+
+<h3>28.1 Dynamic Busy Status Indicator</h3>
+<p><strong>Purpose:</strong> When a wash owner is overwhelmed, they set branch status to <strong>Busy</strong>. Customers see a clear red pulsing notice before booking — on the shop list and shop profile.</p>
+<p class="ar"><strong>الغرض:</strong> يضبط صاحب المحل حالة «مزدحم» في لوحة التحكم، فيظهر للعميل تنبيه أحمر نابض في قائمة المحلات وصفحة المحل.</p>
+
+<h4>Owner side</h4>
+<ol>
+  <li>Login as wash owner → <code>/shop</code> → <code>WashOwnerPanel</code></li>
+  <li>Section <strong>Branch status</strong> (<code>wash_status_*</code> keys): choose Open / Closed / <strong>Busy</strong> / Vacation</li>
+  <li>Save → <code>saveWashBranchStatus()</code> writes to branch storage and calls <code>syncWashBranchToShopExtras()</code></li>
+</ol>
+
+<h4>Data path</h4>
+<div class="flow">WashOwnerPanel.saveWashBranchStatus()
+  → washBranchStorage (active branch)
+  → syncWashBranchToShopExtras()
+  → shopExtrasStorage (key per shopId)
+  → field: washShopStatus = 'open' | 'closed' | 'busy' | 'vacation'
+  → ShopCatalogContext loads extras for customer lists</div>
+<p><strong>Important fix:</strong> <code>normalizeExtras()</code> in <code>shopExtrasStorage.ts</code> now preserves <code>washShopStatus</code>, vacation dates, and <code>activeBranchId</code> — previously these fields could be stripped on save.</p>
+
+<h4>Customer UI</h4>
+<table>
+  <tr><th>Screen</th><th>Component</th><th>Condition</th></tr>
+  <tr><td>Shop list card</td><td><code>WashBusyBadge compact</code></td><td><code>shop.type === 'wash'</code> AND <code>extras.washShopStatus === 'busy'</code></td></tr>
+  <tr><td>Shop profile</td><td><code>WashBusyBadge</code> full width</td><td>Same condition</td></tr>
+</table>
+<p>Visual: red border/background tint, animated opacity pulse on dot, exclamation icon, bilingual text.</p>
+
+<h4>i18n keys</h4>
+<table>
+  <tr><th>Key</th><th>EN (summary)</th><th>AR (summary)</th></tr>
+  <tr><td><code>wash_busy_customer_notice</code></td><td>Shop is busy — expect longer wait</td><td>المحل مزدحم حالياً — قد يكون الانتظار أطول</td></tr>
+</table>
+
+<h4>How to test</h4>
+<ol>
+  <li>Owner: set branch status to Busy → Save</li>
+  <li>Customer: open wash shop list in same area → red badge on that shop card</li>
+  <li>Open shop profile → full busy notice appears</li>
+  <li>Owner: set back to Open → badge disappears after catalog refresh</li>
+</ol>
+
+<h3>28.2 Offline-First Loyalty Stamps</h3>
+<p><strong>Purpose:</strong> Reward repeat wash customers. Each completed wash booking adds one stamp; after <strong>5 stamps</strong> the customer receives a <strong>100% off coupon</strong> valid 90 days.</p>
+<p class="ar"><strong>الغرض:</strong> برنامج ولاء — ختم واحد لكل غسيل مكتمل، وبعد 5 أختام كوبون خصم 100% لمدة 90 يوم.</p>
+
+<h4>Rules</h4>
+<ul>
+  <li>Only <code>shopType === 'wash'</code> bookings count</li>
+  <li>Stamp added when booking status becomes <code>done</code> (not on create/cancel)</li>
+  <li>Idempotent: each <code>booking.id</code> processed once (<code>processedBookingIds</code> array, max 200 kept)</li>
+  <li>At 5 stamps: generate coupon, reset stamps to 0, show reward modal on Home</li>
+  <li>Customer key: <code>id:{customerId}</code> or fallback <code>phone:{phone}</code></li>
+  <li>Guest users: no loyalty card (login required)</li>
+</ul>
+
+<h4>Storage</h4>
+<p>AsyncStorage key: <code>@pitstop/loyalty_stamps</code></p>
+<pre>{
+  "id:uuid-or-phone:012...": {
+    "stamps": 3,
+    "processedBookingIds": ["booking-1", "booking-2"],
+    "pendingReward": null,
+    "rewards": [{ "code": "LOYAL-ABC123", "discountType": "percent", "discountValue": 100, ... }]
+  }
+}</pre>
+
+<h4>Code flow</h4>
+<div class="flow">Owner: updateBookingStatus(id, 'done')
+  → storage.ts calls recordWashBookingDone(booking, previousStatus)
+  → stamp +1 (or unlock reward at 5)
+
+Customer: Home tab focus
+  → listBookingsForPhone()
+  → syncLoyaltyFromBookings() — backfill missed done washes
+  → getLoyaltyStamps() → LoyaltyCard UI
+  → consumePendingLoyaltyReward() → modal if new reward</div>
+
+<h4>Reward coupon format</h4>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>code</td><td><code>LOYAL-</code> + 6 random uppercase chars</td></tr>
+  <tr><td>discountType</td><td><code>percent</code></td></tr>
+  <tr><td>discountValue</td><td>100 (free wash)</td></tr>
+  <tr><td>expiresAt</td><td>90 days from issue</td></tr>
+</table>
+<p class="small"><strong>Limitation:</strong> coupon is stored locally; booking checkout does not yet validate <code>LOYAL-*</code> codes automatically — future enhancement.</p>
+
+<h4>UI — LoyaltyCard on Home</h4>
+<ul>
+  <li>5 car-icon stamp circles; filled stamps use theme accent</li>
+  <li>Progress text: “{count} / {goal} stamps”</li>
+  <li>Hidden for guests and logged-out users</li>
+</ul>
+
+<h4>i18n keys</h4>
+<table>
+  <tr><th>Key</th><th>Usage</th></tr>
+  <tr><td><code>loyalty_card_title</code></td><td>Card heading</td></tr>
+  <tr><td><code>loyalty_card_lead</code></td><td>Short program description</td></tr>
+  <tr><td><code>loyalty_card_progress</code></td><td>Stamp count ({count}, {goal})</td></tr>
+  <tr><td><code>loyalty_reward_title</code></td><td>Reward modal title</td></tr>
+  <tr><td><code>loyalty_reward_body</code></td><td>Modal body with {code}</td></tr>
+  <tr><td><code>loyalty_reward_dismiss</code></td><td>Close button</td></tr>
+</table>
+
+<h4>How to test</h4>
+<ol>
+  <li>Login as <code>customer@demo.com</code></li>
+  <li>Book a wash → owner marks booking Done (5 times, or change dates/status in storage for demo)</li>
+  <li>Home tab: stamp count increases after each done</li>
+  <li>On 5th stamp: modal shows <code>LOYAL-XXXXXX</code>, stamps reset to 0</li>
+  <li>Re-open Home: same booking does not add duplicate stamp</li>
+</ol>
+
+<h3>28.3 Live Queue Progress Bar (My Bookings)</h3>
+<p><strong>Purpose:</strong> For <em>today’s</em> active appointments, replace the static status badge with a 4-step horizontal timeline so customers see where they are in the queue.</p>
+<p class="ar"><strong>الغرض:</strong> للحجوزات اليوم فقط — شريط تقدم من 4 خطوات يوضح: قيد الانتظار → مؤكد → جاري التنفيذ → تم.</p>
+
+<h4>When shown</h4>
+<pre>showTimeline =
+  isBookingToday(scheduledAt)   // same calendar day as device
+  AND status IN (pending, confirmed, in_progress, done)</pre>
+<p>Cancelled / no-show bookings keep the normal colored status badge only.</p>
+
+<h4>Steps (left → right)</h4>
+<table>
+  <tr><th>Step</th><th>Booking status</th><th>Visual</th></tr>
+  <tr><td>1</td><td>pending</td><td>First circle active</td></tr>
+  <tr><td>2</td><td>confirmed</td><td>Connector + circle 2 active</td></tr>
+  <tr><td>3</td><td>in_progress</td><td>Step 3 highlighted (bold label)</td></tr>
+  <tr><td>4</td><td>done</td><td>All steps accent-colored with check icons</td></tr>
+</table>
+<p>Component: <code>BookingProgressTimeline.tsx</code> — uses theme accent for reached steps, muted for future steps.</p>
+
+<h4>i18n keys</h4>
+<table>
+  <tr><th>Key</th><th>Step label</th></tr>
+  <tr><td><code>booking_progress_title</code></td><td>Section title above timeline</td></tr>
+  <tr><td><code>booking_progress_pending</code></td><td>Pending</td></tr>
+  <tr><td><code>booking_progress_confirmed</code></td><td>Confirmed</td></tr>
+  <tr><td><code>booking_progress_in_progress</code></td><td>In progress</td></tr>
+  <tr><td><code>booking_progress_done</code></td><td>Done</td></tr>
+</table>
+
+<h4>How to test</h4>
+<ol>
+  <li>Customer books wash for <strong>today</strong></li>
+  <li>My Bookings: timeline visible, step 1 active (pending)</li>
+  <li>Owner confirms → customer refreshes tab → step 2 active</li>
+  <li>Owner sets In progress → step 3; Done → all steps complete</li>
+  <li>Book for tomorrow → only status badge, no timeline</li>
+</ol>
+
+<h3>28.4 Auth fixes (prerequisite for all roles)</h3>
+<p>These infrastructure + code fixes were required before customer/owner/admin login worked reliably on web:</p>
+<table>
+  <tr><th>Issue</th><th>Fix</th></tr>
+  <tr><td>Email provider disabled in Supabase</td><td>Dashboard → Auth → Providers → enable Email</td></tr>
+  <tr><td>Demo accounts unconfirmed</td><td>Auto-confirm on create OR SQL update <code>email_confirmed_at</code></td></tr>
+  <tr><td>Web login stuck “Signing in…”</td><td><code>authMutationLock.ts</code> + defer <code>onAuthStateChange</code> work</td></tr>
+  <tr><td>Browser tabs syncing auth</td><td><code>webTabAuthIsolation.ts</code> — see §31</td></tr>
+  <tr><td>Admin not routing to panel</td><td><code>ok_admin</code> result → <code>/admin</code> from welcome</td></tr>
+</table>
+<p>Full checklist: <code>supabase/SETUP-AUTH-CHECKLIST.md</code></p>
+<p class="ar">إصلاحات المصادقة: تفعيل Email في Supabase، تأكيد الحسابات التجريبية، ومنع تعليق signIn على الويب.</p>
+
+<h3>28.5 File reference (Car Wash UX)</h3>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>components/ui/WashBusyBadge.tsx</code></td><td>Customer busy notice UI</td></tr>
+  <tr><td><code>components/ui/ShopListCard.tsx</code></td><td>Shows compact busy badge</td></tr>
+  <tr><td><code>app/shop-profile/[shopId].tsx</code></td><td>Shows full busy badge</td></tr>
+  <tr><td><code>lib/booking/shopExtrasStorage.ts</code></td><td>Persists washShopStatus</td></tr>
+  <tr><td><code>components/customer/LoyaltyCard.tsx</code></td><td>Home stamp card</td></tr>
+  <tr><td><code>lib/booking/loyaltyStampsStorage.ts</code></td><td>Stamp logic + coupons</td></tr>
+  <tr><td><code>lib/booking/storage.ts</code></td><td>Calls recordWashBookingDone on status update</td></tr>
+  <tr><td><code>app/(tabs)/index.tsx</code></td><td>Loyalty card + reward modal</td></tr>
+  <tr><td><code>components/customer/BookingProgressTimeline.tsx</code></td><td>4-step progress UI</td></tr>
+  <tr><td><code>app/(tabs)/bookings.tsx</code></td><td>Today timeline integration</td></tr>
+  <tr><td><code>lib/auth/authMutationLock.ts</code></td><td>Web auth deadlock guard</td></tr>
+  <tr><td><code>lib/i18n/strings.ts</code></td><td>All EN/AR strings above</td></tr>
+</table>
+
+<div class="page-break" id="premium"></div>
+<h2>29. SaaS Premium — Free vs Premium (Wash Owner)</h2>
+<p class="ar">اشتراك Premium للمغسلة — مجاني مقابل مدفوع</p>
+<p>Wash owners use a <strong>Freemium SaaS</strong> model. Flag: <code>public.shops.is_premium</code> → <code>ShopAuthContext.isPremium</code>. SQL: <code>apply-pitstop-2.0-step6-shop-premium.sql</code>.</p>
+<h3>29.1 Enable Premium</h3>
+<p><strong>Option A — Super Admin (recommended):</strong> Login <code>admin@demo.com</code> → /admin → Tab C → toggle Premium → confirm dialog → instant update.</p>
+<p><strong>Option B — SQL (manual):</strong></p>
+<pre>update public.shops set is_premium = true where id = 'shop-wash-nile';</pre>
+<h3>29.2 Free vs Premium</h3>
+<table>
+  <tr><th>Free ✓</th><th>Premium only (locked with gold badge)</th></tr>
+  <tr><td>Today + pending stats, branch status, profile, gallery, GPS, bookings</td><td>Multi-branch tabs, analytics, services, hours, coupons, managers, employees, reviews, PDF reports, extra dashboard stats</td></tr>
+</table>
+<h3>29.3 Flow</h3>
+<div class="flow">Owner /shop → isPremium?
+  No  → PremiumFeatureGate dims sections → tap → PremiumUpgradeModal
+  Yes → full WashOwnerPanel CMS + branch switcher</div>
+
+<div class="page-break" id="gps"></div>
+<h2>30. Branch GPS &amp; Customer Location Flow</h2>
+<p class="ar">موقع الفرع بالـ GPS — Owner يلتقط → Customer يشوف المسافة والاتجاهات</p>
+<div class="flow">Owner: Profile → Set Branch Location via GPS
+  → saveBranchCoordinates() → shop_branches + shops updated in Supabase
+  → Customer: /nearby/wash reloads (useFocusEffect) → Haversine sort
+  → Customer: shop-profile → Directions → Google Maps ?q=lat,lng</div>
+<h3>30.1 El Rehab demo</h3>
+<ol>
+  <li>Auth user <code>rehab.wash@demo.com</code> / demo123</li>
+  <li>Run <code>seed-el-rehab-wash.sql</code> — coords 30.0244, 31.4939</li>
+  <li>Owner captures GPS → customer sees updated distance in Nearby</li>
+</ol>
+<p>Modules: <code>washBranchNearby.ts</code>, <code>branchRepository.ts</code>, <code>nearby.ts</code>, <code>contact.ts</code>, <code>washBranchStorage.saveBranchCoordinates</code>.</p>
+
+<div class="page-break" id="web-tabs"></div>
+<h2>31. Web Multi-Tab Auth Isolation</h2>
+<p class="ar">كل تاب متصفح له session مستقل — owner في تاب و customer في تاب</p>
+<ul>
+  <li><code>sessionStorage</code> for Supabase JWT + app session keys</li>
+  <li>Disable Supabase <code>BroadcastChannel</code> before createClient</li>
+  <li><code>signOut({ scope: 'local' })</code> on web logout</li>
+</ul>
+<p>Test: Tab1 owner → duplicate → Tab2 customer login → Tab1 stays owner. Hard refresh after code deploy.</p>
+
+<div class="page-break" id="wash-pricing"></div>
+<h2>32. Wash Pricing — Services Only (No Base Price)</h2>
+<p class="ar">أسعار الغسيل من قائمة الخدمات فقط — بدون سعر أساسي</p>
+<p>Removed owner “Base price” from WashOwnerPanel. Customers see per-service prices on shop profile. Booking uses <code>selectedService.priceEgp</code> or first active wash service. Maintenance shops still use default service price in generic owner panel.</p>
+
+<div class="page-break" id="walk-in-pos"></div>
+<h2>33. Walk-in POS — Quick Counter Cashier</h2>
+<p class="ar">تسجيل غسيل سريع (كاشير) — زبائن بدون تطبيق</p>
+<div class="flow">Who: Wash owner OR branch manager (/shop shortcuts)
+  |
+  v
+Modal: WalkInBookingModal.tsx
+  Fields: car type/model (required) · phone (optional hint) · service menu · notes
+  NO plate number (removed for speed)
+  |
+  v
+Register & start wash → createWalkInBooking()
+  |
+  v
+bookings row:
+  booking_type = walk_in · status = in_progress
+  customer_phone nullable · customer_id if phone matches users.phone
+  service_price_egp + platform_fee_egp (12%)
+  |
+  v
+Counter invoice screen → refresh owner analytics + admin ledger</div>
+<p><strong>SQL:</strong> <code>apply-pitstop-2.0-steps-7-through-8-bundle.sql</code> + step7b RPC.</p>
+
+<div class="page-break" id="driver-network"></div>
+<h2>34. Driver Network &amp; Community Feed</h2>
+<p class="ar">شبكة السائقين — منشورات، تعليقات، إعجابات</p>
+<div class="flow">Customer tab: Driver Network (assistant.tsx)
+  |
+  +-- Create post (optimistic + Supabase posts table)
+  +-- Like posts (post_votes vote_type=up)
+  +-- Open post → nested comments + comment likes
+  +-- Flag post (reportCommunityPost → reported=true)
+  |
+  v
+Tables: posts · comments · post_votes · comment_likes
+Local AsyncStorage merge when offline</div>
+<p>Deep links: <code>pitstop://driver-network/[postId]</code> · <code>pitstop://shop-profile/[shopId]</code></p>
+
+<div class="page-break" id="owner-roles"></div>
+<h2>35. Wash Owner vs Branch Manager (Role Split)</h2>
+<p class="ar">تقسيم الصلاحيات — مالك مقابل مدير فرع</p>
+<table>
+  <tr><th>Feature</th><th>Owner</th><th>Branch Manager</th></tr>
+  <tr><td>Branch tabs + Add branch</td><td>Premium only</td><td>Locked to assigned branch</td></tr>
+  <tr><td>Manager account provisioning</td><td>Yes</td><td>Hidden</td></tr>
+  <tr><td>Financial PDF reports (gross/fee/net)</td><td>Owner + Premium</td><td>Hidden</td></tr>
+  <tr><td>Shop status + Walk-in POS</td><td>Yes</td><td>Yes</td></tr>
+  <tr><td>Employees CRUD</td><td>Yes</td><td>Yes (own branch)</td></tr>
+  <tr><td>Reviews moderation</td><td>Yes</td><td>Yes</td></tr>
+  <tr><td>Operational analytics (peak hour, top service, trend)</td><td>Yes</td><td>Yes</td></tr>
+  <tr><td>Weekly revenue stat</td><td>Premium</td><td>Hidden</td></tr>
+</table>
+<p>Component: <code>WashOwnerPanel.tsx</code> gates via <code>isOwner</code>, <code>isBranchManager</code>, <code>isPremium</code>. <code>PremiumFeatureGate</code> unchanged for locked CMS sections.</p>
+
+<div class="page-break" id="admin-saas"></div>
+<h2>36. Super Admin SaaS — Premium · Ledger · Moderation</h2>
+<p class="ar">لوحة المشرف — بريميوم، مستحقات، رقابة</p>
+<div class="screen-map">
+  <div class="screen-card"><strong>Tab A Dashboard</strong>Platform stats + Merchant Ledger + Settle Balance per shop</div>
+  <div class="screen-card"><strong>Tab B Pending</strong>Approve / reject new merchants</div>
+  <div class="screen-card"><strong>Tab C Merchants</strong>Premium toggle with confirm dialog before RPC</div>
+  <div class="screen-card"><strong>Tab D Moderation</strong>Reported posts, comments, shop reviews</div>
+</div>
+<p><strong>Ledger math:</strong> outstanding = SUM(platform_fee_egp) on <code>status=done</code> bookings where <code>scheduled_at &gt; shops.platform_fee_last_settled_at</code>.</p>
+<p><strong>SQL:</strong> <code>apply-pitstop-2.0-step9-admin-saas.sql</code></p>
+
+<h3>36.1 Premium confirm i18n keys</h3>
+<table>
+  <tr><th>Key</th><th>EN</th><th>AR</th></tr>
+  <tr><td><code>admin_premium_confirm_title</code></td><td>Update merchant subscription?</td><td>تحديث اشتراك التاجر؟</td></tr>
+  <tr><td><code>admin_premium_confirm_enable_body</code></td><td>Enable Premium for {shop}? …</td><td>تفعيل Premium لـ {shop}؟ …</td></tr>
+  <tr><td><code>admin_premium_confirm_disable_body</code></td><td>Disable Premium for {shop}? …</td><td>إلغاء Premium لـ {shop}؟ …</td></tr>
+  <tr><td><code>admin_premium_confirm_btn</code></td><td>Confirm update</td><td>تأكيد التحديث</td></tr>
+</table>
+
+<h3>36.2 Troubleshooting admin on web</h3>
+<table>
+  <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+  <tr><td>Premium toggle does nothing</td><td>Alert.alert buttons invisible on web</td><td>Use <code>userConfirm</code> (fixed in AdminPanel)</td></tr>
+  <tr><td>RPC error after confirm</td><td>Step 9 SQL not run</td><td>Run <code>apply-pitstop-2.0-step9-admin-saas.sql</code></td></tr>
+  <tr><td>Owner still free after toggle ON</td><td>Owner session cached</td><td>Owner reload /shop; check <code>shops.is_premium</code> in Supabase</td></tr>
+</table>
+
+<div class="page-break" id="media-model"></div>
+<h2>37. Branch Profile &amp; Cover Photos</h2>
+<p class="ar">صورة البروفايل منفصلة عن صورة الغلاف</p>
+<div class="flow">profileImageUrl → circular avatar only (OwnerProfileHeader)
+imageUrls[0] → cover/banner only
+imageUrls[1..] → gallery album
+  |
+  v
+setShopProfileImage() — never writes profile into cover slot
+setShopCoverImage() — replaces index 0 only
+addShopImage() — appends gallery (skips profile URL duplicate)</div>
+
+<div class="page-break" id="migrations-7-9"></div>
+<h2>38. SQL Migrations Steps 7–9 (Checklist)</h2>
+<p class="ar">ترتيب تشغيل SQL على Supabase — خطوة بخطوة</p>
+<ol>
+  <li>Ensure steps 1–6 already applied (see §9)</li>
+  <li>Run <code>apply-pitstop-2.0-steps-7-through-8-bundle.sql</code> in SQL Editor (walk-in + reviews + community)</li>
+  <li>Run <code>apply-pitstop-2.0-step9-admin-saas.sql</code> (ledger watermark, moderation flags, admin RPCs)</li>
+  <li>Verify: bottom of bundle shows 3 checks with <code>ok = true</code></li>
+  <li>Reload app → test POS, Driver Network, /admin tabs</li>
+</ol>
+<p>Full auth + demo setup: <code>supabase/SETUP-AUTH-CHECKLIST.md</code></p>
+
+<div class="page-break" id="web-dialogs"></div>
+<h2>39. Web Dialogs — userAlert &amp; userConfirm</h2>
+<p class="ar">حوارات الويب — تأكيد Premium والتسوية</p>
+<p>React Native <code>Alert.alert</code> with multiple buttons is <strong>unreliable on web</strong> (Expo web). PitStop uses a small helper module:</p>
+
+<div class="module-box">
+<h4><code>lib/ui/userAlert.ts</code></h4>
+<table>
+  <tr><th>Function</th><th>Web</th><th>Native</th><th>Used for</th></tr>
+  <tr><td><code>userAlert(title, message?)</code></td><td><code>window.alert</code></td><td><code>Alert.alert</code></td><td>Success/error one-liners after actions</td></tr>
+  <tr><td><code>userConfirm(title, message, opts?)</code></td><td><code>window.confirm</code></td><td><code>Alert.alert</code> + Cancel/OK</td><td>Premium toggle, Settle Balance, destructive confirms</td></tr>
+</table>
+</div>
+
+<div class="flow">AdminPanel.onTogglePremium(row)
+  |
+  v
+userConfirm(
+  admin_premium_confirm_title,
+  admin_premium_confirm_enable_body | disable_body  // {shop} replaced
+  { confirmLabel: admin_premium_confirm_btn, cancelLabel: alert_cancel }
+)
+  |
+  +-- false → return (switch unchanged)
+  +-- true  → executeTogglePremium → RPC → userAlert success</div>
+
+<p><strong>Files:</strong> <code>components/admin/AdminPanel.tsx</code> · <code>lib/ui/userAlert.ts</code></p>
+
+<p class="footer">PitStop Master System Documentation · car-care-eg · Walk-in POS · Driver Network · Admin SaaS · userConfirm web fix · migrations 7–9</p>
 
 </body>
 </html>

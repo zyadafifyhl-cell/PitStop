@@ -8,7 +8,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -25,12 +24,16 @@ import { listShopReviews, seedDemoReviews } from '@/lib/booking/reviewsStorage';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { formatWeeklyHoursLines, getActiveServices } from '@/lib/booking/shopSchedule';
 import type { ShopExtras, ShopReview } from '@/lib/booking/types';
-import { WashBusyBadge } from '@/components/ui/WashBusyBadge';
-import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
+import { fetchDefaultBranchCoordinates } from '@/lib/booking/wash/branchRepository';
+import { WashStatusBadge, type WashCustomerStatus } from '@/components/ui/WashBusyBadge';
+import { ShopReviewForm } from '@/components/reviews/ShopReviewForm';
+import { formatPhoneDisplay, openBranchDirections, openPhone } from '@/lib/linking/contact';
+import { shareShopProfile } from '@/lib/linking/share';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
 
 export default function ShopProfileScreen() {
-  const { shopId } = useLocalSearchParams<{ shopId: string }>();
+  const { shopId, offerId: rawOfferId } = useLocalSearchParams<{ shopId: string; offerId?: string }>();
+  const offerId = Array.isArray(rawOfferId) ? rawOfferId[0] : rawOfferId;
   const theme = useAppTheme();
   const { t, locale } = useI18n();
   const { isGuest, customer } = useCustomerAuth();
@@ -40,6 +43,7 @@ export default function ShopProfileScreen() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [branchCoords, setBranchCoords] = useState<{ latitude: number; longitude: number } | null>(null);
 
   const shop = useMemo(
     () => (catalogReady && shopId ? getShopById(shopId) : undefined),
@@ -48,8 +52,13 @@ export default function ShopProfileScreen() {
 
   const refreshExtras = useCallback(async () => {
     if (!shop) return;
-    const [row, reviewRows] = await Promise.all([getShopExtras(shop.id), listShopReviews(shop.id)]);
+    const [row, reviewRows, coords] = await Promise.all([
+      getShopExtras(shop.id),
+      listShopReviews(shop.id),
+      fetchDefaultBranchCoordinates(shop.id),
+    ]);
     setExtras(row);
+    setBranchCoords(coords);
     setReviews(
       (reviewRows.length ? reviewRows : seedDemoReviews(shop.id)).filter((review) => !review.hidden),
     );
@@ -87,7 +96,13 @@ export default function ShopProfileScreen() {
   const offers = (extras?.offers ?? []).filter((offer) => offer.active);
   const services = getActiveServices(extras);
   const hoursLines = formatWeeklyHoursLines(extras, locale);
-  const showBusyBadge = shop.type === 'wash' && extras?.washShopStatus === 'busy';
+  const washStatusBadge: WashCustomerStatus | null =
+    shop.type === 'wash' &&
+    (extras?.washShopStatus === 'busy' ||
+      extras?.washShopStatus === 'closed' ||
+      extras?.washShopStatus === 'vacation')
+      ? extras.washShopStatus
+      : null;
 
   function openViewer(uri?: string) {
     if (!uri) return;
@@ -95,27 +110,43 @@ export default function ShopProfileScreen() {
     setViewerOpen(true);
   }
 
-  function goToBook(serviceId?: string) {
+  function goToBook(serviceId?: string, fromOfferId?: string) {
     const id = String(shopId);
     if (isGuest || !customer) {
       router.push({
         pathname: '/auth-required',
-        params: { intent: 'booking', returnTo: buildBookReturnTo(id, serviceId) },
+        params: {
+          intent: 'booking',
+          returnTo: buildBookReturnTo(id, serviceId ? [serviceId] : undefined, fromOfferId),
+        },
       });
       return;
     }
     router.push({
       pathname: '/book/[shopId]',
-      params: serviceId ? { shopId: id, serviceId } : { shopId: id },
+      params: {
+        shopId: id,
+        ...(serviceId ? { serviceIds: serviceId } : {}),
+        ...(fromOfferId ? { offerId: fromOfferId } : {}),
+      },
     });
   }
 
   async function onShare() {
+    if (!shop) return;
     try {
-      await Share.share({
-        message: `${shopName}\n${address}\n${formatPhoneDisplay(phone)}`,
-        title: shopName,
-      });
+      await shareShopProfile({ shopId: shop.id, shopName, locale });
+    } catch {
+      Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body'));
+    }
+  }
+
+  async function onDirections() {
+    if (!shop) return;
+    try {
+      const lat = branchCoords?.latitude ?? shop.latitude;
+      const lng = branchCoords?.longitude ?? shop.longitude;
+      await openBranchDirections(lat, lng, shopName);
     } catch {
       Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body'));
     }
@@ -152,14 +183,11 @@ export default function ShopProfileScreen() {
           </View>
         </View>
 
-        {showBusyBadge ? <WashBusyBadge /> : null}
+        {washStatusBadge ? (
+          <WashStatusBadge status={washStatusBadge} vacationReturnDate={extras?.vacationReturnDate} />
+        ) : null}
 
         <View style={styles.actionRow}>
-          <Pressable
-            onPress={() => goToBook()}
-            style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_profile_book_now')}</Text>
-          </Pressable>
           {extras?.imageUrls?.length ? (
             <Pressable
               onPress={() => setGalleryOpen(true)}
@@ -177,14 +205,12 @@ export default function ShopProfileScreen() {
           <Pressable onPress={() => openPhone(phone).catch(() => {})} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
             <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('shop_profile_call_now')}</Text>
           </Pressable>
-          <Pressable onPress={() => openShopInMaps(shop, locale).catch(() => {})} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
+          <Pressable onPress={onDirections} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
             <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('shop_profile_directions')}</Text>
           </Pressable>
-          {Platform.OS !== 'web' ? (
-            <Pressable onPress={onShare} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
-              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('shop_profile_share')}</Text>
-            </Pressable>
-          ) : null}
+          <Pressable onPress={onShare} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
+            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('shop_profile_share')}</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -220,6 +246,7 @@ export default function ShopProfileScreen() {
 
       <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('shop_profile_reviews')}</Text>
+        <ShopReviewForm shopId={shop.id} onSubmitted={refreshExtras} />
         {reviews.map((review) => (
           <View key={review.id} style={[styles.reviewRow, { borderColor: theme.border }]}>
             <View style={styles.reviewHeader}>
@@ -228,7 +255,12 @@ export default function ShopProfileScreen() {
             </View>
             <Text style={[styles.reviewBody, { color: theme.textMuted }]}>{review.body}</Text>
             {review.ownerReply ? (
-              <Text style={[styles.reviewReply, { color: theme.textDim }]}>{review.ownerReply}</Text>
+              <View style={[styles.reviewReplyBox, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                <Text style={[styles.reviewReplyLabel, { color: theme.text }]}>
+                  {shopName} · {t('shop_review_owner_reply_label')}
+                </Text>
+                <Text style={[styles.reviewReply, { color: theme.textMuted }]}>{review.ownerReply}</Text>
+              </View>
             ) : null}
           </View>
         ))}
@@ -242,7 +274,7 @@ export default function ShopProfileScreen() {
               {t('book_call_shop')} · {formatPhoneDisplay(phone)}
             </Text>
           </Pressable>
-          <Pressable onPress={() => openShopInMaps(shop, locale).catch(() => {})} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
+          <Pressable onPress={onDirections} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
             <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('book_open_maps')}</Text>
           </Pressable>
         </View>
@@ -279,7 +311,7 @@ export default function ShopProfileScreen() {
         <Text style={[styles.infoLine, { color: theme.textMuted }]}>
           {t('shop_profile_address')}: {address}
         </Text>
-        {extras?.servicePriceEgp != null ? (
+        {extras?.servicePriceEgp != null && shop.type !== 'wash' ? (
           <Text style={[styles.infoLine, { color: theme.textMuted }]}>
             {t('shop_profile_price')}: {formatEgp(extras.servicePriceEgp, locale)}
           </Text>
@@ -294,14 +326,36 @@ export default function ShopProfileScreen() {
           ) : null;
         })()}
         {offers.length ? (
-          <View style={{ marginTop: 8, gap: 6 }}>
-            {offers.map((offer) => (
-              <View key={offer.id} style={[styles.offerChip, { backgroundColor: theme.accentSoft }]}>
-                <Text style={[styles.offerText, { color: theme.accent }]}>
-                  {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
-                </Text>
-              </View>
-            ))}
+          <View style={{ marginTop: 8, gap: 8 }}>
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>{t('shop_profile_offers')}</Text>
+            {offers.map((offer) => {
+              const label = locale === 'ar' ? offer.titleAr || offer.title : offer.title;
+              const focused = offerId === offer.id;
+              return (
+                <View
+                  key={offer.id}
+                  style={[
+                    styles.offerCard,
+                    {
+                      backgroundColor: focused ? theme.accentSoft : theme.bgElevated,
+                      borderColor: focused ? theme.accent : theme.border,
+                    },
+                  ]}>
+                  <Text style={[styles.offerText, { color: theme.accent }]}>{label}</Text>
+                  <Text style={[styles.infoLine, { color: theme.textMuted, marginTop: 4 }]}>
+                    {t('shop_offer_valid_until').replace(
+                      '{date}',
+                      new Date(offer.validUntil).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
+                    )}
+                  </Text>
+                  <Pressable
+                    onPress={() => goToBook(services[0]?.id, offer.id)}
+                    style={[styles.serviceBookBtn, { backgroundColor: theme.accent, marginTop: 8, alignSelf: 'flex-start' }]}>
+                    <Text style={[styles.serviceBookText, { color: theme.onAccent }]}>{t('shop_offer_book')}</Text>
+                  </Pressable>
+                </View>
+              );
+            })}
           </View>
         ) : null}
       </View>
@@ -367,11 +421,21 @@ const styles = StyleSheet.create({
   reviewName: { fontSize: 14, fontWeight: '800' },
   reviewRating: { fontSize: 12, fontWeight: '700' },
   reviewBody: { fontSize: 14, lineHeight: 20 },
-  reviewReply: { fontSize: 13, lineHeight: 18, marginTop: 6, fontStyle: 'italic' },
+  reviewReplyBox: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  reviewReplyLabel: { fontSize: 12, fontWeight: '800' },
+  reviewReply: { fontSize: 13, lineHeight: 18 },
   albumGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   albumImage: { width: 102, height: 102, borderRadius: 10, backgroundColor: '#111' },
   infoLine: { fontSize: 14, lineHeight: 20 },
   offerChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
+  offerCard: { borderWidth: 1, borderRadius: 12, padding: 12 },
   offerText: { fontSize: 12, fontWeight: '700' },
   galleryBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   galleryCard: { maxHeight: '80%', borderTopLeftRadius: 18, borderTopRightRadius: 18 },

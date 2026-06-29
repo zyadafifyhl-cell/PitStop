@@ -12,7 +12,7 @@ import type { ShopExtras } from '@/lib/booking/types';
 import { formatEgp } from '@/lib/booking/reporting';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
 import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
-import { WashBusyBadge } from '@/components/ui/WashBusyBadge';
+import { WashStatusBadge, type WashCustomerStatus } from '@/components/ui/WashBusyBadge';
 import type { ShopType } from '@/lib/booking/types';
 
 type Props = {
@@ -78,7 +78,13 @@ export function ShopListCard({
   const hasWinch = type === 'maintenance' && !!extras?.winchEnabled;
   const openStatus = getShopOpenStatus(extras);
   const openLabel = locale === 'ar' ? openStatus.labelAr : openStatus.labelEn;
-  const showBusyBadge = type === 'wash' && extras?.washShopStatus === 'busy';
+  const washStatusBadge: WashCustomerStatus | null =
+    type === 'wash' &&
+    (extras?.washShopStatus === 'busy' ||
+      extras?.washShopStatus === 'closed' ||
+      extras?.washShopStatus === 'vacation')
+      ? extras.washShopStatus
+      : null;
 
   return (
     <View style={styles.wrap}>
@@ -99,7 +105,7 @@ export function ShopListCard({
                 <Text style={[styles.ratingText, { color: theme.text }]}>{rating.toFixed(1)}</Text>
               </View>
             ) : null}
-            {extras?.servicePriceEgp != null ? (
+            {extras?.servicePriceEgp != null && type !== 'wash' ? (
               <View style={[styles.priceChip, { backgroundColor: theme.accentSoft }]}>
                 <Text style={[styles.priceChipText, { color: theme.accent }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
               </View>
@@ -127,10 +133,16 @@ export function ShopListCard({
               ]}>
               {openLabel}
             </Text>
-            {showBusyBadge ? <WashBusyBadge /> : null}
+            {washStatusBadge ? (
+              <WashStatusBadge
+                status={washStatusBadge}
+                compact
+                vacationReturnDate={extras?.vacationReturnDate}
+              />
+            ) : null}
           </View>
         </View>
-        {extras?.servicePriceEgp != null ? (
+        {extras?.servicePriceEgp != null && type !== 'wash' ? (
           <Text style={[styles.priceMeta, { color: theme.accent }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
         ) : null}
         {activeOffers.length > 0 ? (

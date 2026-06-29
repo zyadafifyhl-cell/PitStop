@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { tabAuthStorage } from '@/lib/storage/webTabAuthStorage';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -147,7 +147,7 @@ export default function WelcomeScreen() {
           Alert.alert(t('customer_register_fail_title'), t('customer_register_invalid'));
           return;
         }
-        const customerId = await AsyncStorage.getItem(SESSION_KEY);
+        const customerId = await tabAuthStorage.getItem(SESSION_KEY);
         if (customerId) {
           await saveRegisterVehiclesForCustomer(customerId);
         }

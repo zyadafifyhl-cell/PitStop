@@ -41,6 +41,7 @@ export type DbShop = {
   owner_user_id?: string | null;
   rating?: number | null;
   is_active: boolean;
+  is_premium: boolean;
   created_at: string;
   updated_at: string;
 };

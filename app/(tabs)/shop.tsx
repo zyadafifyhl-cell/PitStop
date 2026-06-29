@@ -60,6 +60,7 @@ import {
   cancelShopOffer,
   getShopExtras,
   removeShopImage,
+  setShopCoverImage,
   setShopProfileInfo,
   setShopProfileImage,
   setShopSchedule,
@@ -483,15 +484,17 @@ export default function ShopScreen() {
         });
       }
       const booking = bookings.find((row) => row.id === bookingId);
-      await pushCustomerNotification({
-        customerId: booking?.customerId,
-        customerPhone: notification.customerPhone,
-        kind: resolution === 'approved' ? 'booking_approved' : 'booking_declined',
-        shopId: shop.id,
-        bookingId,
-        scheduledAt: notification.scheduledAt ?? booking?.scheduledAt,
-        ownerNote: decisionNote.trim() || undefined,
-      });
+      if (resolution !== 'approved') {
+        await pushCustomerNotification({
+          customerId: booking?.customerId,
+          customerPhone: notification.customerPhone,
+          kind: 'booking_declined',
+          shopId: shop.id,
+          bookingId,
+          scheduledAt: notification.scheduledAt ?? booking?.scheduledAt,
+          ownerNote: decisionNote.trim() || undefined,
+        });
+      }
       const scheduledAt = notification.scheduledAt ?? booking?.scheduledAt;
       if (resolution === 'approved' && scheduledAt) {
         await scheduleBookingReminders({
@@ -598,6 +601,30 @@ export default function ShopScreen() {
         ) : null}
       </View>
     );
+  }
+
+  async function onSetCoverImage() {
+    if (!shop) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(t('shop_image_permission_title'), t('shop_image_permission_body'));
+      return;
+    }
+    setPickingImage(true);
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (picked.canceled || !picked.assets?.length) return;
+      const uri = picked.assets[0].uri;
+      if (!uri) return;
+      await setShopCoverImage(shop.id, uri);
+      await refreshShopExtras();
+    } finally {
+      setPickingImage(false);
+    }
   }
 
   async function onAddShopImage() {
@@ -819,7 +846,7 @@ export default function ShopScreen() {
       ? shopExtras?.profileNameAr || shopExtras?.profileName || shop.nameAr
       : shopExtras?.profileName || shop.name;
   const activeOffers = (shopExtras?.offers ?? []).filter((offer) => offer.active);
-  const coverImage = shopExtras?.imageUrls?.[0] || shopExtras?.profileImageUrl;
+  const coverImage = shopExtras?.imageUrls?.[0];
   const profileImage = shopExtras?.profileImageUrl;
 
   const ownerProfileHero = (
@@ -834,7 +861,7 @@ export default function ShopScreen() {
       coverEditLabel={t('shop_manage_add_image')}
       profileEditLabel={t('shop_manage_set_profile_image')}
       logoutLabel={t('shop_logout')}
-      onEditCover={onAddShopImage}
+      onEditCover={onSetCoverImage}
       onEditProfile={onSetProfileImage}
       onLogout={onLogout}
       notificationsLabel={t('shop_notifications_button')}

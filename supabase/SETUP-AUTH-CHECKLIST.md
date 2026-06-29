@@ -21,7 +21,10 @@ Run in SQL Editor, in order:
 
 1. `apply-pitstop-2.0-on-existing-db.sql` (or steps 1–4 if split)
 2. `apply-pitstop-2.0-step5-admin-approval.sql`
-3. `seed.sql` + `seed-test-data.sql` (demo shops)
+3. `apply-pitstop-2.0-step6-shop-premium.sql` (if not already applied)
+4. **`apply-pitstop-2.0-steps-7-through-8-bundle.sql`** — walk-in POS, reviews, community feed
+5. **`apply-pitstop-2.0-step9-admin-saas.sql`** — admin premium toggle, ledger, moderation
+6. `seed.sql` + `seed-test-data.sql` (demo shops)
 
 ---
 

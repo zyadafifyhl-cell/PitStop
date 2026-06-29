@@ -15,6 +15,7 @@ import { processDueBookingReminders } from '@/lib/booking/bookingReminders';
 import {
   customerNotificationIsApproved,
   customerNotificationIsReminder,
+  customerNotificationIsReviewReply,
   formatCustomerNotificationLine,
 } from '@/lib/booking/customerNotificationText';
 import type { CustomerNotification } from '@/lib/booking/types';
@@ -69,6 +70,7 @@ export function CustomerNotificationsBell() {
     bookingReminderSoon: t('customer_notification_booking_reminder_soon'),
     partsConfirmed: t('customer_notification_parts_confirmed'),
     partsDeclined: t('customer_notification_parts_declined'),
+    reviewOwnerReply: t('customer_notification_review_reply'),
   };
 
   return (
@@ -97,6 +99,7 @@ export function CustomerNotificationsBell() {
                 notifications.map((notification) => {
                   const approved = customerNotificationIsApproved(notification);
                   const isReminder = customerNotificationIsReminder(notification);
+                  const isReviewReply = customerNotificationIsReviewReply(notification);
                   return (
                     <View
                       key={notification.id}
@@ -121,15 +124,19 @@ export function CustomerNotificationsBell() {
                             }}>
                             {isReminder
                               ? t('customer_notification_status_reminder')
-                              : approved
-                                ? t('customer_notification_status_approved')
-                                : t('customer_notification_status_declined')}
+                              : isReviewReply
+                                ? t('customer_notification_status_reply')
+                                : approved
+                                  ? t('customer_notification_status_approved')
+                                  : t('customer_notification_status_declined')}
                           </Text>
                         </View>
                       </View>
                       {notification.ownerNote ? (
                         <Text style={[styles.meta, { color: theme.textMuted }]}>
-                          {tp('customer_notification_owner_note', { note: notification.ownerNote })}
+                          {isReviewReply
+                            ? tp('customer_notification_review_reply_body', { reply: notification.ownerNote })
+                            : tp('customer_notification_owner_note', { note: notification.ownerNote })}
                         </Text>
                       ) : null}
                       <Text style={[styles.meta, { color: theme.textMuted }]}>

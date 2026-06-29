@@ -1,8 +1,6 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { normalizeBookingMoney } from '@/lib/booking/reporting';
 import { listShopReviews } from '@/lib/booking/reviewsStorage';
-import type { Booking } from '@/lib/booking/types';
+import type { Booking, ShopService } from '@/lib/booking/types';
 import type { WashAnalyticsSnapshot } from '@/lib/booking/wash/types';
 
 function startOfDay(d: Date): Date {
@@ -17,10 +15,43 @@ function endOfDay(d: Date): Date {
   return x;
 }
 
+export type WashAnalyticsOptions = {
+  branchId?: string;
+  branchServices?: ShopService[];
+  locale?: 'en' | 'ar';
+  noServiceDataLabel?: string;
+};
+
+function serviceLabel(service: ShopService, locale: 'en' | 'ar'): string {
+  if (locale === 'ar') return service.nameAr?.trim() || service.name.trim();
+  return service.name.trim() || service.nameAr?.trim() || '';
+}
+
+function resolveBookingServiceLabel(
+  booking: Booking,
+  serviceById: Map<string, ShopService>,
+  locale: 'en' | 'ar',
+): string | null {
+  if (booking.serviceId) {
+    const matched = serviceById.get(booking.serviceId);
+    if (matched) return serviceLabel(matched, locale);
+  }
+  const direct =
+    locale === 'ar'
+      ? booking.serviceNameAr?.trim() || booking.serviceName?.trim()
+      : booking.serviceName?.trim() || booking.serviceNameAr?.trim();
+  return direct || null;
+}
+
 export async function computeWashAnalytics(
   shopId: string,
   bookings: Booking[],
+  options?: WashAnalyticsOptions,
 ): Promise<WashAnalyticsSnapshot> {
+  const locale = options?.locale ?? 'en';
+  const noServiceDataLabel = options?.noServiceDataLabel ?? '—';
+  const serviceById = new Map((options?.branchServices ?? []).map((service) => [service.id, service]));
+
   const now = new Date();
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
@@ -29,7 +60,11 @@ export async function computeWashAnalytics(
   weekStart.setDate(now.getDate() - 6);
   weekStart.setHours(0, 0, 0, 0);
 
-  const shopBookings = bookings.filter((b) => b.shopId === shopId);
+  let shopBookings = bookings.filter((b) => b.shopId === shopId);
+  if (options?.branchId) {
+    shopBookings = shopBookings.filter((b) => !b.branchId || b.branchId === options.branchId);
+  }
+
   const todayBookings = shopBookings.filter((b) => {
     const t = new Date(b.scheduledAt).getTime();
     return t >= todayStart.getTime() && t <= todayEnd.getTime() && b.status !== 'cancelled';
@@ -63,13 +98,15 @@ export async function computeWashAnalytics(
   const returningCount = Object.values(returningCustomers).filter((n) => n > 1).length;
 
   const serviceCounts = shopBookings.reduce((acc, booking) => {
-    const name = booking.serviceName || booking.carType;
-    if (!name || booking.status === 'cancelled') return acc;
-    acc[name] = (acc[name] ?? 0) + 1;
+    if (booking.status === 'cancelled') return acc;
+    const label = resolveBookingServiceLabel(booking, serviceById, locale);
+    if (!label) return acc;
+    acc[label] = (acc[label] ?? 0) + 1;
     return acc;
   }, {} as Record<string, number>);
-  const mostBookedService =
-    Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
+
+  const rankedServices = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1]);
+  const mostBookedService = rankedServices[0]?.[0] ?? noServiceDataLabel;
 
   const hourCounts = shopBookings.reduce((acc, booking) => {
     if (booking.status === 'cancelled') return acc;

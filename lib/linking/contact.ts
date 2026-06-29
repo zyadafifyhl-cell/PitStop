@@ -1,6 +1,7 @@
-import { Linking, Platform } from 'react-native';
+import { Linking } from 'react-native';
 
 import { SUPPORT } from '@/constants/support';
+import { EL_REHAB_FALLBACK_COORDS } from '@/lib/booking/nearby';
 import type { Shop } from '@/lib/booking/types';
 
 export async function openPhone(phoneE164: string): Promise<void> {
@@ -33,18 +34,39 @@ export async function openSupportWhatsApp(message?: string): Promise<void> {
 }
 
 export async function openShopInMaps(shop: Shop, locale: 'en' | 'ar'): Promise<void> {
-  const label = encodeURIComponent(locale === 'ar' ? shop.nameAr : shop.name);
-  const { latitude, longitude } = shop;
-  const query = `${latitude},${longitude}`;
+  await openMapsAtCoordinates(shop.latitude, shop.longitude, locale === 'ar' ? shop.nameAr : shop.name);
+}
 
-  const url =
-    Platform.OS === 'ios'
-      ? `maps:0,0?q=${query}(${label})`
-      : Platform.OS === 'android'
-        ? `geo:${query}?q=${query}(${label})`
-        : `https://www.google.com/maps/search/?api=1&query=${query}`;
+export async function openMapsAtCoordinates(
+  latitude: number,
+  longitude: number,
+  label?: string,
+): Promise<void> {
+  const lat = Number.isFinite(latitude) ? latitude : EL_REHAB_FALLBACK_COORDS.latitude;
+  const lng = Number.isFinite(longitude) ? longitude : EL_REHAB_FALLBACK_COORDS.longitude;
+  const query = `${lat},${lng}`;
+  const url = `https://maps.google.com/?q=${query}`;
 
+  const canOpen = await Linking.canOpenURL(url);
+  if (!canOpen) throw new Error('Maps not supported');
   await Linking.openURL(url);
+}
+
+/** Opens Google Maps at branch coords; falls back to El Rehab demo pin when missing. */
+export async function openBranchDirections(
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+  label?: string,
+): Promise<void> {
+  const lat =
+    latitude != null && longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? latitude
+      : EL_REHAB_FALLBACK_COORDS.latitude;
+  const lng =
+    latitude != null && longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? longitude
+      : EL_REHAB_FALLBACK_COORDS.longitude;
+  await openMapsAtCoordinates(lat, lng, label);
 }
 
 /** Opens Google Maps showing all shops of a type (search near Cairo as fallback center). */
