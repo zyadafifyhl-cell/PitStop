@@ -2,9 +2,9 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +17,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
+import { listArchivedBookingsForStaff } from '@/lib/booking/bookingHistoryRepository';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
   cancelBookingReminders,
@@ -24,25 +25,27 @@ import {
 } from '@/lib/booking/bookingReminders';
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
+import { listShopReviews, setReviewOwnerReply } from '@/lib/booking/reviewsStorage';
 import {
-  clearShopBookingHistory,
-  deleteBookingForShop,
   listBookingsForShop,
   updateBookingStatus,
 } from '@/lib/booking/storage';
-import type { Booking, BookingStatus } from '@/lib/booking/types';
+import type { Booking, BookingStatus, ShopReview } from '@/lib/booking/types';
+import {
+  filterPendingQueueBookingsForStaff,
+  filterWashNotificationsForStaff,
+} from '@/lib/booking/wash/bookingDispatch';
 import { getActiveWashBranch } from '@/lib/booking/wash/washBranchStorage';
 import type { WashBranch } from '@/lib/booking/wash/types';
 import { openPhone } from '@/lib/linking/contact';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { WashCenterNotification } from '@/lib/booking/wash/types';
 import {
-  clearWashNotifications,
   listWashCenterNotifications,
   markWashNotificationRead,
 } from '@/lib/booking/wash/washNotificationCenter';
 
-type HubTab = 'notifications' | 'orders' | 'history';
+type HubTab = 'queue' | 'reports' | 'reviews' | 'orders' | 'history';
 
 type RejectTarget = { booking: Booking; notificationId?: string };
 
@@ -67,23 +70,40 @@ function UnreadPulseDot({ rtl }: { rtl?: boolean }) {
   );
 }
 
-function filterBookingsForStaff(bookings: Booking[], staff: ReturnType<typeof useShopAuth>['staff']) {
+function filterBookingsForStaff(bookings: Booking[], staff: ShopStaffUser | null) {
   if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
   return bookings.filter((booking) => !booking.branchId || booking.branchId === staff.branchId);
+}
+
+function resolveHubTab(rawTab?: string, rawStream?: string): HubTab {
+  if (rawTab === 'queue' || rawTab === 'reports' || rawTab === 'reviews' || rawTab === 'orders' || rawTab === 'history') {
+    return rawTab;
+  }
+  if (rawTab === 'notifications') {
+    if (rawStream === 'reports') return 'reports';
+    if (rawStream === 'reviews') return 'reviews';
+    return 'queue';
+  }
+  return 'queue';
 }
 
 export default function WashOwnerHubScreen() {
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
-  const { shop, staff, ready } = useShopAuth();
-  const params = useLocalSearchParams<{ tab?: string | string[] }>();
+  const { shop, shopStaff, ready } = useShopAuth();
+  const params = useLocalSearchParams<{ tab?: string | string[]; stream?: string | string[] }>();
   const rawTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
-  const initialTab: HubTab =
-    rawTab === 'orders' || rawTab === 'history' ? rawTab : 'notifications';
+  const rawStream = Array.isArray(params.stream) ? params.stream[0] : params.stream;
+  const initialTab = resolveHubTab(rawTab, rawStream);
 
   const [tab, setTab] = useState<HubTab>(initialTab);
   const [notifications, setNotifications] = useState<WashCenterNotification[]>([]);
+  const [queueBookings, setQueueBookings] = useState<Booking[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [historyBookings, setHistoryBookings] = useState<Booking[]>([]);
+  const [reviews, setReviews] = useState<ShopReview[]>([]);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
@@ -92,30 +112,43 @@ export default function WashOwnerHubScreen() {
   const [walkInBranch, setWalkInBranch] = useState<WashBranch | null>(null);
 
   useEffect(() => {
-    if (rawTab === 'orders' || rawTab === 'history' || rawTab === 'notifications') {
-      setTab(rawTab);
-    }
-  }, [rawTab]);
+    setTab(resolveHubTab(rawTab, rawStream));
+  }, [rawTab, rawStream]);
+
+  const branchId = shopStaff?.role === 'branch_manager' ? shopStaff.branchId : undefined;
 
   const refresh = useCallback(async () => {
     if (!shop) {
       setNotifications([]);
       setBookings([]);
+      setQueueBookings([]);
+      setHistoryBookings([]);
+      setReviews([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [notifRows, bookingRows] = await Promise.all([
+      const [notifRows, bookingRows, reviewRows, archivedRows] = await Promise.all([
         listWashCenterNotifications(shop.id),
         listBookingsForShop(shop.id),
+        listShopReviews(shop.id),
+        listArchivedBookingsForStaff(shop.id, branchId),
       ]);
-      setNotifications(notifRows);
-      setBookings(filterBookingsForStaff(bookingRows, staff));
+      const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
+      const filteredNotifs = await filterWashNotificationsForStaff(shopStaff, notifRows);
+      const pendingQueue = await filterPendingQueueBookingsForStaff(shopStaff, scopedBookings);
+      setNotifications(filteredNotifs);
+      setBookings(scopedBookings);
+      setQueueBookings(
+        pendingQueue.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)),
+      );
+      setHistoryBookings(archivedRows);
+      setReviews(reviewRows);
     } finally {
       setLoading(false);
     }
-  }, [shop, staff]);
+  }, [shop, shopStaff, branchId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -131,20 +164,57 @@ export default function WashOwnerHubScreen() {
     [bookings],
   );
 
-  const historyBookings = useMemo(
-    () =>
-      bookings
-        .filter((b) => b.status === 'done' || b.status === 'cancelled' || b.status === 'no_show')
-        .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
-    [bookings],
+  const reportNotifications = useMemo(
+    () => notifications.filter((row) => row.kind === 'weekly_revenue' || row.kind === 'system_alert'),
+    [notifications],
   );
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const reviewNotifications = useMemo(
+    () => notifications.filter((row) => row.kind === 'new_review'),
+    [notifications],
+  );
+
+  const unreadReportCount = reportNotifications.filter((n) => !n.read).length;
+  const unreadReviewCount = reviewNotifications.filter((n) => !n.read).length;
+
+  function reviewForNotification(row: WashCenterNotification): ShopReview | undefined {
+    if (!row.reviewId) return undefined;
+    return reviews.find((review) => review.id === row.reviewId);
+  }
+
+  async function onOpenReportNotification(row: WashCenterNotification) {
+    if (!shop || !row.reportHtml) return;
+    await markWashNotificationRead(shop.id, row.id);
+    setReportPreviewHtml(row.reportHtml);
+    await refresh();
+  }
+
+  function printReportPreview() {
+    if (Platform.OS !== 'web') return;
+    const iframe = document.getElementById('wash-hub-report-iframe') as HTMLIFrameElement | null;
+    iframe?.contentWindow?.print();
+  }
+
+  async function onSubmitReviewReply(reviewId: string, notificationId?: string) {
+    if (!shop) return;
+    const reply = replyDrafts[reviewId]?.trim();
+    if (!reply) return;
+    setBusy(true);
+    try {
+      await setReviewOwnerReply(shop.id, reviewId, reply);
+      if (notificationId) {
+        await markWashNotificationRead(shop.id, notificationId);
+      }
+      setReplyDrafts((prev) => ({ ...prev, [reviewId]: '' }));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function openWalkInModal() {
-    if (!shop || !staff || (staff.role !== 'owner' && staff.role !== 'branch_manager')) return;
-    const branchStaff = staff as ShopStaffUser;
-    const branch = await getActiveWashBranch(shop, { staff: branchStaff });
+    if (!shop || !shopStaff || (shopStaff.role !== 'owner' && shopStaff.role !== 'branch_manager')) return;
+    const branch = await getActiveWashBranch(shop, { staff: shopStaff });
     setWalkInBranch(branch);
     setWalkInOpen(true);
   }
@@ -199,57 +269,65 @@ export default function WashOwnerHubScreen() {
     }
   }
 
-  function bookingForNotification(row: WashCenterNotification): Booking | undefined {
-    if (!row.bookingId) return undefined;
-    return bookings.find((booking) => booking.id === row.bookingId);
+  function renderQueueBookingCard(booking: Booking) {
+    const serviceName =
+      locale === 'ar'
+        ? booking.serviceNameAr || booking.serviceName || booking.carType
+        : booking.serviceName || booking.carType;
+
+    return (
+      <View key={booking.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+        <Text style={[styles.cardTitle, { color: theme.text }]}>{t('wash_active_requests_title')}</Text>
+        <Text style={[styles.when, { color: theme.text }]}>{formatBookingDateTime(booking.scheduledAt, locale)}</Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>
+          {booking.customerName || booking.customerPhone} · {booking.carType}
+        </Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>
+          {t('wash_booking_service')}: {serviceName}
+        </Text>
+        <View style={styles.notifActions}>
+          <Pressable
+            onPress={() => onBookingStatusChange(booking, 'confirmed')}
+            disabled={busy}
+            style={[
+              styles.actionBtn,
+              styles.actionBtnPrimary,
+              { backgroundColor: theme.success, borderColor: theme.success, opacity: busy ? 0.6 : 1 },
+            ]}>
+            <Text style={[styles.actionBtnText, { color: '#fff' }]}>{t('wash_notif_accept')}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setRejectTarget({ booking });
+              setRejectNote('');
+            }}
+            disabled={busy}
+            style={[
+              styles.actionBtn,
+              styles.actionBtnDangerSoft,
+              { backgroundColor: theme.dangerSoft, borderColor: theme.danger, opacity: busy ? 0.6 : 1 },
+            ]}>
+            <Text style={[styles.actionBtnText, { color: theme.danger }]}>{t('wash_notif_decline')}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
   }
 
-  function isPendingBookingRequest(row: WashCenterNotification): boolean {
-    if (row.kind !== 'new_booking' || !row.bookingId) return false;
-    const booking = bookingForNotification(row);
-    return booking?.status === 'pending';
-  }
-
-  async function onAcceptBookingNotification(row: WashCenterNotification) {
-    if (!shop || busy) return;
-    const booking = bookingForNotification(row);
-    if (!booking || booking.status !== 'pending') {
-      await markWashNotificationRead(shop.id, row.id);
-      await refresh();
-      return;
-    }
-    setBusy(true);
-    try {
-      await onBookingStatusChange(booking, 'confirmed');
-      await markWashNotificationRead(shop.id, row.id);
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function onDeclineBookingNotification(row: WashCenterNotification) {
-    const booking = bookingForNotification(row);
-    if (!booking) return;
-    setRejectTarget({ booking, notificationId: row.id });
-    setRejectNote('');
-  }
-
-  function renderNotificationCard(row: WashCenterNotification) {
+  function renderReportNotificationCard(row: WashCenterNotification) {
     const unread = !row.read;
-    const pendingRequest = isPendingBookingRequest(row);
-
     return (
       <Pressable
         key={row.id}
-        onPress={() => setTab('orders')}
+        onPress={() => void onOpenReportNotification(row)}
+        disabled={!row.reportHtml}
         style={({ pressed }) => [
           styles.card,
           styles.notifCard,
           {
             borderColor: unread ? '#3B82F6' : theme.border,
             backgroundColor: unread ? theme.bgElevated : theme.card,
-            opacity: pressed ? 0.92 : 1,
+            opacity: pressed ? 0.92 : row.reportHtml ? 1 : 0.65,
           },
         ]}>
         {unread ? <UnreadPulseDot rtl={isRTL} /> : null}
@@ -258,83 +336,137 @@ export default function WashOwnerHubScreen() {
         <Text style={[styles.meta, { color: theme.textDim }]}>
           {new Date(row.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
         </Text>
-        <Text style={[styles.notifHint, { color: theme.textDim }]}>{t('wash_notif_tap_orders_hint')}</Text>
-
-        {pendingRequest ? (
-          <View style={styles.notifActions}>
-            <Pressable
-              onPress={(event) => {
-                event.stopPropagation();
-                void onAcceptBookingNotification(row);
-              }}
-              disabled={busy}
-              style={[
-                styles.actionBtn,
-                styles.actionBtnPrimary,
-                { backgroundColor: theme.success, borderColor: theme.success, opacity: busy ? 0.6 : 1 },
-              ]}>
-              <Text style={[styles.actionBtnText, { color: '#fff' }]}>{t('wash_notif_accept')}</Text>
-            </Pressable>
-            <Pressable
-              onPress={(event) => {
-                event.stopPropagation();
-                onDeclineBookingNotification(row);
-              }}
-              disabled={busy}
-              style={[
-                styles.actionBtn,
-                styles.actionBtnDangerSoft,
-                { backgroundColor: theme.dangerSoft, borderColor: theme.danger, opacity: busy ? 0.6 : 1 },
-              ]}>
-              <Text style={[styles.actionBtnText, { color: theme.danger }]}>{t('wash_notif_decline')}</Text>
-            </Pressable>
-          </View>
-        ) : null}
       </Pressable>
     );
   }
 
-  async function onDeleteBooking(booking: Booking) {
-    if (!shop || busy) return;
-    Alert.alert(t('wash_history_erase_title'), t('wash_history_erase_body'), [
-      { text: t('alert_cancel'), style: 'cancel' },
-      {
-        text: t('wash_history_erase_confirm'),
-        style: 'destructive',
-        onPress: async () => {
-          setBusy(true);
-          try {
-            await deleteBookingForShop(shop.id, booking.id);
-            await refresh();
-          } finally {
-            setBusy(false);
+  function renderReviewNotificationCard(row: WashCenterNotification) {
+    const unread = !row.read;
+    const review = reviewForNotification(row);
+    const stars = review ? '★'.repeat(review.rating) : row.body.match(/★+/)?.[0] ?? '';
+
+    return (
+      <View
+        key={row.id}
+        style={[
+          styles.card,
+          styles.notifCard,
+          {
+            borderColor: unread ? '#3B82F6' : theme.border,
+            backgroundColor: unread ? theme.bgElevated : theme.card,
+          },
+        ]}>
+        {unread ? <UnreadPulseDot rtl={isRTL} /> : null}
+        <Text style={[styles.cardTitle, { color: theme.text }]}>
+          {review?.customerName ?? row.title}
+        </Text>
+        <Text style={[styles.meta, { color: theme.accent }]}>{stars}</Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>{review?.body ?? row.body}</Text>
+        {review?.ownerReply ? (
+          <Text style={[styles.meta, { color: theme.textDim }]}>
+            {t('wash_review_owner_reply')}: {review.ownerReply}
+          </Text>
+        ) : null}
+        <TextInput
+          value={replyDrafts[review?.id ?? row.id] ?? ''}
+          onChangeText={(value) =>
+            setReplyDrafts((prev) => ({ ...prev, [review?.id ?? row.id]: value }))
           }
-        },
-      },
-    ]);
+          placeholder={t('wash_hub_reply_placeholder')}
+          placeholderTextColor={theme.textDim}
+          multiline
+          style={[styles.noteInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+        />
+        <Pressable
+          onPress={() => review && void onSubmitReviewReply(review.id, row.id)}
+          disabled={busy || !review}
+          style={[styles.actionBtn, styles.actionBtnPrimary, { backgroundColor: theme.accent, borderColor: theme.accent, marginTop: 8, opacity: busy || !review ? 0.6 : 1 }]}>
+          <Text style={[styles.actionBtnText, { color: theme.onAccent }]}>{t('wash_hub_reply_submit')}</Text>
+        </Pressable>
+      </View>
+    );
   }
 
-  async function onClearHistory() {
-    if (!shop || busy || historyBookings.length === 0) return;
-    Alert.alert(t('wash_history_clear_title'), t('wash_history_clear_body'), [
-      { text: t('alert_cancel'), style: 'cancel' },
-      {
-        text: t('wash_history_clear_confirm'),
-        style: 'destructive',
-        onPress: async () => {
-          setBusy(true);
-          try {
-            await clearShopBookingHistory(shop.id);
-            await refresh();
-          } finally {
-            setBusy(false);
-          }
-        },
-      },
-    ]);
+  function renderTabContent() {
+    if (tab === 'queue') {
+      return queueBookings.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_hub_queue_empty')}</Text>
+      ) : (
+        queueBookings.map((booking) => renderQueueBookingCard(booking))
+      );
+    }
+
+    if (tab === 'reports') {
+      return reportNotifications.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_hub_reports_empty')}</Text>
+      ) : (
+        reportNotifications.map((row) => renderReportNotificationCard(row))
+      );
+    }
+
+    if (tab === 'reviews') {
+      return reviewNotifications.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_hub_reviews_empty')}</Text>
+      ) : (
+        reviewNotifications.map((row) => renderReviewNotificationCard(row))
+      );
+    }
+
+    if (tab === 'orders') {
+      return (
+        <>
+          <Pressable
+            onPress={openWalkInModal}
+            style={[styles.primaryBtn, { backgroundColor: theme.accent, marginBottom: 12 }]}>
+            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
+          </Pressable>
+          {orderBookings.length === 0 ? (
+            <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_active_requests_empty')}</Text>
+          ) : (
+            orderBookings.map((b) => renderBookingCard(b))
+          )}
+        </>
+      );
+    }
+
+    return historyBookings.length === 0 ? (
+      <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_booking_history_empty')}</Text>
+    ) : (
+      historyBookings.map((b) => renderHistoryCard(b))
+    );
   }
 
-  function renderBookingCard(booking: Booking, mode: 'orders' | 'history') {
+  function renderHistoryCard(booking: Booking) {
+    const serviceName =
+      locale === 'ar'
+        ? booking.serviceNameAr || booking.serviceName || booking.carType
+        : booking.serviceName || booking.carType;
+    const price = booking.servicePriceEgp != null ? formatEgp(booking.servicePriceEgp, locale) : '—';
+
+    return (
+      <View key={booking.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+        <Text style={[styles.when, { color: theme.text }]}>{formatBookingDateTime(booking.scheduledAt, locale)}</Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>
+          {t('wash_booking_customer')}: {booking.customerName || booking.customerPhone}
+        </Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>
+          {t('wash_booking_vehicle')}: {booking.carType}
+          {booking.carColor ? ` · ${booking.carColor}` : ''}
+        </Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>
+          {t('wash_booking_service')}: {serviceName} · {price}
+        </Text>
+        {booking.customerNotes ? (
+          <Text style={[styles.meta, { color: theme.textMuted }]}>
+            {t('wash_booking_notes')}: {booking.customerNotes}
+          </Text>
+        ) : null}
+        <Text style={[styles.status, { color: theme.accent }]}>{bookingStatusLabel(booking.status, locale)}</Text>
+      </View>
+    );
+  }
+
+  function renderBookingCard(booking: Booking) {
     const serviceName =
       locale === 'ar'
         ? booking.serviceNameAr || booking.serviceName || booking.carType
@@ -361,59 +493,51 @@ export default function WashOwnerHubScreen() {
         ) : null}
         <Text style={[styles.status, { color: theme.accent }]}>{bookingStatusLabel(booking.status, locale)}</Text>
 
-        {mode === 'orders' ? (
-          <View style={styles.actions}>
-            {booking.status === 'pending' ? (
-              <>
-                <Pressable
-                  onPress={() => onBookingStatusChange(booking, 'confirmed')}
-                  style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                  <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('shop_action_approve')}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setRejectTarget({ booking });
-                    setRejectNote('');
-                  }}
-                  style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                  <Text style={styles.chipText}>{t('shop_action_decline')}</Text>
-                </Pressable>
-              </>
-            ) : null}
-            {booking.status === 'confirmed' ? (
-              <>
-                <Pressable
-                  onPress={() => onBookingStatusChange(booking, 'in_progress')}
-                  style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                  <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_in_progress')}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => onBookingStatusChange(booking, 'no_show')}
-                  style={[styles.chipBtn, { borderColor: theme.border }]}>
-                  <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_no_show')}</Text>
-                </Pressable>
-              </>
-            ) : null}
-            {booking.status === 'in_progress' ? (
+        <View style={styles.actions}>
+          {booking.status === 'pending' ? (
+            <>
               <Pressable
-                onPress={() => onBookingStatusChange(booking, 'done')}
+                onPress={() => onBookingStatusChange(booking, 'confirmed')}
                 style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_complete')}</Text>
+                <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('shop_action_approve')}</Text>
               </Pressable>
-            ) : null}
+              <Pressable
+                onPress={() => {
+                  setRejectTarget({ booking });
+                  setRejectNote('');
+                }}
+                style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+                <Text style={styles.chipText}>{t('shop_action_decline')}</Text>
+              </Pressable>
+            </>
+          ) : null}
+          {booking.status === 'confirmed' ? (
+            <>
+              <Pressable
+                onPress={() => onBookingStatusChange(booking, 'in_progress')}
+                style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+                <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_in_progress')}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => onBookingStatusChange(booking, 'no_show')}
+                style={[styles.chipBtn, { borderColor: theme.border }]}>
+                <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_no_show')}</Text>
+              </Pressable>
+            </>
+          ) : null}
+          {booking.status === 'in_progress' ? (
             <Pressable
-              onPress={() => openPhone(booking.customerPhone).catch(() => undefined)}
-              style={[styles.chipBtn, { borderColor: theme.border }]}>
-              <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_contact')}</Text>
+              onPress={() => onBookingStatusChange(booking, 'done')}
+              style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+              <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_complete')}</Text>
             </Pressable>
-          </View>
-        ) : (
+          ) : null}
           <Pressable
-            onPress={() => onDeleteBooking(booking)}
-            style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger, marginTop: 10 }]}>
-            <Text style={styles.chipText}>{t('wash_history_erase_one')}</Text>
+            onPress={() => openPhone(booking.customerPhone).catch(() => undefined)}
+            style={[styles.chipBtn, { borderColor: theme.border }]}>
+            <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_contact')}</Text>
           </Pressable>
-        )}
+        </View>
       </View>
     );
   }
@@ -452,7 +576,9 @@ export default function WashOwnerHubScreen() {
       <View style={[styles.tabRow, { borderColor: theme.border }]}>
         {(
           [
-            { id: 'notifications' as const, label: t('wash_hub_tab_notifications'), badge: unreadCount },
+            { id: 'queue' as const, label: t('wash_hub_subtab_queue'), badge: queueBookings.length },
+            { id: 'reports' as const, label: t('wash_hub_subtab_reports'), badge: unreadReportCount },
+            { id: 'reviews' as const, label: t('wash_hub_subtab_reviews'), badge: unreadReviewCount },
             { id: 'orders' as const, label: t('wash_hub_tab_orders'), badge: orderBookings.length },
             { id: 'history' as const, label: t('wash_hub_tab_history'), badge: historyBookings.length },
           ] as const
@@ -478,67 +604,36 @@ export default function WashOwnerHubScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {loading ? (
           <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
-        ) : tab === 'notifications' ? (
-          <>
-            {notifications.length > 0 ? (
-              <View style={styles.toolbar}>
-                <Pressable
-                  onPress={async () => {
-                    Alert.alert(t('wash_notif_clear_title'), t('wash_notif_clear_body'), [
-                      { text: t('alert_cancel'), style: 'cancel' },
-                      {
-                        text: t('wash_notif_clear_confirm'),
-                        style: 'destructive',
-                        onPress: async () => {
-                          setBusy(true);
-                          try {
-                            await clearWashNotifications(shop.id);
-                            await refresh();
-                          } finally {
-                            setBusy(false);
-                          }
-                        },
-                      },
-                    ]);
-                  }}
-                  disabled={busy}
-                  style={[styles.chipBtn, { borderColor: theme.danger }]}>
-                  <Text style={[styles.chipText, { color: theme.danger }]}>{t('wash_notif_clear_all')}</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            {notifications.length === 0 ? (
-              <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_notif_empty')}</Text>
-            ) : (
-              notifications.map((row) => renderNotificationCard(row))
-            )}
-          </>
-        ) : tab === 'orders' ? (
-          <>
-            <Pressable
-              onPress={openWalkInModal}
-              style={[styles.primaryBtn, { backgroundColor: theme.accent, marginBottom: 12 }]}>
-              <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
-            </Pressable>
-            {orderBookings.length === 0 ? (
-              <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_active_requests_empty')}</Text>
-            ) : (
-              orderBookings.map((b) => renderBookingCard(b, 'orders'))
-            )}
-          </>
-        ) : historyBookings.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_booking_history_empty')}</Text>
         ) : (
-          <>
-            <Pressable
-              onPress={onClearHistory}
-              style={[styles.primaryBtn, { backgroundColor: theme.danger, marginBottom: 12 }]}>
-              <Text style={[styles.primaryBtnText, { color: '#fff' }]}>{t('wash_history_clear_all')}</Text>
-            </Pressable>
-            {historyBookings.map((b) => renderBookingCard(b, 'history'))}
-          </>
+          renderTabContent()
         )}
       </ScrollView>
+
+      <Modal visible={!!reportPreviewHtml} transparent animationType="fade" onRequestClose={() => setReportPreviewHtml(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>{t('wash_report_title')}</Text>
+            {Platform.OS === 'web' && reportPreviewHtml ? (
+              <iframe
+                id="wash-hub-report-iframe"
+                title="wash-hub-report"
+                srcDoc={reportPreviewHtml}
+                style={{ width: '100%', height: 420, border: 'none', borderRadius: 8 }}
+              />
+            ) : null}
+            <View style={styles.actions}>
+              {Platform.OS === 'web' ? (
+                <Pressable onPress={printReportPreview} style={[styles.primaryBtn, { backgroundColor: theme.accent, flex: 1 }]}>
+                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_report_save_pdf')}</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={() => setReportPreviewHtml(null)} style={[styles.chipBtn, { borderColor: theme.border, flex: 1 }]}>
+                <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_report_close')}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={!!rejectTarget} transparent animationType="fade" onRequestClose={() => setRejectTarget(null)}>
         <View style={styles.modalBackdrop}>

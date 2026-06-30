@@ -1,9 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
-import React, { createElement, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,7 +15,7 @@ import {
   View,
 } from 'react-native';
 
-import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
+import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
@@ -28,16 +26,7 @@ import {
   pushCustomerNotification,
   resolveOwnerNotification,
 } from '@/lib/booking/commerceEvents';
-import {
-  buildOwnerReportHtml,
-  filterBookingsByRange,
-  formatEgp,
-  formatRangeLabel,
-  normalizeBookingMoney,
-  resolveCustomRange,
-  resolveLastNDaysRange,
-  toYmdLocal,
-} from '@/lib/booking/reporting';
+import { formatEgp } from '@/lib/booking/reporting';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { userAlert } from '@/lib/ui/userAlert';
@@ -90,7 +79,7 @@ const webListScrollStyle =
 export default function ShopScreen() {
   const theme = useAppTheme();
   const { t, tp, locale } = useI18n();
-  const { ready, shop, busy, login, isAdmin } = useShopAuth();
+  const { ready, shop, busy, login, isAdmin, shopStaff } = useShopAuth();
 
   useEffect(() => {
     if (ready && isAdmin) {
@@ -101,16 +90,8 @@ export default function ShopScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
   const [loadingBookings, setLoadingBookings] = useState(false);
-  const [reportStartYmd, setReportStartYmd] = useState(() => {
-    const start = new Date();
-    start.setDate(start.getDate() - 29);
-    return toYmdLocal(start);
-  });
-  const [reportEndYmd, setReportEndYmd] = useState(() => toYmdLocal(new Date()));
-  const [lastDaysInput, setLastDaysInput] = useState('30');
-  const [showHistory, setShowHistory] = useState(false);
-  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [inventory, setInventory] = useState<StoreItem[]>([]);
   const [partsOrders, setPartsOrders] = useState<PartsOrder[]>([]);
   const [loadingParts, setLoadingParts] = useState(false);
@@ -145,7 +126,6 @@ export default function ShopScreen() {
   } | null>(null);
   const [decisionNote, setDecisionNote] = useState('');
   const [decisionBusy, setDecisionBusy] = useState(false);
-  const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
   const [scheduleInlineOk, setScheduleInlineOk] = useState(false);
 
@@ -221,16 +201,6 @@ export default function ShopScreen() {
     }, [shop, locale]),
   );
 
-  const reportRange = useMemo(
-    () => resolveCustomRange(reportStartYmd, reportEndYmd),
-    [reportStartYmd, reportEndYmd],
-  );
-
-  const reportBookings = useMemo(() => {
-    if (!reportRange) return [];
-    return filterBookingsByRange(bookings, reportRange);
-  }, [bookings, reportRange]);
-
   const activeBookings = useMemo(
     () =>
       bookings
@@ -238,27 +208,6 @@ export default function ShopScreen() {
         .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)),
     [bookings],
   );
-
-  const historyBookings = useMemo(
-    () =>
-      bookings
-        .filter((booking) => booking.status !== 'pending')
-        .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
-    [bookings],
-  );
-
-  const financialTotals = useMemo(() => {
-    return reportBookings.reduce(
-      (acc, booking) => {
-        const money = normalizeBookingMoney(booking);
-        acc.gross += money.servicePriceEgp;
-        acc.fee += money.platformFeeEgp;
-        acc.net += money.ownerNetEgp;
-        return acc;
-      },
-      { gross: 0, fee: 0, net: 0 },
-    );
-  }, [reportBookings]);
 
   async function onLogin() {
     const result = await login(email, password);
@@ -318,62 +267,6 @@ export default function ShopScreen() {
     if (!shop || !isStoreShopType(shop.type)) return;
     await updatePartsOrderStatus(shop.id, orderId, status);
     await refreshPartsData();
-  }
-
-  function printReportPreview() {
-    if (Platform.OS !== 'web') return;
-    const iframe = document.getElementById('pitstop-report-iframe') as HTMLIFrameElement | null;
-    iframe?.contentWindow?.print();
-  }
-
-  async function onGeneratePdf() {
-    if (!shop) return;
-    if (!reportRange) {
-      Alert.alert(t('shop_report_invalid_range_title'), t('shop_report_invalid_range_body'));
-      return;
-    }
-
-    const rangeLabel = formatRangeLabel(reportRange, locale);
-    const html = buildOwnerReportHtml({
-      shop,
-      bookings: reportBookings,
-      range: reportRange,
-      rangeLabel,
-      generatedAt: new Date(),
-      locale,
-    });
-
-    setGeneratingPdf(true);
-    try {
-      if (Platform.OS === 'web') {
-        setReportPreviewHtml(html);
-        return;
-      }
-      const file = await Print.printToFileAsync({ html });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(file.uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: t('shop_report_share_pdf'),
-        });
-      } else {
-        Alert.alert(t('shop_report_pdf_ready_title'), file.uri);
-      }
-    } catch {
-      Alert.alert(t('shop_report_pdf_fail_title'), t('shop_report_pdf_fail_body'));
-    } finally {
-      setGeneratingPdf(false);
-    }
-  }
-
-  function applyLastDaysRange() {
-    const days = Number(lastDaysInput);
-    const range = resolveLastNDaysRange(days);
-    if (!range) {
-      Alert.alert(t('shop_report_invalid_range_title'), t('shop_report_days_invalid_body'));
-      return;
-    }
-    setReportStartYmd(toYmdLocal(range.start));
-    setReportEndYmd(toYmdLocal(range.end));
   }
 
   function renderBookingCard(item: Booking, showActions: boolean) {
@@ -867,6 +760,8 @@ export default function ShopScreen() {
       notificationsLabel={t('shop_notifications_button')}
       notificationCount={pendingNotificationCount}
       onOpenNotifications={() => setNotificationsModalVisible(true)}
+      onOpenSettings={() => router.push('/shop/merchant-settings')}
+      settingsLabel={t('merchant_settings_open')}
     />
   );
 
@@ -1090,35 +985,6 @@ export default function ShopScreen() {
         </View>
       </Modal>
 
-      <Modal
-        visible={!!reportPreviewHtml}
-        animationType="slide"
-        onRequestClose={() => setReportPreviewHtml(null)}>
-        <View style={[styles.reportModalScreen, { backgroundColor: theme.bg }]}>
-          <View style={[styles.reportModalHeader, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <Pressable onPress={() => setReportPreviewHtml(null)} style={styles.reportModalBtn}>
-              <Text style={{ color: theme.text, fontWeight: '700' }}>{t('shop_report_close')}</Text>
-            </Pressable>
-            <Text style={[styles.reportModalTitle, { color: theme.text }]} numberOfLines={1}>
-              {t('shop_report_title')}
-            </Text>
-            <Pressable onPress={printReportPreview} style={styles.reportModalBtn}>
-              <Text style={{ color: theme.accent, fontWeight: '800' }}>{t('shop_report_save_pdf')}</Text>
-            </Pressable>
-          </View>
-          <View style={styles.reportIframeWrap}>
-            {Platform.OS === 'web' && reportPreviewHtml
-              ? createElement('iframe', {
-                  id: 'pitstop-report-iframe',
-                  srcDoc: reportPreviewHtml,
-                  style: { width: '100%', height: '100%', border: 'none', display: 'block', backgroundColor: '#ffffff' },
-                  title: 'PitStop report',
-                })
-              : null}
-          </View>
-        </View>
-      </Modal>
-
       <Modal visible={!!saveNotice} transparent animationType="fade" onRequestClose={() => setSaveNotice(null)}>
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -1222,90 +1088,36 @@ export default function ShopScreen() {
     <>
       <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.page}>
       {ownerProfileHero}
-      {ownerManageSections}
 
-      <OwnerSectionCard theme={theme} title={t('shop_dashboard_lead')} subtitle={t('shop_report_lead')}>
-        <View style={styles.customRangeWrap}>
-          <BookingDatePicker
-            valueYmd={reportStartYmd}
-            onChangeYmd={setReportStartYmd}
-            locale={locale}
-            label={t('shop_report_start_date')}
-            pickHint={t('book_date_pick_hint')}
-            minimumDate={new Date('2020-01-01T00:00:00')}
-            borderColor={theme.border}
-            backgroundColor={theme.bgElevated}
-            textColor={theme.text}
-          />
-          <BookingDatePicker
-            valueYmd={reportEndYmd}
-            onChangeYmd={setReportEndYmd}
-            locale={locale}
-            label={t('shop_report_end_date')}
-            pickHint={t('book_date_pick_hint')}
-            minimumDate={new Date('2020-01-01T00:00:00')}
-            borderColor={theme.border}
-            backgroundColor={theme.bgElevated}
-            textColor={theme.text}
-          />
-        </View>
-
-        <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('shop_report_last_n_days')}</Text>
-        <View style={styles.lastDaysRow}>
-          <TextInput
-            value={lastDaysInput}
-            onChangeText={setLastDaysInput}
-            keyboardType="number-pad"
-            placeholder={t('shop_report_days_placeholder')}
-            placeholderTextColor={theme.textDim}
-            style={[fieldStyle, styles.lastDaysInput]}
-          />
-          <Pressable onPress={applyLastDaysRange} style={[styles.secondaryBtn, { borderColor: theme.border, marginTop: 8 }]}>
-            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('shop_report_apply_days')}</Text>
+      <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
+        {(
+          [
+            { id: 'workspace' as const, label: t('owner_panel_tab_workspace') },
+            { id: 'history' as const, label: t('owner_panel_tab_history') },
+          ] as const
+        ).map((item) => (
+          <Pressable
+            key={item.id}
+            onPress={() => setPanelTab(item.id)}
+            style={[
+              styles.panelTabBtn,
+              {
+                backgroundColor: panelTab === item.id ? theme.accent : theme.bgElevated,
+                borderColor: panelTab === item.id ? theme.accent : theme.border,
+              },
+            ]}>
+            <Text style={[styles.panelTabText, { color: panelTab === item.id ? theme.onAccent : theme.text }]}>
+              {item.label}
+            </Text>
           </Pressable>
-        </View>
+        ))}
+      </View>
 
-        <Text style={[styles.reportSummary, { color: theme.textMuted }]}>
-          {reportRange
-            ? t('shop_report_count')
-                .replace('{count}', String(reportBookings.length))
-                .replace('{range}', formatRangeLabel(reportRange, locale))
-            : t('shop_report_invalid_range_body')}
-        </Text>
-        {reportRange ? (
-          <Text style={[styles.reportMoney, { color: theme.text }]}>
-            {t('shop_report_money_line')
-              .replace('{gross}', formatEgp(financialTotals.gross, locale))
-              .replace('{fee}', formatEgp(financialTotals.fee, locale))
-              .replace('{net}', formatEgp(financialTotals.net, locale))}
-          </Text>
-        ) : null}
-
-        <Pressable
-          onPress={onGeneratePdf}
-          disabled={generatingPdf || !reportRange}
-          style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: generatingPdf || !reportRange ? 0.65 : 1 }]}>
-          <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
-            {generatingPdf
-              ? t('shop_report_generating')
-              : Platform.OS === 'web'
-                ? t('shop_report_view_report')
-                : t('shop_report_generate_pdf')}
-          </Text>
-        </Pressable>
-
-        {reportRange && reportBookings.length > 0 ? (
-          Platform.OS === 'web' ? (
-            <View style={[styles.reportPreviewScroll, webListScrollStyle]}>
-              {reportBookings.map((item) => renderBookingCard(item, false))}
-            </View>
-          ) : (
-            <ScrollView style={styles.reportPreviewScroll} nestedScrollEnabled contentContainerStyle={styles.reportPreviewContent}>
-              {reportBookings.map((item) => renderBookingCard(item, false))}
-            </ScrollView>
-          )
-        ) : null}
-      </OwnerSectionCard>
+      {panelTab === 'history' ? (
+        <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="shop" />
+      ) : (
+        <>
+      {ownerManageSections}
 
       <OwnerSectionCard theme={theme} title={t('shop_active_requests_title')} subtitle={t('shop_active_requests_lead')}>
         {loadingBookings ? (
@@ -1316,30 +1128,8 @@ export default function ShopScreen() {
           activeBookings.map((item) => renderBookingCard(item, true))
         )}
       </OwnerSectionCard>
-
-      <OwnerSectionCard theme={theme} title={t('shop_booking_history_title')}>
-        <Pressable onPress={() => setShowHistory((value) => !value)} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
-          <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
-            {showHistory ? t('shop_booking_history_hide') : t('shop_booking_history_show')}
-            {historyBookings.length ? ` (${historyBookings.length})` : ''}
-          </Text>
-        </Pressable>
-        {showHistory ? (
-          loadingBookings ? (
-            <ActivityIndicator color={theme.accent} style={{ marginTop: 12 }} />
-          ) : historyBookings.length === 0 ? (
-            <Text style={[styles.empty, { color: theme.textMuted, marginTop: 12 }]}>{t('shop_booking_history_empty')}</Text>
-          ) : Platform.OS === 'web' ? (
-            <View style={[styles.historyScroll, webListScrollStyle]}>
-              {historyBookings.map((item) => renderBookingCard(item, false))}
-            </View>
-          ) : (
-            <ScrollView style={styles.historyScroll} nestedScrollEnabled contentContainerStyle={styles.reportPreviewContent}>
-              {historyBookings.map((item) => renderBookingCard(item, false))}
-            </ScrollView>
-          )
-        ) : null}
-      </OwnerSectionCard>
+        </>
+      )}
       </ScrollView>
       {ownerModals}
     </>
@@ -1351,6 +1141,21 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loginContent: { padding: 20, paddingBottom: 40 },
   page: { padding: 16, paddingBottom: 40 },
+  panelTabRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+  },
+  panelTabBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  panelTabText: { fontSize: 13, fontWeight: '800' },
   title: { fontSize: 22, fontWeight: '800', marginBottom: 6 },
   lead: { fontSize: 14, lineHeight: 20 },
   inlineSectionTitle: { fontSize: 14, fontWeight: '800', marginTop: 14, marginBottom: 8 },

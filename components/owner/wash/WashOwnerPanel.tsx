@@ -2,9 +2,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
-import React, { createElement, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +17,7 @@ import {
 } from 'react-native';
 
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
+import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
@@ -38,16 +37,7 @@ import {
   cancelBookingReminders,
   scheduleBookingReminders,
 } from '@/lib/booking/bookingReminders';
-import {
-  buildOwnerReportHtml,
-  filterBookingsByRange,
-  formatEgp,
-  formatRangeLabel,
-  normalizeBookingMoney,
-  resolveCustomRange,
-  resolveLastNDaysRange,
-  toYmdLocal,
-} from '@/lib/booking/reporting';
+import { formatEgp, toYmdLocal } from '@/lib/booking/reporting';
 import {
   listShopReviews,
   seedDemoReviews,
@@ -83,7 +73,8 @@ import {
   fetchBranchManagerRemote,
   linkBranchManagerByEmail,
 } from '@/lib/booking/wash/branchManagerRepository';
-import { countUnreadWashNotifications } from '@/lib/booking/wash/washNotificationCenter';
+import { listWashCenterNotifications } from '@/lib/booking/wash/washNotificationCenter';
+import { clearBranchManagerCache, filterWashNotificationsForStaff } from '@/lib/booking/wash/bookingDispatch';
 import {
   WASH_DAY_LABELS,
   WASH_SERVICE_CATEGORIES,
@@ -241,7 +232,13 @@ function applyBranchToForms(branch: WashBranch, setters: {
 export function WashOwnerPanel({ shop, onLogout }: Props) {
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
-  const { shopStaff, isOwner, isBranchManager, isPremium } = useShopAuth();
+  const { shopStaff, staff, isOwner, isBranchManager, isPremium } = useShopAuth();
+  const accountEmail = shopStaff?.email ?? staff?.email ?? shop.ownerEmail;
+  const accountRoleLabel = isOwner
+    ? t('wash_role_owner')
+    : isBranchManager
+      ? t('wash_role_branch_manager')
+      : undefined;
 
   const branchCtx = useMemo<WashBranchContext | undefined>(
     () => (shopStaff ? { staff: shopStaff } : undefined),
@@ -277,15 +274,6 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const [vacationMessage, setVacationMessage] = useState('');
   const [vacationMessageAr, setVacationMessageAr] = useState('');
 
-  const [reportStartYmd, setReportStartYmd] = useState(() => {
-    const start = new Date();
-    start.setDate(start.getDate() - 29);
-    return toYmdLocal(start);
-  });
-  const [reportEndYmd, setReportEndYmd] = useState(() => toYmdLocal(new Date()));
-  const [lastDaysInput, setLastDaysInput] = useState('30');
-  const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(null);
   const [addBranchModalVisible, setAddBranchModalVisible] = useState(false);
   const [premiumModalVisible, setPremiumModalVisible] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
@@ -314,6 +302,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const [managerPassword, setManagerPassword] = useState('');
   const [managerBusy, setManagerBusy] = useState(false);
   const [walkInModalVisible, setWalkInModalVisible] = useState(false);
+  const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
 
   const formSetters = useMemo(
     () => ({
@@ -348,19 +337,20 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const refreshAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [state, branch, bookingRows, reviewRows, unread] = await Promise.all([
+      const [state, branch, bookingRows, reviewRows, notifRows] = await Promise.all([
         getWashBranchState(shop, branchCtx),
         getActiveWashBranch(shop, branchCtx),
         listBookingsForShop(shop.id),
         listShopReviews(shop.id),
-        countUnreadWashNotifications(shop.id),
+        listWashCenterNotifications(shop.id),
       ]);
       const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
+      const filteredNotifs = await filterWashNotificationsForStaff(shopStaff, notifRows);
       setBranchState(state);
       syncBranchForms(branch);
       setBookings(scopedBookings);
       setReviews(reviewRows.length ? reviewRows : seedDemoReviews(shop.id));
-      setUnreadNotifCount(unread);
+      setUnreadNotifCount(filteredNotifs.filter((row) => !row.read).length);
       const stats = await computeWashAnalytics(shop.id, scopedBookings, {
         branchId: branch?.id,
         branchServices: branch?.services ?? [],
@@ -410,29 +400,6 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const profileImage = activeBranch?.profileImageUrl;
   const displayLatitude = activeBranch?.latitude ?? branchLatitude;
   const displayLongitude = activeBranch?.longitude ?? branchLongitude;
-
-  const reportRange = useMemo(
-    () => resolveCustomRange(reportStartYmd, reportEndYmd),
-    [reportStartYmd, reportEndYmd],
-  );
-  const reportBookings = useMemo(() => {
-    if (!reportRange) return [];
-    return filterBookingsByRange(bookings, reportRange);
-  }, [bookings, reportRange]);
-  const financialTotals = useMemo(
-    () =>
-      reportBookings.reduce(
-        (acc, booking) => {
-          const money = normalizeBookingMoney(booking);
-          acc.gross += money.servicePriceEgp;
-          acc.fee += money.platformFeeEgp;
-          acc.net += money.ownerNetEgp;
-          return acc;
-        },
-        { gross: 0, fee: 0, net: 0 },
-      ),
-    [reportBookings],
-  );
 
   const pendingOrderCount = useMemo(
     () => bookings.filter((b) => b.status === 'pending' || b.status === 'confirmed' || b.status === 'in_progress').length,
@@ -611,6 +578,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     }
     const managerRow = await fetchBranchManagerRemote(activeBranch.id);
     setBranchManager(managerRow);
+    clearBranchManagerCache();
     setManagerFullName('');
     setManagerEmail('');
     setManagerPassword('');
@@ -1098,59 +1066,6 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     showNotice(t('wash_review_reported_title'), t('wash_review_reported_body'));
   }
 
-  function applyLastDaysRange() {
-    const days = Number(lastDaysInput);
-    const range = resolveLastNDaysRange(days);
-    if (!range) {
-      Alert.alert(t('wash_report_invalid_range_title'), t('wash_report_days_invalid_body'));
-      return;
-    }
-    setReportStartYmd(toYmdLocal(range.start));
-    setReportEndYmd(toYmdLocal(range.end));
-  }
-
-  function printReportPreview() {
-    if (Platform.OS !== 'web') return;
-    const iframe = document.getElementById('wash-report-iframe') as HTMLIFrameElement | null;
-    iframe?.contentWindow?.print();
-  }
-
-  async function onGeneratePdf() {
-    if (!reportRange) {
-      Alert.alert(t('wash_report_invalid_range_title'), t('wash_report_invalid_range_body'));
-      return;
-    }
-    const rangeLabel = formatRangeLabel(reportRange, locale);
-    const html = buildOwnerReportHtml({
-      shop,
-      bookings: reportBookings,
-      range: reportRange,
-      rangeLabel,
-      generatedAt: new Date(),
-      locale,
-    });
-    setGeneratingPdf(true);
-    try {
-      if (Platform.OS === 'web') {
-        setReportPreviewHtml(html);
-        return;
-      }
-      const file = await Print.printToFileAsync({ html });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(file.uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: t('wash_report_share_pdf'),
-        });
-      } else {
-        Alert.alert(t('wash_report_pdf_ready_title'), file.uri);
-      }
-    } catch {
-      Alert.alert(t('wash_report_pdf_fail_title'), t('wash_report_pdf_fail_body'));
-    } finally {
-      setGeneratingPdf(false);
-    }
-  }
-
   function renderStatCard(label: string, value: string, accent?: boolean) {
     return (
       <View style={[styles.statCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
@@ -1273,20 +1188,44 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           logoutLabel={t('wash_logout')}
           notificationsLabel={t('wash_notifications_button')}
           notificationCount={unreadNotifCount}
+          accountRoleLabel={accountRoleLabel}
+          accountEmail={accountEmail}
           onEditCover={onSetCoverImage}
           onEditProfile={onSetProfileImage}
           onLogout={onLogout}
-          onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=notifications')}
+          onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=queue')}
+          onOpenSettings={() => router.push('/shop/merchant-settings')}
+          settingsLabel={t('merchant_settings_open')}
         />
 
-        {shopStaff ? (
-          <View style={[styles.roleBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
-            <Text style={[styles.roleBadgeText, { color: theme.accent }]}>
-              {t(isOwner ? 'wash_role_owner' : 'wash_role_branch_manager')}
-            </Text>
-          </View>
-        ) : null}
+        <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
+          {(
+            [
+              { id: 'workspace' as const, label: t('owner_panel_tab_workspace') },
+              { id: 'history' as const, label: t('owner_panel_tab_history') },
+            ] as const
+          ).map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => setPanelTab(item.id)}
+              style={[
+                styles.panelTabBtn,
+                {
+                  backgroundColor: panelTab === item.id ? theme.accent : theme.bgElevated,
+                  borderColor: panelTab === item.id ? theme.accent : theme.border,
+                },
+              ]}>
+              <Text style={[styles.panelTabText, { color: panelTab === item.id ? theme.onAccent : theme.text }]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
+        {panelTab === 'history' ? (
+          <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="wash" pushReportNotification />
+        ) : (
+          <>
         {isBranchManager && activeBranch ? (
           <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
             <View style={styles.branchSelect}>
@@ -1299,18 +1238,13 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
               </Text>
             </View>
           </View>
-        ) : isOwner && !isPremium && activeBranch ? (
-          <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <View style={styles.branchSelect}>
-              <Text style={[styles.branchLabel, { color: theme.textMuted }]}>{t('wash_branch_label')}</Text>
-              <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
-                {branchDisplayName(activeBranch, locale)}
-              </Text>
-              <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 6 }, isRTL && styles.textRtl]}>{t('premium_branch_free_hint')}</Text>
-            </View>
-          </View>
-        ) : isOwner && isPremium ? (
+        ) : isOwner ? (
           <View style={styles.branchTabsWrap}>
+            {!isPremium ? (
+              <Text style={[styles.emptyHint, { color: theme.textDim, marginBottom: 8 }, isRTL && styles.textRtl]}>
+                {t('premium_branch_free_hint')}
+              </Text>
+            ) : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
               {(branchState?.branches ?? []).map((branch) => {
                 const active = branch.id === branchState?.activeBranchId;
@@ -1473,12 +1407,24 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           </Pressable>
           <View style={styles.shortcutRow}>
             <Pressable
-              onPress={() => router.push('/shop/wash-owner-hub?tab=notifications')}
+              onPress={() => router.push('/shop/wash-owner-hub?tab=queue')}
               style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_tab_notifications')}</Text>
+              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_queue')}</Text>
               <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>
                 {unreadNotifCount > 0 ? `${unreadNotifCount} ${t('wash_hub_unread')}` : t('wash_notif_empty')}
               </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push('/shop/wash-owner-hub?tab=reports')}
+              style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reports')}</Text>
+              <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>{t('wash_hub_reports_empty')}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push('/shop/wash-owner-hub?tab=reviews')}
+              style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reviews')}</Text>
+              <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>{t('wash_hub_reviews_empty')}</Text>
             </Pressable>
             <Pressable
               onPress={() => router.push('/shop/wash-owner-hub?tab=orders')}
@@ -1630,18 +1576,37 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
             <Text style={[styles.dayName, { color: theme.text }]}>
               {WASH_DAY_LABELS[selectedDayRow.day][locale === 'ar' ? 'ar' : 'en']}
             </Text>
-            <View style={styles.actions}>
+            <View style={[styles.dayToggleRow, styles.actions]}>
               <Pressable
-                onPress={() => updateDayHours(selectedDayRow.day, { closed: !selectedDayRow.closed })}
+                onPress={() => updateDayHours(selectedDayRow.day, { closed: false })}
                 style={[
                   styles.chipBtn,
+                  styles.dayToggleBtn,
                   {
-                    backgroundColor: selectedDayRow.closed ? theme.danger : theme.accent,
-                    borderColor: selectedDayRow.closed ? theme.danger : theme.accent,
+                    backgroundColor: !selectedDayRow.closed ? theme.accent : theme.bgElevated,
+                    borderColor: !selectedDayRow.closed ? theme.accent : theme.border,
                   },
                 ]}>
-                <Text style={[styles.chipBtnText, { color: selectedDayRow.closed ? '#fff' : theme.onAccent }]}>
-                  {selectedDayRow.closed ? t('wash_hours_closed') : t('wash_hours_open')}
+                <Text
+                  style={[
+                    styles.chipBtnText,
+                    { color: !selectedDayRow.closed ? theme.onAccent : theme.text },
+                  ]}>
+                  {t('wash_hours_open')}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => updateDayHours(selectedDayRow.day, { closed: true })}
+                style={[
+                  styles.chipBtn,
+                  styles.dayToggleBtn,
+                  {
+                    backgroundColor: selectedDayRow.closed ? theme.danger : theme.bgElevated,
+                    borderColor: selectedDayRow.closed ? theme.danger : theme.border,
+                  },
+                ]}>
+                <Text style={[styles.chipBtnText, { color: selectedDayRow.closed ? '#fff' : theme.text }]}>
+                  {t('wash_hours_closed')}
                 </Text>
               </Pressable>
             </View>
@@ -1871,79 +1836,8 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
               ))
           )}
         </OwnerSectionCard>
-
-        {/* PDF reports — owner-only financial suite */}
-        {isOwner ? (
-        <PremiumFeatureGate>
-        <OwnerSectionCard theme={theme} title={t('wash_report_title')} subtitle={t('wash_report_lead')}>
-          <View style={styles.customRangeWrap}>
-            <BookingDatePicker
-              valueYmd={reportStartYmd}
-              onChangeYmd={setReportStartYmd}
-              locale={locale}
-              label={t('wash_report_start_date')}
-              pickHint={t('book_date_pick_hint')}
-              minimumDate={new Date('2020-01-01T00:00:00')}
-              borderColor={theme.border}
-              backgroundColor={theme.bgElevated}
-              textColor={theme.text}
-            />
-            <BookingDatePicker
-              valueYmd={reportEndYmd}
-              onChangeYmd={setReportEndYmd}
-              locale={locale}
-              label={t('wash_report_end_date')}
-              pickHint={t('book_date_pick_hint')}
-              minimumDate={new Date('2020-01-01T00:00:00')}
-              borderColor={theme.border}
-              backgroundColor={theme.bgElevated}
-              textColor={theme.text}
-            />
-          </View>
-          <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_report_last_n_days')}</Text>
-          <View style={styles.lastDaysRow}>
-            <TextInput
-              value={lastDaysInput}
-              onChangeText={setLastDaysInput}
-              keyboardType="number-pad"
-              placeholder={t('wash_report_days_placeholder')}
-              placeholderTextColor={theme.textDim}
-              style={[fieldStyle, styles.lastDaysInput]}
-            />
-            <Pressable onPress={applyLastDaysRange} style={[styles.secondaryBtn, { borderColor: theme.border, marginTop: 8 }]}>
-              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_report_apply_days')}</Text>
-            </Pressable>
-          </View>
-          <Text style={[styles.reportSummary, { color: theme.textMuted }]}>
-            {reportRange
-              ? t('wash_report_count')
-                  .replace('{count}', String(reportBookings.length))
-                  .replace('{range}', formatRangeLabel(reportRange, locale))
-              : t('wash_report_invalid_range_body')}
-          </Text>
-          {reportRange ? (
-            <Text style={[styles.reportMoney, { color: theme.text }]}>
-              {t('wash_report_money_line')
-                .replace('{gross}', formatEgp(financialTotals.gross, locale))
-                .replace('{fee}', formatEgp(financialTotals.fee, locale))
-                .replace('{net}', formatEgp(financialTotals.net, locale))}
-            </Text>
-          ) : null}
-          <Pressable
-            onPress={onGeneratePdf}
-            disabled={generatingPdf || !reportRange}
-            style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: generatingPdf || !reportRange ? 0.65 : 1 }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
-              {generatingPdf
-                ? t('wash_report_generating')
-                : Platform.OS === 'web'
-                  ? t('wash_report_view_report')
-                  : t('wash_report_generate_pdf')}
-            </Text>
-          </Pressable>
-        </OwnerSectionCard>
-        </PremiumFeatureGate>
-        ) : null}
+          </>
+        )}
       </ScrollView>
 
       <PremiumUpgradeModal visible={premiumModalVisible} onClose={() => setPremiumModalVisible(false)} />
@@ -2087,33 +1981,6 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           </View>
         </View>
       </Modal>
-
-      {/* PDF preview (web) */}
-      <Modal visible={!!reportPreviewHtml} animationType="slide" onRequestClose={() => setReportPreviewHtml(null)}>
-        <View style={[styles.reportModalScreen, { backgroundColor: theme.bg }]}>
-          <View style={[styles.reportModalHeader, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <Pressable onPress={() => setReportPreviewHtml(null)} style={styles.reportModalBtn}>
-              <Text style={{ color: theme.text, fontWeight: '700' }}>{t('wash_report_close')}</Text>
-            </Pressable>
-            <Text style={[styles.reportModalTitle, { color: theme.text }]} numberOfLines={1}>
-              {t('wash_report_title')}
-            </Text>
-            <Pressable onPress={printReportPreview} style={styles.reportModalBtn}>
-              <Text style={{ color: theme.accent, fontWeight: '800' }}>{t('wash_report_save_pdf')}</Text>
-            </Pressable>
-          </View>
-          <View style={styles.reportIframeWrap}>
-            {Platform.OS === 'web' && reportPreviewHtml
-              ? createElement('iframe', {
-                  id: 'wash-report-iframe',
-                  srcDoc: reportPreviewHtml,
-                  style: { width: '100%', height: '100%', border: 'none', display: 'block', backgroundColor: '#ffffff' },
-                  title: 'Wash report',
-                })
-              : null}
-          </View>
-        </View>
-      </Modal>
     </>
   );
 }
@@ -2154,6 +2021,21 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   roleBadgeText: { fontSize: 12, fontWeight: '800' },
+  panelTabRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+  },
+  panelTabBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  panelTabText: { fontSize: 13, fontWeight: '800' },
   walkInBtn: {
     borderWidth: 1,
     borderRadius: 14,
@@ -2257,6 +2139,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   dayName: { fontSize: 15, fontWeight: '800', marginBottom: 4 },
+  dayToggleRow: { marginBottom: 4 },
+  dayToggleBtn: { flex: 1, alignItems: 'center' },
   reviewRow: {
     borderWidth: 1,
     borderRadius: 12,

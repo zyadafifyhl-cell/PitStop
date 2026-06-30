@@ -81,6 +81,8 @@ export type WashCenterNotification = {
   createdAt: string;
   bookingId?: string;
   reviewId?: string;
+  /** Embedded HTML for report preview (weekly_revenue / system_alert). */
+  reportHtml?: string;
 };
 
 export type WashAnalyticsSnapshot = {

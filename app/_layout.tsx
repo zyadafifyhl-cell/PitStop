@@ -69,6 +69,11 @@ function RootStack() {
       <Stack.Screen name="verify" options={{ title: t('auth_verify_title') }} />
       <Stack.Screen name="shop/wash-notifications" options={{ headerShown: false }} />
       <Stack.Screen name="shop/wash-owner-hub" options={{ headerShown: false }} />
+      <Stack.Screen name="shop/merchant-settings" options={{ title: t('merchant_settings_title') }} />
+      <Stack.Screen name="shop/merchant-staff" options={{ title: t('merchant_settings_staff_row') }} />
+      <Stack.Screen name="shop/merchant-services" options={{ title: t('merchant_settings_services_row') }} />
+      <Stack.Screen name="shop/merchant-hours" options={{ title: t('merchant_settings_hours_row') }} />
+      <Stack.Screen name="shop/merchant-password" options={{ title: t('merchant_settings_change_password') }} />
       <Stack.Screen name="admin" options={{ headerShown: false }} />
     </Stack>
   );

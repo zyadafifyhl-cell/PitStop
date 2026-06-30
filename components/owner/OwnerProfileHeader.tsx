@@ -18,10 +18,14 @@ type Props = {
   logoutLabel: string;
   notificationsLabel?: string;
   notificationCount?: number;
+  settingsLabel?: string;
+  accountRoleLabel?: string;
+  accountEmail?: string;
   onEditCover: () => void;
   onEditProfile: () => void;
   onLogout: () => void;
   onOpenNotifications?: () => void;
+  onOpenSettings?: () => void;
 };
 
 export function OwnerProfileHeader({
@@ -37,10 +41,14 @@ export function OwnerProfileHeader({
   logoutLabel,
   notificationsLabel,
   notificationCount = 0,
+  settingsLabel,
+  accountRoleLabel,
+  accountEmail,
   onEditCover,
   onEditProfile,
   onLogout,
   onOpenNotifications,
+  onOpenSettings,
 }: Props) {
   return (
     <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -61,6 +69,21 @@ export function OwnerProfileHeader({
                 <Text style={styles.notifBadgeText}>{notificationCount > 9 ? '9+' : notificationCount}</Text>
               </View>
             ) : null}
+          </Pressable>
+        ) : null}
+        {onOpenSettings ? (
+          <Pressable
+            onPress={onOpenSettings}
+            style={[
+              styles.settingsBtn,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                right: onOpenNotifications ? 60 : 12,
+              },
+            ]}
+            accessibilityLabel={settingsLabel}>
+            <FontAwesome name="cog" size={16} color={theme.text} />
           </Pressable>
         ) : null}
         <Pressable
@@ -99,6 +122,11 @@ export function OwnerProfileHeader({
             <Text style={[styles.heroSub, { color: theme.textMuted }]} numberOfLines={2}>
               {welcomeLine}
             </Text>
+            {accountRoleLabel && accountEmail ? (
+              <Text style={[styles.accountLine, { color: theme.accent }]} numberOfLines={2}>
+                {accountRoleLabel} · {accountEmail}
+              </Text>
+            ) : null}
           </View>
         </View>
 
@@ -132,6 +160,16 @@ const styles = StyleSheet.create({
   notifBtn: {
     position: 'absolute',
     right: 12,
+    top: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsBtn: {
+    position: 'absolute',
     top: 12,
     width: 40,
     height: 40,
@@ -196,6 +234,7 @@ const styles = StyleSheet.create({
   },
   typeBadgeText: { fontSize: 11, fontWeight: '800' },
   heroSub: { fontSize: 13, lineHeight: 18 },
+  accountLine: { fontSize: 12, fontWeight: '800', marginTop: 6 },
   heroActions: { flexDirection: 'row', gap: 8, marginTop: 14 },
   heroBtn: {
     flex: 1,

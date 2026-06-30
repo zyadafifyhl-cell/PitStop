@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import type { ShopReview } from '@/lib/booking/types';
 import { getSupabase } from '@/lib/supabase/client';
+import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
 
 const REVIEWS_KEY = '@pitstop/shop-reviews/v1';
 type ReviewMap = Record<string, ShopReview[]>;
@@ -187,6 +188,13 @@ export async function addShopReviewSynced(input: {
     if (!error && data) {
       const created = mapReviewRow(data as ReviewRow);
       await upsertLocalReview(input.shopId, created);
+      await pushWashCenterNotification({
+        shopId: input.shopId,
+        kind: 'new_review',
+        title: 'New customer review',
+        body: `${customerName} · ${'★'.repeat(rating)} · ${body.slice(0, 100)}`,
+        reviewId: created.id,
+      });
       return created;
     }
     if (error) throw new Error(error.message);
@@ -204,6 +212,13 @@ export async function addShopReviewSynced(input: {
     createdAt: new Date().toISOString(),
   };
   await upsertLocalReview(input.shopId, localReview);
+  await pushWashCenterNotification({
+    shopId: input.shopId,
+    kind: 'new_review',
+    title: 'New customer review',
+    body: `${customerName} · ${'★'.repeat(rating)} · ${body.slice(0, 100)}`,
+    reviewId: localReview.id,
+  });
   return localReview;
 }
 

@@ -40,6 +40,7 @@ export async function pushWashCenterNotification(input: {
   body: string;
   bookingId?: string;
   reviewId?: string;
+  reportHtml?: string;
 }): Promise<WashCenterNotification> {
   const map = await readMap();
   const row: WashCenterNotification = {
@@ -53,6 +54,7 @@ export async function pushWashCenterNotification(input: {
     createdAt: nowIso(),
     bookingId: input.bookingId,
     reviewId: input.reviewId,
+    reportHtml: input.reportHtml?.trim() || undefined,
   };
   map[input.shopId] = [row, ...(map[input.shopId] ?? [])].slice(0, 200);
   await writeMap(map);
