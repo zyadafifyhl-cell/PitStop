@@ -11,8 +11,9 @@ import { getAreaById } from '@/lib/booking/areas';
 import { listShopsByTypeAndArea } from '@/lib/booking/catalogRepository';
 import { toggleFavoriteShop } from '@/lib/booking/favoritesStorage';
 import { shopTypeLabel } from '@/lib/booking/format';
+import { getShopAverageRatings, type ShopRatingSummary } from '@/lib/booking/reviewsStorage';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
-import { openAllShopsInMaps, openPhone, openShopInMaps } from '@/lib/linking/contact';
+import { openListingsInMaps, openPhone } from '@/lib/linking/contact';
 import { parseShopType } from '@/lib/booking/serviceType';
 
 export default function ShopsInAreaScreen() {
@@ -24,6 +25,7 @@ export default function ShopsInAreaScreen() {
   const type = parseShopType(rawType);
   const area = areaId && catalogReady ? getAreaById(areaId) : undefined;
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [ratingsMap, setRatingsMap] = useState<Record<string, ShopRatingSummary>>({});
 
   const shops = useMemo(() => {
     if (!catalogReady || !type || !areaId) return [];
@@ -43,7 +45,10 @@ export default function ShopsInAreaScreen() {
   useFocusEffect(
     useCallback(() => {
       loadFavorites();
-    }, [loadFavorites]),
+      if (shops.length) {
+        getShopAverageRatings(shops.map((shop) => shop.id)).then(setRatingsMap);
+      }
+    }, [loadFavorites, shops]),
   );
 
   function linkFail() {
@@ -91,7 +96,7 @@ export default function ShopsInAreaScreen() {
       ) : (
         <>
           <Pressable
-            onPress={() => openAllShopsInMaps(shops, `${serviceLabel} ${areaName}`, locale).catch(linkFail)}
+            onPress={() => openListingsInMaps(shops, `${serviceLabel} ${areaName}`, locale).catch(linkFail)}
             style={[styles.mapsTab, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
             <Text style={[styles.mapsTabText, { color: theme.accent }]}>
               Google Maps · {locale === 'ar' ? 'كل الأماكن القريبة' : 'All nearby places'}
@@ -106,13 +111,15 @@ export default function ShopsInAreaScreen() {
               address={locale === 'ar' ? shop.addressAr : shop.address}
               type={shop.type}
               typeLabel={shopTypeLabel(shop.type, locale)}
-              rating={shop.rating}
+              averageRating={ratingsMap[shop.id]?.average ?? null}
+              reviewCount={ratingsMap[shop.id]?.count}
+              latitude={shop.latitude}
+              longitude={shop.longitude}
               phone={shop.phone}
               bookLabel={t('shop_card_view_details')}
               isFavorite={favoriteIds.has(shop.id)}
               onToggleFavorite={() => onToggleFavorite(shop.id)}
               onCall={() => openPhone(shop.phone).catch(linkFail)}
-              onOpenMaps={() => openShopInMaps(shop, locale).catch(linkFail)}
               onPress={() =>
                 isStoreShopType(shop.type)
                   ? router.push(`/parts-shop/${shop.id}` as any)

@@ -1,8 +1,9 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Modal,
   Pressable,
   ScrollView,
@@ -37,15 +38,34 @@ import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { WashCenterNotification } from '@/lib/booking/wash/types';
 import {
   clearWashNotifications,
-  deleteWashNotification,
   listWashCenterNotifications,
-  markAllWashNotificationsRead,
   markWashNotificationRead,
 } from '@/lib/booking/wash/washNotificationCenter';
 
 type HubTab = 'notifications' | 'orders' | 'history';
 
-type RejectTarget = { booking: Booking };
+type RejectTarget = { booking: Booking; notificationId?: string };
+
+function UnreadPulseDot({ rtl }: { rtl?: boolean }) {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View style={[styles.unreadDot, rtl ? styles.unreadDotRtl : null, { opacity: pulse }]}>
+      <View style={styles.unreadDotCore} />
+    </Animated.View>
+  );
+}
 
 function filterBookingsForStaff(bookings: Booking[], staff: ReturnType<typeof useShopAuth>['staff']) {
   if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
@@ -54,7 +74,7 @@ function filterBookingsForStaff(bookings: Booking[], staff: ReturnType<typeof us
 
 export default function WashOwnerHubScreen() {
   const theme = useAppTheme();
-  const { t, locale } = useI18n();
+  const { t, locale, isRTL } = useI18n();
   const { shop, staff, ready } = useShopAuth();
   const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const rawTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
@@ -164,10 +184,114 @@ export default function WashOwnerHubScreen() {
   }
 
   async function onSubmitReject() {
-    if (!rejectTarget) return;
-    await onBookingStatusChange(rejectTarget.booking, 'cancelled', rejectNote.trim() || undefined);
-    setRejectTarget(null);
+    if (!rejectTarget || !shop) return;
+    setBusy(true);
+    try {
+      await onBookingStatusChange(rejectTarget.booking, 'cancelled', rejectNote.trim() || undefined);
+      if (rejectTarget.notificationId) {
+        await markWashNotificationRead(shop.id, rejectTarget.notificationId);
+      }
+      setRejectTarget(null);
+      setRejectNote('');
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function bookingForNotification(row: WashCenterNotification): Booking | undefined {
+    if (!row.bookingId) return undefined;
+    return bookings.find((booking) => booking.id === row.bookingId);
+  }
+
+  function isPendingBookingRequest(row: WashCenterNotification): boolean {
+    if (row.kind !== 'new_booking' || !row.bookingId) return false;
+    const booking = bookingForNotification(row);
+    return booking?.status === 'pending';
+  }
+
+  async function onAcceptBookingNotification(row: WashCenterNotification) {
+    if (!shop || busy) return;
+    const booking = bookingForNotification(row);
+    if (!booking || booking.status !== 'pending') {
+      await markWashNotificationRead(shop.id, row.id);
+      await refresh();
+      return;
+    }
+    setBusy(true);
+    try {
+      await onBookingStatusChange(booking, 'confirmed');
+      await markWashNotificationRead(shop.id, row.id);
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onDeclineBookingNotification(row: WashCenterNotification) {
+    const booking = bookingForNotification(row);
+    if (!booking) return;
+    setRejectTarget({ booking, notificationId: row.id });
     setRejectNote('');
+  }
+
+  function renderNotificationCard(row: WashCenterNotification) {
+    const unread = !row.read;
+    const pendingRequest = isPendingBookingRequest(row);
+
+    return (
+      <Pressable
+        key={row.id}
+        onPress={() => setTab('orders')}
+        style={({ pressed }) => [
+          styles.card,
+          styles.notifCard,
+          {
+            borderColor: unread ? '#3B82F6' : theme.border,
+            backgroundColor: unread ? theme.bgElevated : theme.card,
+            opacity: pressed ? 0.92 : 1,
+          },
+        ]}>
+        {unread ? <UnreadPulseDot rtl={isRTL} /> : null}
+        <Text style={[styles.cardTitle, { color: theme.text }]}>{row.title}</Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>{row.body}</Text>
+        <Text style={[styles.meta, { color: theme.textDim }]}>
+          {new Date(row.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
+        </Text>
+        <Text style={[styles.notifHint, { color: theme.textDim }]}>{t('wash_notif_tap_orders_hint')}</Text>
+
+        {pendingRequest ? (
+          <View style={styles.notifActions}>
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation();
+                void onAcceptBookingNotification(row);
+              }}
+              disabled={busy}
+              style={[
+                styles.actionBtn,
+                styles.actionBtnPrimary,
+                { backgroundColor: theme.success, borderColor: theme.success, opacity: busy ? 0.6 : 1 },
+              ]}>
+              <Text style={[styles.actionBtnText, { color: '#fff' }]}>{t('wash_notif_accept')}</Text>
+            </Pressable>
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation();
+                onDeclineBookingNotification(row);
+              }}
+              disabled={busy}
+              style={[
+                styles.actionBtn,
+                styles.actionBtnDangerSoft,
+                { backgroundColor: theme.dangerSoft, borderColor: theme.danger, opacity: busy ? 0.6 : 1 },
+              ]}>
+              <Text style={[styles.actionBtnText, { color: theme.danger }]}>{t('wash_notif_decline')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </Pressable>
+    );
   }
 
   async function onDeleteBooking(booking: Booking) {
@@ -356,95 +480,37 @@ export default function WashOwnerHubScreen() {
           <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
         ) : tab === 'notifications' ? (
           <>
-            <View style={styles.toolbar}>
-              <Pressable
-                onPress={async () => {
-                  setBusy(true);
-                  try {
-                    await markAllWashNotificationsRead(shop.id);
-                    await refresh();
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-                disabled={busy || unreadCount === 0}
-                style={[styles.chipBtn, { borderColor: theme.border, opacity: unreadCount === 0 ? 0.5 : 1 }]}>
-                <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_notif_mark_all_read')}</Text>
-              </Pressable>
-              <Pressable
-                onPress={async () => {
-                  Alert.alert(t('wash_notif_clear_title'), t('wash_notif_clear_body'), [
-                    { text: t('alert_cancel'), style: 'cancel' },
-                    {
-                      text: t('wash_notif_clear_confirm'),
-                      style: 'destructive',
-                      onPress: async () => {
-                        setBusy(true);
-                        try {
-                          await clearWashNotifications(shop.id);
-                          await refresh();
-                        } finally {
-                          setBusy(false);
-                        }
-                      },
-                    },
-                  ]);
-                }}
-                disabled={busy || notifications.length === 0}
-                style={[styles.chipBtn, { borderColor: theme.danger, opacity: notifications.length === 0 ? 0.5 : 1 }]}>
-                <Text style={[styles.chipText, { color: theme.danger }]}>{t('wash_notif_clear_all')}</Text>
-              </Pressable>
-            </View>
-            {notifications.length === 0 ? (
-              <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_notif_empty')}</Text>
-            ) : (
-              notifications.map((row) => (
-                <View
-                  key={row.id}
-                  style={[
-                    styles.card,
-                    {
-                      borderColor: row.read ? theme.border : theme.accent,
-                      backgroundColor: row.read ? theme.bgElevated : theme.card,
-                    },
-                  ]}>
-                  <Text style={[styles.cardTitle, { color: theme.text }]}>{row.title}</Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>{row.body}</Text>
-                  <Text style={[styles.meta, { color: theme.textDim }]}>
-                    {new Date(row.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
-                  </Text>
-                  <View style={styles.actions}>
-                    {!row.read ? (
-                      <Pressable
-                        onPress={async () => {
+            {notifications.length > 0 ? (
+              <View style={styles.toolbar}>
+                <Pressable
+                  onPress={async () => {
+                    Alert.alert(t('wash_notif_clear_title'), t('wash_notif_clear_body'), [
+                      { text: t('alert_cancel'), style: 'cancel' },
+                      {
+                        text: t('wash_notif_clear_confirm'),
+                        style: 'destructive',
+                        onPress: async () => {
                           setBusy(true);
                           try {
-                            await markWashNotificationRead(shop.id, row.id);
+                            await clearWashNotifications(shop.id);
                             await refresh();
                           } finally {
                             setBusy(false);
                           }
-                        }}
-                        style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                        <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_notif_mark_read')}</Text>
-                      </Pressable>
-                    ) : null}
-                    <Pressable
-                      onPress={async () => {
-                        setBusy(true);
-                        try {
-                          await deleteWashNotification(shop.id, row.id);
-                          await refresh();
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                      style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                      <Text style={styles.chipText}>{t('wash_notif_delete')}</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ))
+                        },
+                      },
+                    ]);
+                  }}
+                  disabled={busy}
+                  style={[styles.chipBtn, { borderColor: theme.danger }]}>
+                  <Text style={[styles.chipText, { color: theme.danger }]}>{t('wash_notif_clear_all')}</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {notifications.length === 0 ? (
+              <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_notif_empty')}</Text>
+            ) : (
+              notifications.map((row) => renderNotificationCard(row))
             )}
           </>
         ) : tab === 'orders' ? (
@@ -547,7 +613,39 @@ const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 24 },
   card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
-  cardTitle: { fontSize: 16, fontWeight: '800', marginBottom: 6 },
+  notifCard: { position: 'relative', overflow: 'visible' },
+  unreadDot: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(59, 130, 246, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadDotCore: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#3B82F6',
+  },
+  unreadDotRtl: { right: undefined, left: 12 },
+  notifHint: { fontSize: 11, fontWeight: '600', marginTop: 8 },
+  notifActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  actionBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnPrimary: {},
+  actionBtnDangerSoft: {},
+  actionBtnText: { fontSize: 14, fontWeight: '800' },
+  cardTitle: { fontSize: 16, fontWeight: '800', marginBottom: 6, paddingRight: 18 },
   when: { fontSize: 16, fontWeight: '800', marginBottom: 6 },
   meta: { fontSize: 14, lineHeight: 20, marginTop: 2 },
   status: { fontSize: 14, fontWeight: '800', marginTop: 8 },

@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { syncPrimaryVehicleFromCarType } from '@/lib/booking/vehicleStorage';
+
 export type CarProfile = {
   carType: string;
 };
@@ -23,5 +25,7 @@ export async function getSavedCarProfile(customerId: string): Promise<CarProfile
 }
 
 export async function saveCarProfile(customerId: string, profile: CarProfile): Promise<void> {
-  await AsyncStorage.setItem(key(customerId), JSON.stringify({ carType: profile.carType.trim() }));
+  const carType = profile.carType.trim();
+  await AsyncStorage.setItem(key(customerId), JSON.stringify({ carType }));
+  await syncPrimaryVehicleFromCarType(customerId, carType);
 }

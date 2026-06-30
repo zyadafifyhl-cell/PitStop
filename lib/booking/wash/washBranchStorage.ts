@@ -16,6 +16,7 @@ import {
   updateShopLocationRemote,
 } from '@/lib/booking/wash/branchRepository';
 import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
+import { persistImageUri, persistImageUris } from '@/lib/media/persistImageUri';
 
 const KEY = '@pitstop/wash-branches/v1';
 type BranchMap = Record<string, WashBranchState>;
@@ -245,11 +246,19 @@ export async function updateActiveWashBranch(
   >,
   ctx?: WashBranchContext,
 ): Promise<WashBranchUpdateResult> {
+  const normalizedPatch = { ...patch };
+  if (patch.profileImageUrl) {
+    normalizedPatch.profileImageUrl = await persistImageUri(patch.profileImageUrl);
+  }
+  if (patch.imageUrls) {
+    normalizedPatch.imageUrls = await persistImageUris(patch.imageUrls);
+  }
+
   const state = await getWashBranchState(shop, ctx);
   const activeId = state.activeBranchId;
   state.branches = state.branches.map((branch) => {
     if (branch.id !== activeId) return branch;
-    return { ...branch, ...patch, updatedAt: nowIso() };
+    return { ...branch, ...normalizedPatch, updatedAt: nowIso() };
   });
   state.updatedAt = nowIso();
   await cacheState(shop.id, state);
@@ -269,13 +278,13 @@ export async function updateActiveWashBranch(
     }
 
     if (remoteBranchId) {
-      remoteSaved = await updateBranchRemote(remoteBranchId, patch, shop.id);
-      if (patch.latitude != null && patch.longitude != null) {
-        const shopSaved = await updateShopLocationRemote(shop.id, patch.latitude, patch.longitude);
+      remoteSaved = await updateBranchRemote(remoteBranchId, normalizedPatch, shop.id);
+      if (normalizedPatch.latitude != null && normalizedPatch.longitude != null) {
+        const shopSaved = await updateShopLocationRemote(shop.id, normalizedPatch.latitude, normalizedPatch.longitude);
         remoteSaved = remoteSaved && shopSaved;
-        if (shopSaved) patchShopCoordinates(shop.id, patch.latitude, patch.longitude);
+        if (shopSaved) patchShopCoordinates(shop.id, normalizedPatch.latitude, normalizedPatch.longitude);
       }
-      if (patch.services) {
+      if (normalizedPatch.services) {
         await saveBranchServicesRemote(shop.id, remoteBranchId, active.services);
       }
     }

@@ -22,6 +22,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { formatVehicleDisplay } from '@/components/customer/ActiveVehiclePicker';
 import { getSavedCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
@@ -91,7 +92,7 @@ export default function BookShopScreen() {
 
   const [resolvedPhone, setResolvedPhone] = useState('');
   const [carType, setCarType] = useState('');
-  const [savedCarType, setSavedCarType] = useState('');
+  const [savedCarLabel, setSavedCarLabel] = useState('');
   const [editingSavedCar, setEditingSavedCar] = useState(false);
   const [carColor, setCarColor] = useState('');
   const [customerNotes, setCustomerNotes] = useState('');
@@ -153,30 +154,31 @@ export default function BookShopScreen() {
     };
   }, [customer?.phone, customer?.id]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!customer?.id || carType.trim()) return;
-      const [profile, vehicle] = await Promise.all([
-        getSavedCarProfile(customer.id),
-        getPrimaryVehicle(customer.id),
-      ]);
-      if (!cancelled) {
-        if (vehicle) {
-          setVehicleId(vehicle.id);
-          setCarType(vehicle.makeModel);
-          setSavedCarType(vehicle.makeModel);
-          if (vehicle.color) setCarColor(vehicle.color);
-        } else if (profile?.carType) {
-          setSavedCarType(profile.carType);
-          setCarType(profile.carType);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [customer?.id, carType]);
+  const loadCarProfileForBooking = useCallback(async () => {
+    if (!customer?.id) return;
+    const vehicle = await getPrimaryVehicle(customer.id);
+    if (vehicle) {
+      setVehicleId(vehicle.id);
+      setCarType(vehicle.makeModel);
+      setSavedCarLabel(formatVehicleDisplay(vehicle));
+      setCarColor(vehicle.color ?? '');
+      setEditingSavedCar(false);
+      return;
+    }
+    const profile = await getSavedCarProfile(customer.id);
+    if (profile?.carType) {
+      setSavedCarLabel(profile.carType);
+      setCarType(profile.carType);
+      setCarColor('');
+      setEditingSavedCar(false);
+    }
+  }, [customer?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadCarProfileForBooking();
+    }, [loadCarProfileForBooking]),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -416,7 +418,7 @@ export default function BookShopScreen() {
         </View>
 
         <Text style={[styles.label, { color: palette.text }]}>{t('book_car_type_label')}</Text>
-        {savedCarType && !editingSavedCar ? (
+        {savedCarLabel && !editingSavedCar ? (
           <View
             style={[
               styles.savedCarCard,
@@ -427,9 +429,9 @@ export default function BookShopScreen() {
             ]}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.savedCarLabel, { color: palette.tabIconDefault }]}>
-                {t('home_car_profile_title')}
+                {t('home_active_vehicle_title')}
               </Text>
-              <Text style={[styles.savedCarText, { color: palette.text }]}>{savedCarType}</Text>
+              <Text style={[styles.savedCarText, { color: palette.text }]}>{savedCarLabel}</Text>
             </View>
             <Pressable onPress={() => setEditingSavedCar(true)} style={styles.changeCarBtn}>
               <Text style={{ color: palette.tint, fontWeight: '800', fontSize: 13 }}>

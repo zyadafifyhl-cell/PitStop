@@ -69,21 +69,44 @@ export async function openBranchDirections(
   await openMapsAtCoordinates(lat, lng, label);
 }
 
-/** Opens Google Maps showing all shops of a type (search near Cairo as fallback center). */
+type MapPin = Pick<Shop, 'latitude' | 'longitude' | 'name' | 'nameAr'>;
+
+function pinsWithValidCoords(shops: MapPin[]): MapPin[] {
+  return shops.filter(
+    (shop) => Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude),
+  );
+}
+
+/** Opens Google Maps at listing coordinates (branch GPS when provided). */
+export async function openListingsInMaps(
+  listings: MapPin[],
+  serviceLabel: string,
+  locale: 'en' | 'ar',
+): Promise<void> {
+  const valid = pinsWithValidCoords(listings);
+  if (valid.length === 0) throw new Error('no_coordinates');
+  if (valid.length === 1) {
+    await openMapsAtCoordinates(
+      valid[0].latitude,
+      valid[0].longitude,
+      locale === 'ar' ? valid[0].nameAr : valid[0].name,
+    );
+    return;
+  }
+  const first = valid[0];
+  const label = encodeURIComponent(serviceLabel);
+  const url = `https://www.google.com/maps/search/${label}/@${first.latitude},${first.longitude},12z`;
+  await Linking.openURL(url);
+}
+
+/** Opens Google Maps showing all shops of a type (search near first valid pin). */
 export async function openAllShopsInMaps(
   shops: Shop[],
   serviceLabel: string,
   locale: 'en' | 'ar',
 ): Promise<void> {
   if (shops.length === 0) return;
-  if (shops.length === 1) {
-    await openShopInMaps(shops[0], locale);
-    return;
-  }
-  const first = shops[0];
-  const label = encodeURIComponent(serviceLabel);
-  const url = `https://www.google.com/maps/search/${label}/@${first.latitude},${first.longitude},12z`;
-  await Linking.openURL(url);
+  await openListingsInMaps(shops, serviceLabel, locale);
 }
 
 export function formatPhoneDisplay(phoneE164: string): string {

@@ -679,6 +679,33 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     showNotice(t('wash_profile_saved_title'), t('wash_profile_saved_body'));
   }
 
+  async function onSetCoverImage() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(t('wash_image_permission_title'), t('wash_image_permission_body'));
+      return;
+    }
+    setPickingImage(true);
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+      if (picked.canceled || !picked.assets?.length || !activeBranch) return;
+      const uri = picked.assets[0].uri;
+      if (!uri) return;
+      const gallery = (activeBranch.imageUrls ?? []).slice(1).filter((url) => url !== uri);
+      const { branch } = await updateActiveWashBranch(shop, {
+        imageUrls: [uri, ...gallery],
+      }, branchCtx);
+      syncBranchForms(branch);
+    } finally {
+      setPickingImage(false);
+    }
+  }
+
   async function onPickGalleryImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -695,9 +722,12 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       if (picked.canceled || !picked.assets?.length) return;
       const uri = picked.assets[0].uri;
       if (!uri || !activeBranch) return;
+      const cover = activeBranch.imageUrls?.[0];
       const gallery = (activeBranch.imageUrls ?? []).slice(1).filter((url) => url !== uri);
+      if (uri === cover || gallery.includes(uri)) return;
+      const nextUrls = cover ? [cover, ...gallery, uri] : [uri];
       const { branch } = await updateActiveWashBranch(shop, {
-        imageUrls: [uri, ...gallery],
+        imageUrls: nextUrls.slice(0, 8),
       }, branchCtx);
       syncBranchForms(branch);
     } finally {
@@ -730,8 +760,11 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
   async function onRemoveGalleryImage(url: string) {
     if (!activeBranch) return;
+    const cover = activeBranch.imageUrls?.[0];
+    if (!cover || url === cover) return;
+    const gallery = activeBranch.imageUrls.slice(1).filter((u) => u !== url);
     const { branch } = await updateActiveWashBranch(shop, {
-      imageUrls: activeBranch.imageUrls.filter((u) => u !== url),
+      imageUrls: [cover, ...gallery],
     }, branchCtx);
     syncBranchForms(branch);
   }
@@ -1235,12 +1268,12 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           coverImage={coverImage}
           profileImage={profileImage}
           pickingImage={pickingImage}
-          coverEditLabel={t('wash_manage_add_image')}
+          coverEditLabel={t('wash_manage_set_cover_image')}
           profileEditLabel={t('wash_manage_set_profile_image')}
           logoutLabel={t('wash_logout')}
           notificationsLabel={t('wash_notifications_button')}
           notificationCount={unreadNotifCount}
-          onEditCover={onPickGalleryImage}
+          onEditCover={onSetCoverImage}
           onEditProfile={onSetProfileImage}
           onLogout={onLogout}
           onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=notifications')}
@@ -1510,9 +1543,9 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
               {pickingImage ? t('wash_manage_picking_image') : t('wash_manage_add_image')}
             </Text>
           </Pressable>
-          {activeBranch?.imageUrls?.length ? (
+          {(activeBranch?.imageUrls?.length ?? 0) > 1 ? (
             <View style={styles.albumGrid}>
-              {activeBranch.imageUrls.map((url) => (
+              {(activeBranch?.imageUrls ?? []).slice(1).map((url) => (
                 <View key={url} style={[styles.albumTile, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
                   <Image source={{ uri: url }} style={styles.albumImage} contentFit="cover" />
                   <Pressable onPress={() => onRemoveGalleryImage(url)} style={[styles.removePhotoBtn, { backgroundColor: theme.danger }]}>

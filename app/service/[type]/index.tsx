@@ -1,3 +1,4 @@
+import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -8,11 +9,15 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listAreas } from '@/lib/booking/areas';
-import { countShopsByTypeAndArea, listAreasWithShops, listShopsByType } from '@/lib/booking/catalogRepository';
+import { countShopsByTypeAndArea, listAreasWithShops } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
+import {
+  isDiscoverableShopType,
+  listDiscoverableSortedByDistance,
+} from '@/lib/booking/nearbyDiscovery';
 import { listRecentAreaIds, rememberAreaSelection } from '@/lib/booking/recentLocationStorage';
 import { parseShopType } from '@/lib/booking/serviceType';
-import { openAllShopsInMaps } from '@/lib/linking/contact';
+import { openListingsInMaps } from '@/lib/linking/contact';
 
 type LocationViewMode = 'list' | 'map';
 
@@ -66,11 +71,6 @@ export default function PickAreaScreen() {
       .map((id) => listAreas().find((a) => a.id === id))
       .filter((a): a is NonNullable<typeof a> => !!a);
   }, [recentIds, catalogVersion]);
-
-  const shops = useMemo(() => {
-    if (!catalogReady || !type) return [];
-    return listShopsByType(type);
-  }, [catalogReady, catalogVersion, type]);
 
   const highlightedIds = useMemo(() => {
     const ids = new Set<string>();
@@ -159,11 +159,32 @@ export default function PickAreaScreen() {
           </Text>
         </Pressable>
         <Pressable
-          onPress={() => {
+          onPress={async () => {
             setViewMode('map');
-            openAllShopsInMaps(shops, shopTypeLabel(type, locale), locale).catch(() =>
-              Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')),
-            );
+            if (!isDiscoverableShopType(type)) {
+              Alert.alert(t('settings_link_fail_title'), t('nearby_discoverable_only'));
+              return;
+            }
+            let lat: number | null = null;
+            let lng: number | null = null;
+            try {
+              const { status } = await Location.requestForegroundPermissionsAsync();
+              if (status === 'granted') {
+                const pos = await Location.getCurrentPositionAsync({
+                  accuracy: Location.Accuracy.Balanced,
+                });
+                lat = pos.coords.latitude;
+                lng = pos.coords.longitude;
+              }
+            } catch {
+              /* list without GPS */
+            }
+            try {
+              const listings = await listDiscoverableSortedByDistance(type, lat, lng);
+              await openListingsInMaps(listings, shopTypeLabel(type, locale), locale);
+            } catch {
+              Alert.alert(t('settings_link_fail_title'), t('nearby_map_no_coords'));
+            }
           }}
           style={[
             styles.viewToggleBtn,

@@ -16,6 +16,9 @@ export const DarkAppTheme = {
   textMuted: '#C7C7C7',
   textDim: '#8A8A8A',
   danger: '#EF4444',
+  dangerSoft: 'rgba(239, 68, 68, 0.14)',
+  success: '#22C55E',
+  successSoft: 'rgba(34, 197, 94, 0.14)',
   white: '#FFFFFF',
 };
 
@@ -36,6 +39,9 @@ export const LightAppTheme = {
   textMuted: '#404040',
   textDim: '#737373',
   danger: '#DC2626',
+  dangerSoft: 'rgba(220, 38, 38, 0.12)',
+  success: '#16A34A',
+  successSoft: 'rgba(22, 163, 74, 0.12)',
   white: '#FFFFFF',
 };
 

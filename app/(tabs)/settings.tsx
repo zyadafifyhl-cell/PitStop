@@ -1,8 +1,10 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { router, type Href, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { PrivacySettingsModal } from '@/components/settings/PrivacySettingsModal';
+import { VehicleManagementCard } from '@/components/settings/VehicleManagementCard';
 import { SettingsRow } from '@/components/ui/SettingsRow';
 import { SUPPORT } from '@/constants/support';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -21,11 +23,9 @@ export default function SettingsScreen() {
   const isArabic = locale === 'ar';
   const theme = useAppTheme();
   const { preference, setPreference } = useThemePreference();
-  const { customer, isGuest, resetPassword, verifyPassword } = useCustomerAuth();
+  const { customer, isGuest, resetPassword, verifyPassword, updateProfile, deleteAccount } = useCustomerAuth();
   const { signOut, busy: signingOut } = useAppSignOut();
   const [privacyVisible, setPrivacyVisible] = React.useState(false);
-  const [privacyUnlocked, setPrivacyUnlocked] = React.useState(false);
-  const [privacyPassword, setPrivacyPassword] = React.useState('');
   const [languageOpen, setLanguageOpen] = React.useState(false);
   const [termsVisible, setTermsVisible] = React.useState(false);
   const [loyaltyPoints, setLoyaltyPoints] = useState(0);
@@ -68,35 +68,6 @@ export default function SettingsScreen() {
     await signOut();
   }
 
-  async function onResetPassword() {
-    if (!customer?.email) return;
-    const result = await resetPassword(customer.email);
-    Alert.alert(
-      t('customer_reset_password_title'),
-      result === 'ok' ? t('customer_reset_password_sent') : t('customer_reset_password_fail'),
-    );
-  }
-
-  async function unlockPrivacy() {
-    const result = await verifyPassword(privacyPassword);
-    if (result === 'ok') {
-      setPrivacyUnlocked(true);
-      setPrivacyPassword('');
-      return;
-    }
-    if (result === 'not_configured') {
-      Alert.alert(t('privacy_not_configured_title'), t('privacy_not_configured_body'));
-      return;
-    }
-    Alert.alert(t('privacy_wrong_password_title'), t('privacy_wrong_password_body'));
-  }
-
-  function maskValue(value: string, visible = 2): string {
-    if (!value) return '••••••';
-    if (value.length <= visible) return '•'.repeat(Math.max(4, value.length));
-    return `${value.slice(0, visible)}${'•'.repeat(Math.max(4, value.length - visible))}`;
-  }
-
   return (
     <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
       {customer && !isGuest ? (
@@ -126,19 +97,9 @@ export default function SettingsScreen() {
               label={t('privacy_settings_title')}
               hint={t('privacy_settings_lead')}
               accent={theme.accent}
-              onPress={() => {
-                setPrivacyVisible(true);
-                setPrivacyUnlocked(false);
-                setPrivacyPassword('');
-              }}
+              onPress={() => setPrivacyVisible(true)}
             />
-            <SettingsRow
-              icon="car"
-              label={t('settings_vehicle_management')}
-              hint={t('settings_vehicles')}
-              accent={theme.accent}
-              onPress={() => router.push('/settings/vehicles' as Href)}
-            />
+            {customer ? <VehicleManagementCard customerId={customer.id} /> : null}
           </View>
         </>
       ) : null}
@@ -256,34 +217,6 @@ export default function SettingsScreen() {
         />
       </View>
 
-      <Text style={[styles.section, { color: theme.text }]}>{t('settings_nearest_section')}</Text>
-      <Text style={[styles.sectionLead, { color: theme.textMuted }]}>{t('settings_nearest_lead')}</Text>
-      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <SettingsRow
-          icon="wrench"
-          label={t('service_maintenance_title')}
-          hint={t('settings_see_closest')}
-          accent={theme.accent}
-          onPress={() => router.push('/nearby/maintenance' as Href)}
-        />
-        <SettingsRow
-          icon="tint"
-          label={t('service_wash_title')}
-          hint={t('settings_see_closest')}
-          accent={theme.accent}
-          onPress={() => router.push('/nearby/wash' as Href)}
-        />
-        <SettingsRow
-          icon="cogs"
-          label={t('service_parts_title')}
-          hint={t('settings_see_closest')}
-          accent={theme.accent}
-          onPress={() => router.push('/nearby/parts' as Href)}
-        />
-      </View>
-
-      <Text style={[styles.note, { color: theme.textDim }]}>{t('settings_shop_phone_note')}</Text>
-
       {isGuest ? (
         <SettingsRow
           icon="sign-in"
@@ -293,12 +226,14 @@ export default function SettingsScreen() {
           onPress={() => router.replace({ pathname: '/welcome', params: { focus: 'login' } })}
         />
       ) : (
-        <SettingsRow
-          icon="sign-out"
-          label={t('home_sign_out')}
-          accent={theme.danger}
-          onPress={onSignOut}
-        />
+        <View style={styles.signOutWrap}>
+          <SettingsRow
+            icon="sign-out"
+            label={t('home_sign_out')}
+            accent={theme.danger}
+            onPress={onSignOut}
+          />
+        </View>
       )}
 
       <Modal visible={termsVisible} transparent animationType="fade" onRequestClose={() => setTermsVisible(false)}>
@@ -319,52 +254,15 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      <Modal visible={privacyVisible} transparent animationType="fade" onRequestClose={() => setPrivacyVisible(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('privacy_settings_title')}</Text>
-            <Text style={[styles.modalLead, { color: theme.textMuted }]}>{t('privacy_settings_lead')}</Text>
-
-            {!privacyUnlocked ? (
-              <>
-                <TextInput
-                  placeholder={t('privacy_password_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  secureTextEntry
-                  value={privacyPassword}
-                  onChangeText={setPrivacyPassword}
-                  style={[styles.modalInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
-                />
-                <Pressable onPress={unlockPrivacy} style={[styles.modalBtn, { backgroundColor: theme.accent }]}>
-                  <Text style={[styles.modalBtnText, { color: theme.onAccent }]}>{t('privacy_unlock')}</Text>
-                </Pressable>
-                <Pressable onPress={onResetPassword} style={styles.modalLinkBtn}>
-                  <Text style={[styles.modalLinkText, { color: theme.accent }]}>{t('privacy_forgot_password')}</Text>
-                </Pressable>
-              </>
-            ) : (
-              <View style={styles.privacyInfoWrap}>
-                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
-                  {t('privacy_user_label')}: {maskValue(customer?.name ?? '', 1)}
-                </Text>
-                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
-                  {t('privacy_email_label')}: {maskValue(customer?.email ?? '', 2)}
-                </Text>
-                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
-                  {t('privacy_phone_label')}: {maskValue(customer?.phone ?? '', 4)}
-                </Text>
-                <Text style={[styles.privacyInfoLine, { color: theme.text }]}>
-                  {t('privacy_password_label')}: {'•'.repeat(12)}
-                </Text>
-              </View>
-            )}
-
-            <Pressable onPress={() => setPrivacyVisible(false)} style={[styles.modalCloseBtn, { borderColor: theme.border }]}>
-              <Text style={[styles.modalCloseText, { color: theme.textMuted }]}>{t('alert_cancel')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      <PrivacySettingsModal
+        visible={privacyVisible}
+        customer={customer}
+        onClose={() => setPrivacyVisible(false)}
+        verifyPassword={verifyPassword}
+        updateProfile={updateProfile}
+        deleteAccount={deleteAccount}
+        resetPassword={resetPassword}
+      />
     </ScrollView>
   );
 }
@@ -404,7 +302,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 8,
   },
-  sectionLead: { fontSize: 14, lineHeight: 20, marginBottom: 10 },
   card: {
     borderRadius: 16,
     borderWidth: 1,
@@ -459,12 +356,7 @@ const styles = StyleSheet.create({
   toggleHint: { marginTop: 2, fontSize: 12 },
   toggleNote: { fontSize: 12, marginTop: 8, marginBottom: 4 },
   toggleTextRtl: { textAlign: 'right' },
-  note: {
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 12,
-    marginBottom: 20,
-  },
+  signOutWrap: { marginTop: 12 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -480,24 +372,6 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
   modalLead: { fontSize: 13, lineHeight: 19, marginBottom: 10 },
-  modalInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 15,
-  },
-  modalBtn: {
-    marginTop: 10,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  modalBtnText: { fontSize: 15, fontWeight: '800' },
-  modalLinkBtn: { marginTop: 10, alignItems: 'center' },
-  modalLinkText: { fontSize: 13, fontWeight: '700' },
-  privacyInfoWrap: { marginTop: 4, gap: 8 },
-  privacyInfoLine: { fontSize: 14, fontWeight: '600' },
   modalCloseBtn: {
     marginTop: 14,
     borderWidth: 1,

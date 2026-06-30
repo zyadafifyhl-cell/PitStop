@@ -1,9 +1,10 @@
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
+import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { LoyaltyCard } from '@/components/customer/LoyaltyCard';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -11,7 +12,6 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
-import { getSavedCarProfile, saveCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById, listShopsByType } from '@/lib/booking/catalogRepository';
 import { getAreaById } from '@/lib/booking/areas';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
@@ -31,9 +31,6 @@ export default function HomeScreen() {
   const { signOut, busy: signingOut } = useAppSignOut();
   const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const [nextBooking, setNextBooking] = useState<Booking | null>(null);
-  const [savedCarType, setSavedCarType] = useState('');
-  const [carTypeDraft, setCarTypeDraft] = useState('');
-  const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
   const [liveOffers, setLiveOffers] = useState<
     Array<{ shopId: string; shopName: string; shopArea: string; shopType: ShopType; offer: ShopOffer }>
   >([]);
@@ -108,22 +105,14 @@ export default function HomeScreen() {
   const refreshHomeData = useCallback(async () => {
     if (!customer) {
       setNextBooking(null);
-      setSavedCarType('');
-      setCarTypeDraft('');
       setLoyaltyPoints(0);
       return;
     }
 
-    const [profile, bookings] = await Promise.all([
-      getSavedCarProfile(customer.id),
-      customer.phone ? listBookingsForPhone(customer.phone) : Promise.resolve([]),
-    ]);
+    const bookings = customer.phone ? await listBookingsForPhone(customer.phone) : [];
     await syncLoyaltyPointsFromBookings(bookings, { customerId: customer.id, phone: customer.phone });
     const points = await getLoyaltyPoints({ customerId: customer.id, phone: customer.phone });
     setLoyaltyPoints(points);
-    const carType = profile?.carType ?? '';
-    setSavedCarType(carType);
-    setCarTypeDraft(carType);
 
     const now = Date.now();
     const upcoming = bookings
@@ -141,21 +130,6 @@ export default function HomeScreen() {
       loadLiveOffers();
     }, [refreshHomeData, loadLiveOffers]),
   );
-
-  async function onSaveCarProfile() {
-    if (!customer) return;
-    const carType = carTypeDraft.trim();
-    if (!carType) {
-      setSaveNotice({ title: t('book_missing_title'), body: t('book_missing_car_type') });
-      return;
-    }
-    await saveCarProfile(customer.id, { carType });
-    setSavedCarType(carType);
-    setSaveNotice({
-      title: t('home_car_profile_saved'),
-      body: tp('home_car_profile_saved_body', { carType }),
-    });
-  }
 
   const greeting = customer
     ? tp('home_greeting_named', { name: customer.name.split(' ')[0] ?? customer.name })
@@ -185,6 +159,8 @@ export default function HomeScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
 
+      {customer && !isGuest ? <ActiveVehiclePicker customerId={customer.id} showManageLink /> : null}
+
       {nextBooking ? (
         <Pressable
           onPress={() => router.push('/bookings')}
@@ -199,27 +175,6 @@ export default function HomeScreen() {
       ) : null}
 
       {customer && !isGuest ? <LoyaltyCard points={loyaltyPoints} /> : null}
-
-      <View style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>{t('home_car_profile_title')}</Text>
-        <Text style={[styles.cardMeta, { color: theme.textMuted }]}>
-          {savedCarType
-            ? tp('home_car_profile_saved_line', { carType: savedCarType })
-            : t('home_car_profile_lead')}
-        </Text>
-        <View style={styles.profileRow}>
-          <TextInput
-            value={carTypeDraft}
-            onChangeText={setCarTypeDraft}
-            placeholder={t('home_car_profile_placeholder')}
-            placeholderTextColor={theme.textDim}
-            style={[styles.profileInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
-          />
-          <Pressable onPress={onSaveCarProfile} style={[styles.profileSaveBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.profileSaveText, { color: theme.onAccent }]}>{t('home_car_profile_save')}</Text>
-          </Pressable>
-        </View>
-      </View>
 
       <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
@@ -304,24 +259,6 @@ export default function HomeScreen() {
         </Pressable>
       ) : null}
       </ScrollView>
-
-      <Modal
-        visible={!!saveNotice}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSaveNotice(null)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{saveNotice?.title}</Text>
-            <Text style={[styles.modalBody, { color: theme.textMuted }]}>{saveNotice?.body}</Text>
-            <Pressable
-              onPress={() => setSaveNotice(null)}
-              style={[styles.modalBtnPrimary, { backgroundColor: theme.accent, marginTop: 16 }]}>
-              <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -357,36 +294,8 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 14,
   },
-  profileCard: {
-    backgroundColor: AppTheme.card,
-    borderWidth: 1,
-    borderColor: AppTheme.border,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 22,
-  },
   cardTitle: { color: AppTheme.text, fontSize: 17, fontWeight: '900', marginBottom: 4 },
   cardMeta: { color: AppTheme.textMuted, fontSize: 13, lineHeight: 19 },
-  profileRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  profileInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: AppTheme.border,
-    backgroundColor: AppTheme.bgElevated,
-    color: AppTheme.text,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
-  profileSaveBtn: {
-    backgroundColor: AppTheme.accent,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileSaveText: { fontSize: 13, fontWeight: '800' },
   sectionTitle: { color: AppTheme.text, fontSize: 20, fontWeight: '900', marginTop: 6, marginBottom: 12 },
   searchInput: {
     borderWidth: 1,
@@ -418,36 +327,4 @@ const styles = StyleSheet.create({
   offerMeta: { color: AppTheme.textMuted, fontSize: 12, lineHeight: 17 },
   signOut: { marginTop: 20, alignItems: 'center', paddingVertical: 12 },
   signOutText: { color: AppTheme.textDim, fontSize: 14, fontWeight: '600' },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 20,
-  },
-  modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 10 },
-  modalBody: { fontSize: 15, lineHeight: 22 },
-  rewardCodeLabel: { fontSize: 12, fontWeight: '700', marginTop: 14, marginBottom: 6 },
-  rewardCode: {
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: 1,
-    textAlign: 'center',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-  },
-  modalBtnPrimary: {
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  modalBtnPrimaryText: { fontSize: 15, fontWeight: '800' },
 });

@@ -121,6 +121,36 @@ export async function listShopReviewsSynced(shopId: string): Promise<ShopReview[
   return local.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Returns the logged-in customer's existing review for a shop, if any. */
+export async function getCustomerShopReviewSynced(
+  shopId: string,
+  customerId: string,
+): Promise<ShopReview | null> {
+  if (!customerId?.trim()) return null;
+
+  const local = (await readMap())[shopId] ?? [];
+  const localMatch = local.find((row) => row.customerId === customerId && !row.hidden) ?? null;
+
+  const supabase = getSupabase();
+  if (supabase && isUuid(customerId)) {
+    const { data, error } = await supabase
+      .from('shop_reviews')
+      .select('*')
+      .eq('shop_id', shopId)
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!error && data?.length) {
+      const remote = mapReviewRow(data[0] as ReviewRow);
+      await upsertLocalReview(shopId, remote);
+      return remote;
+    }
+  }
+
+  return localMatch;
+}
+
 export async function addShopReviewSynced(input: {
   shopId: string;
   customerId?: string;
@@ -133,6 +163,13 @@ export async function addShopReviewSynced(input: {
   const customerName = input.customerName.trim();
   const supabase = getSupabase();
   const customerId = input.customerId;
+
+  if (customerId) {
+    const existing = await getCustomerShopReviewSynced(input.shopId, customerId);
+    if (existing) {
+      throw new Error('shop_review_already_exists');
+    }
+  }
 
   if (supabase && customerId && isUuid(customerId)) {
     const { data, error } = await supabase

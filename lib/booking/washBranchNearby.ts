@@ -84,10 +84,15 @@ export async function listWashBranchesSortedByDistance(
           if (!shop || shop.type !== 'wash') continue;
           const shopBranches = branchRows.filter((row) => row.shop_id === shopId);
           if (shopBranches.length === 0) {
-            listings.push(listingFromShopAndBranch(shop, null));
+            if (Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude)) {
+              listings.push(listingFromShopAndBranch(shop, null));
+            }
             continue;
           }
           for (const branch of shopBranches) {
+            const lat = branch.latitude ?? shop.latitude;
+            const lng = branch.longitude ?? shop.longitude;
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
             listings.push(listingFromShopAndBranch(shop, branch));
           }
         }

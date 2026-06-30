@@ -430,24 +430,31 @@ export async function persistActiveBranchRemote(shopId: string, branchId: string
 export async function fetchDefaultBranchCoordinates(
   shopId: string,
 ): Promise<{ latitude: number; longitude: number } | null> {
+  const branch = await fetchDefaultBranchProfile(shopId);
+  if (!branch?.latitude || !branch?.longitude) return null;
+  return { latitude: branch.latitude, longitude: branch.longitude };
+}
+
+/** Default branch profile for customer-facing shop pages (wash). */
+export async function fetchDefaultBranchProfile(shopId: string): Promise<WashBranch | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
 
-  const { data } = await supabase
-    .from('shop_branches')
-    .select('latitude, longitude, is_default, slug')
-    .eq('shop_id', shopId)
-    .eq('is_active', true)
-    .order('is_default', { ascending: false })
-    .order('sort_order', { ascending: true })
-    .limit(10);
+  const response = await withTimeout(
+    supabase
+      .from('shop_branches')
+      .select('*')
+      .eq('shop_id', shopId)
+      .eq('is_active', true)
+      .order('is_default', { ascending: false })
+      .order('sort_order', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    null,
+  );
 
-  const rows = data ?? [];
-  const preferred =
-    rows.find((row) => row.is_default && row.latitude != null && row.longitude != null) ??
-    rows.find((row) => row.slug === 'main' && row.latitude != null && row.longitude != null) ??
-    rows.find((row) => row.latitude != null && row.longitude != null);
-
-  if (!preferred?.latitude || !preferred?.longitude) return null;
-  return { latitude: Number(preferred.latitude), longitude: Number(preferred.longitude) };
+  if (!response || response.error || !response.data) return null;
+  const row = response.data as BranchRow;
+  const serviceMap = await fetchServicesForBranches([row.id]);
+  return mapBranchRow(row, serviceMap.get(row.id) ?? []);
 }

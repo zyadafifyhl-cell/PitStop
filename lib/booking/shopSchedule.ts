@@ -219,20 +219,61 @@ export function dayName(day: ShopDayHours['day'], locale: 'en' | 'ar'): string {
 }
 
 export function formatWeeklyHoursLines(extras: ShopExtras | null | undefined, locale: 'en' | 'ar'): string[] {
+  return getWeeklyHoursDisplayRows(extras, locale).map((row) => {
+    if (row.closed) {
+      return locale === 'ar' ? `${row.dayLabel}     ${row.statusLabel}` : `${row.dayLabel}     ${row.statusLabel}`;
+    }
+    return locale === 'ar'
+      ? `${row.dayLabel}     ${row.hoursLabel}`
+      : `${row.dayLabel}     ${row.hoursLabel}`;
+  });
+}
+
+export type WeeklyHoursDisplayRow = {
+  day: ShopDayHours['day'];
+  dayLabel: string;
+  hoursLabel: string;
+  statusLabel: string;
+  closed: boolean;
+  isToday: boolean;
+};
+
+export function getWeeklyHoursDisplayRows(
+  extras: ShopExtras | null | undefined,
+  locale: 'en' | 'ar',
+): WeeklyHoursDisplayRow[] {
   const rows = extras?.weeklyHours?.length ? extras.weeklyHours : defaultWeeklyHours();
+  const today = new Date().getDay();
+  const closedLabel = locale === 'ar' ? 'مغلق' : 'Closed';
+  const openLabel = locale === 'ar' ? 'مفتوح' : 'Open';
+
   return rows
     .slice()
     .sort((a, b) => a.day - b.day)
     .map((row) => {
-      const name = dayName(row.day, locale);
+      const dayLabel = dayName(row.day, locale);
       if (row.closed) {
-        return locale === 'ar' ? `${name}     مغلق` : `${name}     Closed`;
+        return {
+          day: row.day,
+          dayLabel,
+          hoursLabel: '—',
+          statusLabel: closedLabel,
+          closed: true,
+          isToday: row.day === today,
+        };
       }
       const open = row.openTime ?? '09:00';
       const close = row.closeTime ?? '23:00';
-      return locale === 'ar'
-        ? `${name}     ${open} - ${close}`
-        : `${name}     ${format12h(open)} - ${format12h(close)}`;
+      const hoursLabel =
+        locale === 'ar' ? `${open} - ${close}` : `${format12h(open)} - ${format12h(close)}`;
+      return {
+        day: row.day,
+        dayLabel,
+        hoursLabel,
+        statusLabel: openLabel,
+        closed: false,
+        isToday: row.day === today,
+      };
     });
 }
 

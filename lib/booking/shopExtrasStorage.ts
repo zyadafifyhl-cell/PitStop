@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { ShopDayHours, ShopExtras, ShopOffer, ShopService } from '@/lib/booking/types';
 import { defaultWashServices } from '@/lib/booking/shopSchedule';
+import { persistImageUri } from '@/lib/media/persistImageUri';
 
 const SHOP_EXTRAS_KEY = '@pitstop/shop-extras/v1';
 type ExtrasMap = Record<string, ShopExtras>;
@@ -113,7 +114,7 @@ export async function setShopProfileInfo(
 }
 
 export async function setShopProfileImage(shopId: string, imageUrl: string): Promise<ShopExtras> {
-  const clean = imageUrl.trim();
+  const clean = (await persistImageUri(imageUrl)).trim();
   const map = await readMap();
   const row = normalizeExtras(shopId, map[shopId]);
   const previousProfile = row.profileImageUrl;
@@ -129,7 +130,7 @@ export async function setShopProfileImage(shopId: string, imageUrl: string): Pro
 
 /** Cover banner only — index 0 of imageUrls; does not change profileImageUrl. */
 export async function setShopCoverImage(shopId: string, imageUrl: string): Promise<ShopExtras> {
-  const clean = imageUrl.trim();
+  const clean = (await persistImageUri(imageUrl)).trim();
   if (!clean) return getShopExtras(shopId);
   const map = await readMap();
   const row = normalizeExtras(shopId, map[shopId]);
@@ -142,7 +143,7 @@ export async function setShopCoverImage(shopId: string, imageUrl: string): Promi
 }
 
 export async function addShopImage(shopId: string, imageUrl: string): Promise<ShopExtras> {
-  const clean = imageUrl.trim();
+  const clean = (await persistImageUri(imageUrl)).trim();
   if (!clean) return getShopExtras(shopId);
   const map = await readMap();
   const row = normalizeExtras(shopId, map[shopId]);

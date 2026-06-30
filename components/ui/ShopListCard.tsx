@@ -11,7 +11,7 @@ import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras } from '@/lib/booking/types';
 import { formatEgp } from '@/lib/booking/reporting';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
-import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
+import { formatPhoneDisplay, openMapsAtCoordinates, openPhone } from '@/lib/linking/contact';
 import { WashStatusBadge, type WashCustomerStatus } from '@/components/ui/WashBusyBadge';
 import type { ShopType } from '@/lib/booking/types';
 
@@ -21,7 +21,12 @@ type Props = {
   address: string;
   type: ShopType;
   typeLabel: string;
+  /** @deprecated Use averageRating from live shop_reviews instead. */
   rating?: number;
+  averageRating?: number | null;
+  reviewCount?: number;
+  latitude?: number | null;
+  longitude?: number | null;
   phone?: string;
   distanceLabel?: string;
   bookLabel: string;
@@ -39,7 +44,10 @@ export function ShopListCard({
   address,
   type,
   typeLabel,
-  rating,
+  averageRating,
+  reviewCount,
+  latitude,
+  longitude,
   phone,
   distanceLabel,
   bookLabel,
@@ -68,7 +76,8 @@ export function ShopListCard({
 
   const activeOffers = (extras?.offers ?? []).filter((offer) => offer.active);
   const topOffer = activeOffers[0];
-  const profileImage = extras?.profileImageUrl || extras?.imageUrls?.[0];
+  const profileImage = extras?.profileImageUrl;
+  const coverImage = extras?.imageUrls?.[0];
   const offerLabel = topOffer ? (locale === 'ar' ? (topOffer.titleAr || topOffer.title) : topOffer.title) : null;
   const resolvedName = locale === 'ar' ? extras?.profileNameAr || extras?.profileName || name : extras?.profileName || name;
   const resolvedAddress =
@@ -86,6 +95,17 @@ export function ShopListCard({
       ? extras.washShopStatus
       : null;
 
+  const mapLat = latitude ?? null;
+  const mapLng = longitude ?? null;
+
+  function handleOpenMaps() {
+    if (mapLat != null && mapLng != null && Number.isFinite(mapLat) && Number.isFinite(mapLng)) {
+      openMapsAtCoordinates(mapLat, mapLng, resolvedName).catch(() => onOpenMaps?.());
+      return;
+    }
+    onOpenMaps?.();
+  }
+
   return (
     <View style={styles.wrap}>
       <LinearGradient
@@ -99,12 +119,17 @@ export function ShopListCard({
           </View>
           <View style={styles.topRight}>
             {distanceLabel ? <Text style={[styles.distance, { color: theme.accent }]}>{distanceLabel}</Text> : null}
-            {rating != null ? (
+            {averageRating != null ? (
               <View style={styles.rating}>
                 <FontAwesome name="star" size={12} color={theme.text} />
-                <Text style={[styles.ratingText, { color: theme.text }]}>{rating.toFixed(1)}</Text>
+                <Text style={[styles.ratingText, { color: theme.text }]}>
+                  {averageRating.toFixed(1)}
+                  {reviewCount ? ` (${reviewCount})` : ''}
+                </Text>
               </View>
-            ) : null}
+            ) : (
+              <Text style={[styles.ratingPlaceholder, { color: theme.textDim }]}>{t('shop_rating_none')}</Text>
+            )}
             {extras?.servicePriceEgp != null && type !== 'wash' ? (
               <View style={[styles.priceChip, { backgroundColor: theme.accentSoft }]}>
                 <Text style={[styles.priceChipText, { color: theme.accent }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
@@ -164,9 +189,9 @@ export function ShopListCard({
             <Text style={[styles.offerChipText, { color: theme.accent }]}>{t('shop_profile_winch_available')}</Text>
           </View>
         ) : null}
-        {extras?.imageUrls?.[0] ? (
+        {coverImage ? (
           <View style={[styles.coverFrame, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-            <Image source={{ uri: extras.imageUrls[0] }} style={styles.coverImage} contentFit="contain" />
+            <Image source={{ uri: coverImage }} style={styles.coverImage} contentFit="cover" />
           </View>
         ) : null}
 
@@ -196,8 +221,8 @@ export function ShopListCard({
             <Text style={[styles.book, { color: accent }]}>{bookLabel}</Text>
           </Pressable>
           <View style={styles.footerIcons}>
-            {onOpenMaps ? (
-              <Pressable onPress={onOpenMaps} hitSlop={8} style={styles.iconBtn}>
+            {(onOpenMaps || (mapLat != null && mapLng != null)) ? (
+              <Pressable onPress={handleOpenMaps} hitSlop={8} style={styles.iconBtn} accessibilityLabel={t('book_open_maps')}>
                 <FontAwesome name="map-marker" size={18} color={accent} />
               </Pressable>
             ) : null}
@@ -224,12 +249,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
-  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
   badge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 11, fontWeight: '700' },
   distance: { fontSize: 12, fontWeight: '700' },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   ratingText: { fontSize: 13, fontWeight: '600' },
+  ratingPlaceholder: { fontSize: 11, fontWeight: '600' },
   priceChip: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
   priceChipText: { fontSize: 11, fontWeight: '800' },
   iconBtn: { padding: 4 },
@@ -254,13 +280,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
     borderRadius: 12,
     borderWidth: 1,
-    padding: 8,
     overflow: 'hidden',
   },
   coverImage: {
     width: '100%',
     height: 190,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   phoneRow: {
     flexDirection: 'row',

@@ -10,6 +10,11 @@ import React, {
 } from 'react';
 
 import { isStrongPassword } from '@/lib/authValidation';
+import {
+  deleteCustomerAccountRemote,
+  purgeCustomerLocalData,
+  updateCustomerProfile,
+} from '@/lib/account/customerAccountRepository';
 import type { Customer } from '@/lib/booking/customers';
 import {
   getShopByOwnerEmail,
@@ -25,6 +30,8 @@ const SESSION_KEY = '@pitstop/customer-session';
 const GUEST_KEY = '@pitstop/guest-session';
 type LoginResult = 'ok' | 'invalid' | 'email_not_confirmed' | 'email_login_disabled' | 'not_configured';
 type RegisterResult = 'ok' | 'check_email' | 'email_taken' | 'invalid' | 'weak_password' | 'not_configured';
+type UpdateProfileResult = 'ok' | 'invalid' | 'not_configured' | 'email_taken' | 'weak_password';
+type DeleteAccountResult = 'ok' | 'invalid' | 'not_configured';
 
 type CustomerAuthContextValue = {
   ready: boolean;
@@ -43,6 +50,13 @@ type CustomerAuthContextValue = {
   }) => Promise<RegisterResult>;
   resetPassword: (email: string) => Promise<'ok' | 'invalid' | 'not_configured'>;
   verifyPassword: (password: string) => Promise<'ok' | 'invalid' | 'not_configured'>;
+  updateProfile: (input: {
+    name: string;
+    email: string;
+    phone: string;
+    password?: string;
+  }) => Promise<UpdateProfileResult>;
+  deleteAccount: () => Promise<DeleteAccountResult>;
   logout: () => Promise<void>;
 };
 
@@ -282,6 +296,32 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     [customer?.email],
   );
 
+  const updateProfile = useCallback(
+    async (input: { name: string; email: string; phone: string; password?: string }) => {
+      if (!customer?.id) return 'invalid';
+      if (input.password?.trim() && !isStrongPassword(input.password)) return 'weak_password';
+      const result = await updateCustomerProfile({
+        userId: customer.id,
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        password: input.password,
+      });
+      if (result !== 'ok') return result;
+
+      const supabase = getSupabase();
+      if (supabase) {
+        const { data } = await supabase.auth.getUser();
+        if (data.user) {
+          const match = await resolveCustomerFromUser(data.user);
+          if (match) setCustomer(match);
+        }
+      }
+      return 'ok';
+    },
+    [customer?.id, resolveCustomerFromUser],
+  );
+
   const logout = useCallback(async () => {
     signingOutRef.current = true;
     setCustomer(null);
@@ -296,6 +336,15 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
+  const deleteAccount = useCallback(async () => {
+    if (!customer?.id) return 'invalid';
+    const result = await deleteCustomerAccountRemote();
+    if (result !== 'ok') return result;
+    await purgeCustomerLocalData(customer.id, customer.phone);
+    await logout();
+    return 'ok';
+  }, [customer?.id, customer?.phone, logout]);
+
   const value = useMemo(
     () => ({
       ready,
@@ -308,9 +357,11 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       register,
       resetPassword,
       verifyPassword,
+      updateProfile,
+      deleteAccount,
       logout,
     }),
-    [ready, customer, isGuest, hasSession, busy, continueAsGuest, login, register, resetPassword, verifyPassword, logout],
+    [ready, customer, isGuest, hasSession, busy, continueAsGuest, login, register, resetPassword, verifyPassword, updateProfile, deleteAccount, logout],
   );
 
   return <CustomerAuthContext.Provider value={value}>{children}</CustomerAuthContext.Provider>;
