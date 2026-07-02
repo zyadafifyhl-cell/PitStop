@@ -15,6 +15,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 
 export default function VerifyScreen() {
   const params = useLocalSearchParams<{ phone?: string; displayName?: string }>();
@@ -45,7 +46,7 @@ export default function VerifyScreen() {
         );
       });
     } catch (e) {
-      Alert.alert(t('auth_verify_fail_title'), e instanceof Error ? e.message : String(e));
+      Alert.alert(t('auth_verify_fail_title'), logAndGetSafeErrorMessage(e, t, 'verify.verifyOtp'));
     }
   }
 

@@ -1,11 +1,10 @@
 import { useFocusEffect } from 'expo-router';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -20,7 +19,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listArchivedBookingsForStaff } from '@/lib/booking/bookingHistoryRepository';
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
 import {
-  buildOwnerReportHtml,
+  buildOwnerReportHtmlDeferred,
   filterBookingsByRange,
   formatEgp,
   formatRangeLabel,
@@ -31,6 +30,7 @@ import {
 } from '@/lib/booking/reporting';
 import type { Booking, Shop } from '@/lib/booking/types';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
+import { openReportPrintFrameWeb } from '@/lib/pdf/reportPrintWeb';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 
 type Props = {
@@ -38,9 +38,22 @@ type Props = {
   staff: ShopStaffUser | null;
   variant?: 'wash' | 'shop';
   pushReportNotification?: boolean;
+  mode?: 'all' | 'reports' | 'history';
+  branchOptions?: Array<{ id: string; label: string }>;
+  selectedBranchId?: string;
+  onSelectBranchId?: (branchId: string) => void;
 };
 
-export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNotification = false }: Props) {
+export function OwnerHistoryPanel({
+  shop,
+  staff,
+  variant = 'wash',
+  pushReportNotification = false,
+  mode = 'all',
+  branchOptions,
+  selectedBranchId = 'all',
+  onSelectBranchId,
+}: Props) {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
   const prefix = variant === 'shop' ? 'shop_report' : 'wash_report';
@@ -54,9 +67,20 @@ export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNot
   const [reportEndYmd, setReportEndYmd] = useState(() => toYmdLocal(new Date()));
   const [lastDaysInput, setLastDaysInput] = useState('30');
   const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(null);
+  const [branchMenuOpen, setBranchMenuOpen] = useState(false);
+  const deferredRows = useDeferredValue(rows);
 
-  const branchId = staff?.role === 'branch_manager' ? staff.branchId : undefined;
+  const branchId =
+    staff?.role === 'branch_manager'
+      ? staff.branchId
+      : selectedBranchId && selectedBranchId !== 'all'
+        ? selectedBranchId
+        : undefined;
+  const canGenerateAllBranches =
+    staff?.role !== 'branch_manager' &&
+    (branchOptions?.some((option) => option.id !== 'all') ?? false);
+  const canGenerateSelectedBranch =
+    staff?.role === 'branch_manager' || (selectedBranchId && selectedBranchId !== 'all');
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
@@ -73,6 +97,12 @@ export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNot
       loadHistory();
     }, [loadHistory]),
   );
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+  useEffect(() => {
+    setBranchMenuOpen(false);
+  }, [selectedBranchId]);
 
   const reportRange = useMemo(
     () => resolveCustomRange(reportStartYmd, reportEndYmd),
@@ -80,9 +110,9 @@ export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNot
   );
 
   const reportBookings = useMemo(() => {
-    const normalized = rows.map((row) => ({ ...row, ...normalizeBookingMoney(row) }));
+    const normalized = deferredRows.map((row) => ({ ...row, ...normalizeBookingMoney(row) }));
     return reportRange ? filterBookingsByRange(normalized, reportRange) : [];
-  }, [rows, reportRange]);
+  }, [deferredRows, reportRange]);
 
   const financialTotals = useMemo(() => {
     return reportBookings.reduce(
@@ -107,21 +137,44 @@ export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNot
     setReportEndYmd(toYmdLocal(range.end));
   }
 
-  function printReportPreview() {
-    if (Platform.OS !== 'web') return;
-    const iframe = document.getElementById('owner-history-report-iframe') as HTMLIFrameElement | null;
-    iframe?.contentWindow?.print();
-  }
-
-  async function onGeneratePdf() {
+  async function onGeneratePdf(scope: 'selected' | 'all' = 'selected') {
     if (!reportRange) {
       Alert.alert(t(`${prefix}_invalid_range_title`), t(`${prefix}_invalid_range_body`));
       return;
     }
+    const scopedBranchId =
+      staff?.role === 'branch_manager'
+        ? staff.branchId
+        : scope === 'all'
+          ? undefined
+          : selectedBranchId && selectedBranchId !== 'all'
+            ? selectedBranchId
+            : undefined;
+    if (scope === 'selected' && !scopedBranchId) {
+      Alert.alert(t('wash_branch_select_title'), t('wash_report_generate_branch'));
+      return;
+    }
+    const sourceRows =
+      scopedBranchId === branchId
+        ? rows
+        : await listArchivedBookingsForStaff(shop.id, scopedBranchId);
+    const scopedReportBookings = filterBookingsByRange(
+      sourceRows.map((row) => ({ ...row, ...normalizeBookingMoney(row) })),
+      reportRange,
+    );
+    const scopedFinancialTotals = scopedReportBookings.reduce(
+      (acc, row) => {
+        acc.gross += row.servicePriceEgp ?? 0;
+        acc.fee += row.platformFeeEgp ?? 0;
+        acc.net += (row.servicePriceEgp ?? 0) - (row.platformFeeEgp ?? 0);
+        return acc;
+      },
+      { gross: 0, fee: 0, net: 0 },
+    );
     const rangeLabel = formatRangeLabel(reportRange, locale);
-    const html = buildOwnerReportHtml({
+    const html = await buildOwnerReportHtmlDeferred({
       shop,
-      bookings: reportBookings,
+      bookings: scopedReportBookings,
       range: reportRange,
       rangeLabel,
       generatedAt: new Date(),
@@ -132,17 +185,35 @@ export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNot
       if (pushReportNotification) {
         await pushWashCenterNotification({
           shopId: shop.id,
-          branchId: branchId ?? undefined,
+          branchId: scopedBranchId ?? undefined,
           kind: 'weekly_revenue',
           title: t('wash_report_title'),
           body: t(`${prefix}_count`)
-            .replace('{count}', String(reportBookings.length))
+            .replace('{count}', String(scopedReportBookings.length))
             .replace('{range}', rangeLabel),
           reportHtml: html,
         });
       }
-      if (Platform.OS === 'web') {
-        setReportPreviewHtml(html);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        openReportPrintFrameWeb({
+          shopName: locale === 'ar' ? shop.nameAr : shop.name,
+          reportTitle: t(`${prefix}_title`),
+          rangeLabel,
+          generatedAtText: new Date().toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
+          grossRevenue: scopedFinancialTotals.gross,
+          platformFee: scopedFinancialTotals.fee,
+          netEarnings: scopedFinancialTotals.net,
+          rows: scopedReportBookings.map((booking, index) => {
+            const sourceLabel = booking.bookingType === 'walk_in' ? 'Walk-In' : 'App';
+            const money = normalizeBookingMoney(booking);
+            return {
+              bookingId: booking.id || `#${index + 1}`,
+              dateText: formatBookingDateTime(booking.scheduledAt, locale),
+              typeText: sourceLabel,
+              revenueEgp: money.servicePriceEgp,
+            };
+          }),
+        });
         return;
       }
       const file = await Print.printToFileAsync({ html });
@@ -165,81 +236,161 @@ export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNot
     styles.field,
     { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated },
   ];
+  const selectedBranchLabel =
+    branchOptions?.find((option) => option.id === selectedBranchId)?.label ??
+    branchOptions?.find((option) => option.id === 'all')?.label ??
+    t('wash_report_all_branches_option');
 
   return (
     <View style={styles.wrap}>
       <Text style={[styles.lead, { color: theme.textMuted }]}>{t('owner_history_lead')}</Text>
 
-      <View style={[styles.reportCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>{t(`${prefix}_title`)}</Text>
-        <View style={styles.dateRow}>
-          <BookingDatePicker
-            valueYmd={reportStartYmd}
-            onChangeYmd={setReportStartYmd}
-            locale={locale}
-            label={t(`${prefix}_start_date`)}
-            pickHint={t('book_date_pick_hint')}
-            minimumDate={new Date('2020-01-01T00:00:00')}
-            borderColor={theme.border}
-            backgroundColor={theme.bgElevated}
-            textColor={theme.text}
-          />
-          <BookingDatePicker
-            valueYmd={reportEndYmd}
-            onChangeYmd={setReportEndYmd}
-            locale={locale}
-            label={t(`${prefix}_end_date`)}
-            pickHint={t('book_date_pick_hint')}
-            minimumDate={new Date('2020-01-01T00:00:00')}
-            borderColor={theme.border}
-            backgroundColor={theme.bgElevated}
-            textColor={theme.text}
-          />
-        </View>
-        <Text style={[styles.inlineTitle, { color: theme.text }]}>{t(`${prefix}_last_n_days`)}</Text>
-        <View style={styles.lastDaysRow}>
-          <TextInput
-            value={lastDaysInput}
-            onChangeText={setLastDaysInput}
-            keyboardType="number-pad"
-            placeholder={t(`${prefix}_days_placeholder`)}
-            placeholderTextColor={theme.textDim}
-            style={[fieldStyle, styles.lastDaysInput]}
-          />
-          <Pressable onPress={applyLastDaysRange} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
-            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t(`${prefix}_apply_days`)}</Text>
-          </Pressable>
-        </View>
-        <Text style={[styles.summary, { color: theme.textMuted }]}>
-          {reportRange
-            ? t(`${prefix}_count`)
-                .replace('{count}', String(reportBookings.length))
-                .replace('{range}', formatRangeLabel(reportRange, locale))
-            : t(`${prefix}_invalid_range_body`)}
-        </Text>
-        {reportRange ? (
-          <Text style={[styles.moneyLine, { color: theme.text }]}>
-            {t(`${prefix}_money_line`)
-              .replace('{gross}', formatEgp(financialTotals.gross, locale))
-              .replace('{fee}', formatEgp(financialTotals.fee, locale))
-              .replace('{net}', formatEgp(financialTotals.net, locale))}
+      {mode !== 'history' ? (
+        <View style={[styles.reportCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{t(`${prefix}_title`)}</Text>
+          {branchOptions?.length ? (
+            <View>
+              <Text style={[styles.inlineTitle, { color: theme.text }]}>{t('wash_branch_select_title')}</Text>
+              <Pressable
+                onPress={() => setBranchMenuOpen((open) => !open)}
+                style={[styles.branchSelectBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.branchSelectValue, { color: theme.text }]}>{selectedBranchLabel}</Text>
+                <Text style={{ color: theme.textMuted }}>{branchMenuOpen ? '▲' : '▼'}</Text>
+              </Pressable>
+              {branchMenuOpen ? (
+                <View style={[styles.branchMenuCard, { borderColor: theme.border, backgroundColor: theme.bg }]}>
+                  {branchOptions.map((option) => {
+                    const selected = option.id === selectedBranchId;
+                    return (
+                      <Pressable
+                        key={option.id}
+                        onPress={() => {
+                          onSelectBranchId?.(option.id);
+                          setBranchMenuOpen(false);
+                        }}
+                        style={[
+                          styles.branchMenuItem,
+                          selected ? { backgroundColor: theme.accentSoft, borderColor: theme.accent } : { borderColor: 'transparent' },
+                        ]}>
+                        <Text style={[styles.branchMenuText, { color: selected ? theme.accent : theme.text }]}>{option.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+          <View style={styles.dateRow}>
+            <BookingDatePicker
+              valueYmd={reportStartYmd}
+              onChangeYmd={setReportStartYmd}
+              locale={locale}
+              label={t(`${prefix}_start_date`)}
+              pickHint={t('book_date_pick_hint')}
+              minimumDate={new Date('2020-01-01T00:00:00')}
+              borderColor={theme.border}
+              backgroundColor={theme.bgElevated}
+              textColor={theme.text}
+            />
+            <BookingDatePicker
+              valueYmd={reportEndYmd}
+              onChangeYmd={setReportEndYmd}
+              locale={locale}
+              label={t(`${prefix}_end_date`)}
+              pickHint={t('book_date_pick_hint')}
+              minimumDate={new Date('2020-01-01T00:00:00')}
+              borderColor={theme.border}
+              backgroundColor={theme.bgElevated}
+              textColor={theme.text}
+            />
+          </View>
+          <Text style={[styles.inlineTitle, { color: theme.text }]}>{t(`${prefix}_last_n_days`)}</Text>
+          <View style={styles.lastDaysRow}>
+            <TextInput
+              value={lastDaysInput}
+              onChangeText={setLastDaysInput}
+              keyboardType="number-pad"
+              placeholder={t(`${prefix}_days_placeholder`)}
+              placeholderTextColor={theme.textDim}
+              style={[fieldStyle, styles.lastDaysInput]}
+            />
+            <Pressable onPress={applyLastDaysRange} style={[styles.secondaryBtn, { borderColor: theme.border }]}>
+              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t(`${prefix}_apply_days`)}</Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.summary, { color: theme.textMuted }]}>
+            {reportRange
+              ? t(`${prefix}_count`)
+                  .replace('{count}', String(reportBookings.length))
+                  .replace('{range}', formatRangeLabel(reportRange, locale))
+              : t(`${prefix}_invalid_range_body`)}
           </Text>
-        ) : null}
-        <Pressable
-          onPress={onGeneratePdf}
-          disabled={generatingPdf || !reportRange}
-          style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: generatingPdf || !reportRange ? 0.65 : 1 }]}>
-          <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
-            {generatingPdf
-              ? t(`${prefix}_generating`)
-              : Platform.OS === 'web'
-                ? t(`${prefix}_view_report`)
-                : t(`${prefix}_generate_pdf`)}
-          </Text>
-        </Pressable>
-      </View>
+          {reportRange ? (
+            <Text style={[styles.moneyLine, { color: theme.text }]}>
+              {t(`${prefix}_money_line`)
+                .replace('{gross}', formatEgp(financialTotals.gross, locale))
+                .replace('{fee}', formatEgp(financialTotals.fee, locale))
+                .replace('{net}', formatEgp(financialTotals.net, locale))}
+            </Text>
+          ) : null}
+          {canGenerateAllBranches ? (
+            <View style={styles.generateRow}>
+              <Pressable
+                onPress={() => {
+                  void onGeneratePdf('selected');
+                }}
+                disabled={generatingPdf || !reportRange || !canGenerateSelectedBranch}
+                style={[
+                  styles.secondaryBtn,
+                  styles.generateBtnHalf,
+                  {
+                    borderColor: theme.border,
+                    backgroundColor: theme.bgElevated,
+                    opacity: generatingPdf || !reportRange || !canGenerateSelectedBranch ? 0.65 : 1,
+                  },
+                ]}>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_report_generate_branch')}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  void onGeneratePdf('all');
+                }}
+                disabled={generatingPdf || !reportRange}
+                style={[
+                  styles.primaryBtn,
+                  styles.generateBtnHalf,
+                  {
+                    backgroundColor: theme.accent,
+                    opacity: generatingPdf || !reportRange ? 0.65 : 1,
+                  },
+                ]}>
+                <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
+                  {generatingPdf
+                    ? t(`${prefix}_generating`)
+                    : t('wash_report_generate_all_branches')}
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => {
+                void onGeneratePdf('selected');
+              }}
+              disabled={generatingPdf || !reportRange}
+              style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: generatingPdf || !reportRange ? 0.65 : 1 }]}>
+              <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
+                {generatingPdf
+                  ? t(`${prefix}_generating`)
+                  : Platform.OS === 'web'
+                    ? t(`${prefix}_download_pdf`)
+                    : t(`${prefix}_generate_pdf`)}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      ) : null}
 
-      {loading ? (
+      {mode === 'reports' ? null : loading ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       ) : rows.length === 0 ? (
         <Text style={[styles.empty, { color: theme.textMuted }]}>
@@ -263,31 +414,6 @@ export function OwnerHistoryPanel({ shop, staff, variant = 'wash', pushReportNot
         ))
       )}
 
-      <Modal visible={!!reportPreviewHtml} transparent animationType="fade" onRequestClose={() => setReportPreviewHtml(null)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>{t(`${prefix}_title`)}</Text>
-            {Platform.OS === 'web' && reportPreviewHtml ? (
-              <iframe
-                id="owner-history-report-iframe"
-                title="owner-history-report"
-                srcDoc={reportPreviewHtml}
-                style={{ width: '100%', height: 420, border: 'none', borderRadius: 8 }}
-              />
-            ) : null}
-            <View style={styles.modalActions}>
-              {Platform.OS === 'web' ? (
-                <Pressable onPress={printReportPreview} style={[styles.primaryBtn, { backgroundColor: theme.accent, flex: 1 }]}>
-                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t(`${prefix}_save_pdf`)}</Text>
-                </Pressable>
-              ) : null}
-              <Pressable onPress={() => setReportPreviewHtml(null)} style={[styles.secondaryBtn, { borderColor: theme.border, flex: 1 }]}>
-                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t(`${prefix}_close`)}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -306,20 +432,28 @@ const styles = StyleSheet.create({
   moneyLine: { fontSize: 14, fontWeight: '700' },
   primaryBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  generateRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  generateBtnHalf: { flex: 1, marginTop: 0 },
   secondaryBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' },
   secondaryBtnText: { fontSize: 13, fontWeight: '700' },
+  branchSelectBtn: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  branchSelectValue: { fontSize: 14, fontWeight: '700', flex: 1 },
+  branchMenuCard: { marginTop: 8, borderWidth: 1, borderRadius: 12, padding: 6, gap: 4 },
+  branchMenuItem: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9 },
+  branchMenuText: { fontSize: 13, fontWeight: '700' },
   card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 8 },
   when: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   meta: { fontSize: 14, lineHeight: 20 },
   status: { fontSize: 13, fontWeight: '800', marginTop: 6 },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 24 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  modalCard: { width: '100%', maxWidth: 720, borderWidth: 1, borderRadius: 16, padding: 16, gap: 12 },
-  modalActions: { flexDirection: 'row', gap: 8 },
 });

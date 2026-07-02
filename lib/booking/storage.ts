@@ -1,9 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
+import { registerCouponUsageRemote } from '@/lib/booking/couponRepository';
 import { formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { awardLoyaltyPointsOnDone } from '@/lib/booking/loyaltyPointsStorage';
+import { recordWashBookingDone } from '@/lib/booking/loyaltyStampsStorage';
 import { handleBookingConfirmed } from '@/lib/booking/bookingLifecycle';
+import {
+  applyOfferDiscount,
+  computePlatformFee,
+  PLATFORM_FEE_RATE,
+} from '@/lib/booking/offerPricing';
+import { OfferValidationError, validateOfferForBooking } from '@/lib/booking/offerRepository';
 import type { Booking, BookingStatus, BookingType } from '@/lib/booking/types';
 import { resolveRemoteBranchId } from '@/lib/booking/wash/branchRepository';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
@@ -46,7 +54,6 @@ async function fetchBookingsForPhoneRemote(phone: string): Promise<Booking[] | n
 
 const BOOKINGS_KEY = '@pitstop/bookings/v1';
 const CUSTOMER_PHONE_KEY = '@pitstop/bookings/customer-phone';
-const PLATFORM_FEE_RATE = 0.12;
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -94,6 +101,7 @@ type BookingRow = {
   service_name_ar?: string | null;
   service_price_egp: number | string | null;
   platform_fee_egp: number | string | null;
+  offer_id?: string | null;
   customer_notes?: string | null;
   owner_rejection_note?: string | null;
   booking_type?: BookingType | null;
@@ -107,6 +115,10 @@ export type CreateBookingOptions = {
   initialStatus?: BookingStatus;
   /** Skip owner push notification (walk-in POS). */
   skipOwnerPush?: boolean;
+  /** Applied coupon id to lock usage after booking creation. */
+  appliedCouponId?: string;
+  /** Auth user id for coupon usage logging. */
+  couponUsageUserId?: string;
 };
 
 export type WalkInBookingInput = {
@@ -114,12 +126,15 @@ export type WalkInBookingInput = {
   branchId: string;
   carType: string;
   customerPhone?: string;
+  customerId?: string;
+  skipPhoneLookup?: boolean;
   serviceId?: string;
   serviceName: string;
   serviceNameAr?: string;
   servicePriceEgp: number;
   serviceDurationMinutes?: number;
   customerNotes?: string;
+  initialStatus?: BookingStatus;
 };
 
 function mapBookingRow(row: BookingRow): Booking {
@@ -138,6 +153,7 @@ function mapBookingRow(row: BookingRow): Booking {
     serviceNameAr: row.service_name_ar ?? undefined,
     servicePriceEgp: Number(row.service_price_egp ?? 0),
     platformFeeEgp: Number(row.platform_fee_egp ?? 0),
+    offerId: row.offer_id ?? undefined,
     customerNotes: row.customer_notes ?? undefined,
     ownerRejectionNote: row.owner_rejection_note ?? undefined,
     bookingType: row.booking_type ?? 'app',
@@ -153,7 +169,7 @@ async function resolveBranchIdForRemote(shopId: string, branchId: string): Promi
   return resolved ?? undefined;
 }
 
-async function resolveWalkInCustomerId(phone?: string): Promise<string | undefined> {
+export async function resolveCustomerIdByPhoneRemote(phone?: string): Promise<string | undefined> {
   const trimmed = phone?.trim();
   if (!trimmed) return undefined;
 
@@ -176,7 +192,7 @@ function buildBookingInsertRow(
     branchId?: string;
   },
 ): Record<string, unknown> {
-  return {
+  const row: Record<string, unknown> = {
     shop_id: input.shopId,
     branch_id: params.branchId ?? null,
     shop_type: input.shopType,
@@ -195,6 +211,10 @@ function buildBookingInsertRow(
     scheduled_at: input.scheduledAt,
     status: params.status,
   };
+  if (isUuid(input.offerId)) {
+    row.offer_id = input.offerId;
+  }
+  return row;
 }
 
 async function readAll(): Promise<Booking[]> {
@@ -291,13 +311,30 @@ export async function createBooking(
   const bookingType = options?.bookingType ?? input.bookingType ?? 'app';
   const initialStatus = options?.initialStatus ?? 'pending';
   const branchId = input.branchId ? await resolveBranchIdForRemote(input.shopId, input.branchId) : undefined;
-  const servicePriceEgp = Math.max(
+  const baseServicePriceEgp = Math.max(
     0,
     Math.round((input.servicePriceEgp ?? defaultServicePriceEgp(input.shopType)) * 100) / 100,
   );
-  const platformFeeEgp = Math.round(servicePriceEgp * PLATFORM_FEE_RATE * 100) / 100;
+  let servicePriceEgp = baseServicePriceEgp;
+  let resolvedOfferId = input.offerId;
+
+  if (input.offerId) {
+    try {
+      const offer = await validateOfferForBooking(input.shopId, input.offerId);
+      servicePriceEgp = applyOfferDiscount(baseServicePriceEgp, offer.discountPercentage);
+      resolvedOfferId = offer.id;
+    } catch (error) {
+      if (error instanceof OfferValidationError) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  const platformFeeEgp = computePlatformFee(servicePriceEgp, PLATFORM_FEE_RATE);
   const booking: Booking = {
     ...input,
+    offerId: resolvedOfferId,
     branchId: branchId ?? input.branchId,
     bookingType,
     servicePriceEgp,
@@ -309,22 +346,31 @@ export async function createBooking(
 
   const supabase = getSupabase();
   if (supabase) {
-    const { data, error } = await supabase
-      .from('bookings')
-      .insert(
-        buildBookingInsertRow(input, {
-          servicePriceEgp,
-          platformFeeEgp,
-          status: initialStatus,
-          bookingType,
-          branchId,
-        }),
-      )
-      .select('*')
-      .single();
+    const insertRow = buildBookingInsertRow(
+      { ...input, offerId: resolvedOfferId },
+      {
+        servicePriceEgp,
+        platformFeeEgp,
+        status: initialStatus,
+        bookingType,
+        branchId,
+      },
+    );
+    const { data, error } = await supabase.from('bookings').insert(insertRow).select('*').single();
 
     if (!error && data) {
       const created = mapBookingRow(data as BookingRow);
+      if (options?.appliedCouponId && options?.couponUsageUserId) {
+        const usageSaved = await registerCouponUsageRemote({
+          couponId: options.appliedCouponId,
+          userId: options.couponUsageUserId,
+          bookingId: created.id,
+        });
+        if (!usageSaved) {
+          await supabase.from('bookings').delete().eq('id', created.id);
+          throw new Error('Coupon usage log failed');
+        }
+      }
       await upsertLocalBooking(created);
       if (bookingType !== 'walk_in') {
         await pushOwnerNotification({
@@ -384,7 +430,9 @@ export async function createWalkInBooking(input: WalkInBookingInput): Promise<Bo
 
   const phoneRaw = input.customerPhone?.trim();
   const customerPhone = phoneRaw ? normalizePhoneE164(phoneRaw) ?? phoneRaw : undefined;
-  const customerId = customerPhone ? await resolveWalkInCustomerId(customerPhone) : undefined;
+  const customerId =
+    input.customerId ??
+    (input.skipPhoneLookup ? undefined : customerPhone ? await resolveCustomerIdByPhoneRemote(customerPhone) : undefined);
 
   return createBooking(
     {
@@ -406,7 +454,7 @@ export async function createWalkInBooking(input: WalkInBookingInput): Promise<Bo
     },
     {
       bookingType: 'walk_in',
-      initialStatus: 'in_progress',
+      initialStatus: input.initialStatus ?? 'in_progress',
       skipOwnerPush: true,
     },
   );
@@ -464,6 +512,7 @@ export async function updateBookingStatus(
 
   if (updated && status === 'done' && previousStatus !== 'done') {
     await awardLoyaltyPointsOnDone(updated, previousStatus);
+    await recordWashBookingDone(updated, previousStatus);
   }
 
   return updated;

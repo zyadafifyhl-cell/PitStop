@@ -179,6 +179,11 @@ export default function SettingsScreen() {
         <Text style={[styles.toggleNote, { color: theme.textDim }, isRTL && styles.toggleTextRtl]}>
           {t('settings_selected')}: {themeLabel}
         </Text>
+        {preference === 'system' ? (
+          <Text style={[styles.toggleNote, { color: theme.textMuted, marginTop: 6 }, isRTL && styles.toggleTextRtl]}>
+            {t('settings_theme_system_hint')}
+          </Text>
+        ) : null}
       </View>
 
       <Text style={[styles.section, { color: theme.text }]}>{t('settings_support_section')}</Text>

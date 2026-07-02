@@ -32,10 +32,11 @@ type Props = {
   bookLabel: string;
   isFavorite?: boolean;
   onToggleFavorite?: () => void;
-  onViewDetails?: () => void;
   onCall?: () => void;
   onOpenMaps?: () => void;
   onPress: () => void;
+  hasActiveOffer?: boolean;
+  offerDiscountPercent?: number;
 };
 
 export function ShopListCard({
@@ -53,10 +54,11 @@ export function ShopListCard({
   bookLabel,
   isFavorite,
   onToggleFavorite,
-  onViewDetails,
   onCall,
   onOpenMaps,
   onPress,
+  hasActiveOffer = false,
+  offerDiscountPercent = 0,
 }: Props) {
   const theme = useAppTheme();
   const { locale, t } = useI18n();
@@ -114,8 +116,19 @@ export function ShopListCard({
         end={{ x: 1, y: 1 }}
         style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.topRow}>
-          <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
-            <Text style={[styles.badgeText, { color: accent }]}>{typeLabel}</Text>
+          <View style={styles.topLeft}>
+            <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
+              <Text style={[styles.badgeText, { color: accent }]}>{typeLabel}</Text>
+            </View>
+            {hasActiveOffer ? (
+              <View style={[styles.offerBadge, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
+                <Text style={[styles.offerBadgeText, { color: theme.danger }]}>
+                  {offerDiscountPercent > 0
+                    ? t('offer_active_badge_pct').replace('{pct}', String(Math.round(offerDiscountPercent)))
+                    : t('offer_active_badge')}
+                </Text>
+              </View>
+            ) : null}
           </View>
           <View style={styles.topRight}>
             {distanceLabel ? <Text style={[styles.distance, { color: theme.accent }]}>{distanceLabel}</Text> : null}
@@ -217,19 +230,14 @@ export function ShopListCard({
         ) : null}
 
         <View style={styles.footer}>
-          <Pressable onPress={onViewDetails ?? onPress} style={styles.bookBtn}>
-            <Text style={[styles.book, { color: accent }]}>{bookLabel}</Text>
+          <Pressable onPress={onPress} style={[styles.bookBtn, { backgroundColor: theme.accent }]}>
+            <Text style={[styles.book, { color: theme.onAccent }]}>{bookLabel}</Text>
           </Pressable>
-          <View style={styles.footerIcons}>
-            {(onOpenMaps || (mapLat != null && mapLng != null)) ? (
-              <Pressable onPress={handleOpenMaps} hitSlop={8} style={styles.iconBtn} accessibilityLabel={t('book_open_maps')}>
-                <FontAwesome name="map-marker" size={18} color={accent} />
-              </Pressable>
-            ) : null}
-            <Pressable onPress={onPress} hitSlop={8}>
-              <FontAwesome name="arrow-circle-right" size={18} color={accent} />
+          {(onOpenMaps || (mapLat != null && mapLng != null)) ? (
+            <Pressable onPress={handleOpenMaps} hitSlop={8} style={styles.iconBtn} accessibilityLabel={t('book_open_maps')}>
+              <FontAwesome name="map-marker" size={18} color={accent} />
             </Pressable>
-          </View>
+          ) : null}
         </View>
       </LinearGradient>
     </View>
@@ -239,7 +247,7 @@ export function ShopListCard({
 const styles = StyleSheet.create({
   wrap: { marginBottom: 14 },
   card: {
-    borderRadius: 20,
+    borderRadius: 24,
     borderWidth: 1,
     padding: 18,
   },
@@ -249,6 +257,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  topLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
   badge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 11, fontWeight: '700' },
@@ -262,6 +271,15 @@ const styles = StyleSheet.create({
   identityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#111' },
   name: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
+  offerBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  offerBadgeText: { fontSize: 11, fontWeight: '800' },
   address: { fontSize: 14, lineHeight: 20 },
   openStatus: { fontSize: 12, fontWeight: '600', marginTop: 4 },
   priceMeta: { fontSize: 13, fontWeight: '700', marginTop: 8 },
@@ -278,14 +296,14 @@ const styles = StyleSheet.create({
   coverFrame: {
     width: '100%',
     marginTop: 12,
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: 1,
     overflow: 'hidden',
   },
   coverImage: {
     width: '100%',
     height: 190,
-    borderRadius: 12,
+    borderRadius: 18,
   },
   phoneRow: {
     flexDirection: 'row',
@@ -303,8 +321,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 14,
+    gap: 10,
   },
-  bookBtn: { flex: 1 },
-  footerIcons: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  book: { fontSize: 15, fontWeight: '700' },
+  bookBtn: {
+    flex: 1,
+    borderRadius: 28,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  book: { fontSize: 15, fontWeight: '800' },
 });

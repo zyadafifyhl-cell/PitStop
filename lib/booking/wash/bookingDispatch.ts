@@ -68,7 +68,7 @@ export async function filterPendingQueueBookingsForStaff<T extends { status: str
 
   if (staff.role === 'branch_manager') {
     if (!staff.branchId) return [];
-    return pending.filter((row) => !row.branchId || row.branchId === staff.branchId);
+    return pending.filter((row) => row.branchId === staff.branchId);
   }
 
   if (staff.role === 'owner') {

@@ -34,6 +34,7 @@ import {
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 
 type AdminTab = 'dashboard' | 'pending' | 'merchants' | 'moderation';
@@ -44,49 +45,102 @@ export function AdminPanel() {
   const { staff } = useShopAuth();
   const { signOut } = useAppSignOut();
   const [tab, setTab] = useState<AdminTab>('dashboard');
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [merchantsLoading, setMerchantsLoading] = useState(false);
+  const [moderationLoading, setModerationLoading] = useState(false);
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [pending, setPending] = useState<PendingOwnerRequest[]>([]);
   const [merchants, setMerchants] = useState<ActiveMerchant[]>([]);
   const [ledger, setLedger] = useState<MerchantLedgerRow[]>([]);
   const [moderation, setModeration] = useState<ModerationQueueItem[]>([]);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const showActionError = useCallback(
+    (error: unknown, context: string) => {
+      userAlert(t('admin_action_fail_title'), logAndGetSafeErrorMessage(error, t, context));
+    },
+    [t],
+  );
+
+  const loadDashboard = useCallback(async () => {
+    setDashboardLoading(true);
     try {
-      const [nextStats, nextPending, nextMerchants, nextLedger, nextModeration] = await Promise.all([
+      const [nextStats, nextLedger] = await Promise.all([
         fetchPlatformStats(),
-        listPendingOwnerRequests(),
-        listActiveMerchants(),
         fetchMerchantLedger(),
-        listModerationQueue(),
       ]);
       setStats(nextStats);
-      setPending(nextPending);
-      setMerchants(nextMerchants);
       setLedger(nextLedger);
-      setModeration(nextModeration);
     } finally {
-      setLoading(false);
+      setDashboardLoading(false);
     }
   }, []);
 
+  const loadPending = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      setPending(await listPendingOwnerRequests());
+    } finally {
+      setPendingLoading(false);
+    }
+  }, []);
+
+  const loadMerchants = useCallback(async () => {
+    setMerchantsLoading(true);
+    try {
+      setMerchants(await listActiveMerchants());
+    } finally {
+      setMerchantsLoading(false);
+    }
+  }, []);
+
+  const loadModeration = useCallback(async () => {
+    setModerationLoading(true);
+    try {
+      setModeration(await listModerationQueue());
+    } finally {
+      setModerationLoading(false);
+    }
+  }, []);
+
+  const reload = useCallback(async (scope: 'all' | AdminTab = 'all') => {
+    const tasks: Array<Promise<void>> = [];
+    if (scope === 'all' || scope === 'dashboard') tasks.push(loadDashboard());
+    if (scope === 'all' || scope === 'pending') tasks.push(loadPending());
+    if (scope === 'all' || scope === 'merchants') tasks.push(loadMerchants());
+    if (scope === 'all' || scope === 'moderation') tasks.push(loadModeration());
+    await Promise.all(tasks);
+  }, [loadDashboard, loadPending, loadMerchants, loadModeration]);
+
   useEffect(() => {
-    reload();
+    void reload('dashboard');
   }, [reload]);
+
+  useEffect(() => {
+    if (tab === 'dashboard') {
+      void reload('dashboard');
+      return;
+    }
+    if (tab === 'pending') {
+      void reload('pending');
+      return;
+    }
+    if (tab === 'merchants') {
+      void reload('merchants');
+      return;
+    }
+    void reload('moderation');
+  }, [tab, reload]);
 
   async function onApprove(row: PendingOwnerRequest) {
     setBusyId(row.userId);
     try {
       await approveShopOwner(row.userId, row.shopId);
-      await reload();
+      await Promise.all([reload('pending'), reload('dashboard')]);
       userAlert(t('admin_approve_success_title'), t('admin_approve_success_body'));
     } catch (error) {
-      userAlert(
-        t('admin_action_fail_title'),
-        error instanceof Error ? error.message : t('admin_action_fail_body'),
-      );
+      showActionError(error, 'admin.approveOwner');
     } finally {
       setBusyId(null);
     }
@@ -96,13 +150,10 @@ export function AdminPanel() {
     setBusyId(row.userId);
     try {
       await rejectShopOwner(row.userId, row.shopId);
-      await reload();
+      await Promise.all([reload('pending'), reload('dashboard')]);
       userAlert(t('admin_reject_success_title'), t('admin_reject_success_body'));
     } catch (error) {
-      userAlert(
-        t('admin_action_fail_title'),
-        error instanceof Error ? error.message : t('admin_action_fail_body'),
-      );
+      showActionError(error, 'admin.rejectOwner');
     } finally {
       setBusyId(null);
     }
@@ -130,17 +181,14 @@ export function AdminPanel() {
     try {
       await toggleShopPremium(row.shopId, next);
       userAlert(t('admin_premium_updated_title'), t('admin_premium_updated_body'));
-      await reload();
+      await Promise.all([reload('merchants'), reload('dashboard')]);
     } catch (error) {
       setMerchants((prev) =>
         prev.map((merchant) =>
           merchant.shopId === row.shopId ? { ...merchant, isPremium: row.isPremium } : merchant,
         ),
       );
-      userAlert(
-        t('admin_action_fail_title'),
-        error instanceof Error ? error.message : t('admin_action_fail_body'),
-      );
+      showActionError(error, 'admin.togglePremium');
     } finally {
       setBusyId(null);
     }
@@ -157,13 +205,10 @@ export function AdminPanel() {
     setBusyId(row.shopId);
     try {
       await settleMerchantPlatformFees(row.shopId);
-      await reload();
+      await reload('dashboard');
       userAlert(t('admin_ledger_settled_title'), t('admin_ledger_settled_body'));
     } catch (error) {
-      userAlert(
-        t('admin_action_fail_title'),
-        error instanceof Error ? error.message : t('admin_action_fail_body'),
-      );
+      showActionError(error, 'admin.settleLedger');
     } finally {
       setBusyId(null);
     }
@@ -173,13 +218,10 @@ export function AdminPanel() {
     setBusyId(item.id);
     try {
       await dismissModerationReport(item);
-      await reload();
+      await reload('moderation');
       userAlert(t('admin_moderation_dismissed_title'), t('admin_moderation_dismissed_body'));
     } catch (error) {
-      userAlert(
-        t('admin_action_fail_title'),
-        error instanceof Error ? error.message : t('admin_action_fail_body'),
-      );
+      showActionError(error, 'admin.dismissModeration');
     } finally {
       setBusyId(null);
     }
@@ -189,13 +231,10 @@ export function AdminPanel() {
     setBusyId(item.id);
     try {
       await deleteModerationContent(item);
-      await reload();
+      await reload('moderation');
       userAlert(t('admin_moderation_deleted_title'), t('admin_moderation_deleted_body'));
     } catch (error) {
-      userAlert(
-        t('admin_action_fail_title'),
-        error instanceof Error ? error.message : t('admin_action_fail_body'),
-      );
+      showActionError(error, 'admin.deleteModeration');
     } finally {
       setBusyId(null);
     }
@@ -240,34 +279,39 @@ export function AdminPanel() {
         </ScrollView>
       </View>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={theme.accent} />
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {tab === 'dashboard' && stats ? (
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          {tab === 'dashboard' ? (
             <>
               <OwnerSectionCard theme={theme} title={t('admin_dashboard_title')} subtitle={t('admin_dashboard_lead')}>
-                <View style={styles.statsGrid}>
-                  <StatCard theme={theme} label={t('admin_stat_total_bookings')} value={String(stats.totalBookings)} />
-                  <StatCard theme={theme} label={t('admin_stat_completed')} value={String(stats.completedBookings)} />
-                  <StatCard theme={theme} label={t('admin_stat_gross')} value={formatEgp(stats.grossRevenueEgp, locale)} />
-                  <StatCard
-                    theme={theme}
-                    label={t('admin_stat_platform_fee')}
-                    value={formatEgp(stats.platformFeeEgp, locale)}
-                  />
-                  <StatCard theme={theme} label={t('admin_stat_pending_owners')} value={String(stats.pendingOwnerCount)} />
-                  <StatCard theme={theme} label={t('admin_stat_active_merchants')} value={String(stats.activeMerchantCount)} />
-                </View>
+                {dashboardLoading && !stats ? (
+                  <AdminStatsSkeleton theme={theme} />
+                ) : stats ? (
+                  <View style={styles.statsGrid}>
+                    <StatCard theme={theme} label={t('admin_stat_total_bookings')} value={String(stats.totalBookings)} />
+                    <StatCard theme={theme} label={t('admin_stat_completed')} value={String(stats.completedBookings)} />
+                    <StatCard theme={theme} label={t('admin_stat_gross')} value={formatEgp(stats.grossRevenueEgp, locale)} />
+                    <StatCard
+                      theme={theme}
+                      label={t('admin_stat_platform_fee')}
+                      value={formatEgp(stats.platformFeeEgp, locale)}
+                    />
+                    <StatCard theme={theme} label={t('admin_stat_pending_owners')} value={String(stats.pendingOwnerCount)} />
+                    <StatCard theme={theme} label={t('admin_stat_active_merchants')} value={String(stats.activeMerchantCount)} />
+                  </View>
+                ) : (
+                  <Text style={{ color: theme.textMuted }}>{t('admin_platform_fee_note')}</Text>
+                )}
                 <Text style={[styles.feeNote, { color: theme.textDim }, isRTL && styles.textRtl]}>
                   {t('admin_platform_fee_note')}
                 </Text>
               </OwnerSectionCard>
 
               <OwnerSectionCard theme={theme} title={t('admin_ledger_title')} subtitle={t('admin_ledger_lead')}>
-                {ledger.length === 0 ? (
+                {dashboardLoading && ledger.length === 0 ? (
+                  <View style={styles.centerInline}>
+                    <ActivityIndicator color={theme.accent} />
+                  </View>
+                ) : ledger.length === 0 ? (
                   <Text style={{ color: theme.textMuted }}>{t('admin_ledger_empty')}</Text>
                 ) : (
                   <>
@@ -326,7 +370,11 @@ export function AdminPanel() {
 
           {tab === 'pending' ? (
             <OwnerSectionCard theme={theme} title={t('admin_pending_title')} subtitle={t('admin_pending_lead')}>
-              {pending.length === 0 ? (
+              {pendingLoading && pending.length === 0 ? (
+                <View style={styles.centerInline}>
+                  <ActivityIndicator color={theme.accent} />
+                </View>
+              ) : pending.length === 0 ? (
                 <Text style={{ color: theme.textMuted }}>{t('admin_pending_empty')}</Text>
               ) : (
                 pending.map((row) => (
@@ -361,7 +409,11 @@ export function AdminPanel() {
 
           {tab === 'merchants' ? (
             <OwnerSectionCard theme={theme} title={t('admin_merchants_title')} subtitle={t('admin_merchants_lead')}>
-              {merchants.length === 0 ? (
+              {merchantsLoading && merchants.length === 0 ? (
+                <View style={styles.centerInline}>
+                  <ActivityIndicator color={theme.accent} />
+                </View>
+              ) : merchants.length === 0 ? (
                 <Text style={{ color: theme.textMuted }}>{t('admin_merchants_empty')}</Text>
               ) : (
                 merchants.map((row) => (
@@ -410,7 +462,11 @@ export function AdminPanel() {
 
           {tab === 'moderation' ? (
             <OwnerSectionCard theme={theme} title={t('admin_moderation_title')} subtitle={t('admin_moderation_lead')}>
-              {moderation.length === 0 ? (
+              {moderationLoading && moderation.length === 0 ? (
+                <View style={styles.centerInline}>
+                  <ActivityIndicator color={theme.accent} />
+                </View>
+              ) : moderation.length === 0 ? (
                 <Text style={{ color: theme.textMuted }}>{t('admin_moderation_empty')}</Text>
               ) : (
                 moderation.map((item) => (
@@ -449,8 +505,7 @@ export function AdminPanel() {
               )}
             </OwnerSectionCard>
           ) : null}
-        </ScrollView>
-      )}
+      </ScrollView>
     </View>
   );
 }
@@ -472,6 +527,23 @@ function StatCard({
   );
 }
 
+function AdminStatsSkeleton({ theme }: { theme: ReturnType<typeof useAppTheme> }) {
+  return (
+    <View style={styles.statsGrid}>
+      {Array.from({ length: 6 }).map((_, idx) => (
+        <View
+          key={`admin-skeleton-${idx}`}
+          style={[
+            styles.statCard,
+            styles.skeletonBlock,
+            { borderColor: theme.border, backgroundColor: theme.bgElevated },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { borderBottomWidth: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
@@ -484,8 +556,10 @@ const styles = StyleSheet.create({
   tabBtnText: { fontWeight: '700', fontSize: 13 },
   content: { padding: 16, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  centerInline: { paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statCard: { width: '47%', borderWidth: 1, borderRadius: 12, padding: 12, minHeight: 72 },
+  skeletonBlock: { opacity: 0.45 },
   statValue: { fontSize: 18, fontWeight: '900' },
   statLabel: { fontSize: 11, marginTop: 4 },
   feeNote: { fontSize: 11, marginTop: 12, lineHeight: 16 },

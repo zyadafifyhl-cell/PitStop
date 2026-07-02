@@ -46,6 +46,8 @@ export type Booking = {
   servicePriceEgp?: number;
   /** Platform commission in EGP for this booking. */
   platformFeeEgp?: number;
+  /** Applied shop offer (Supabase public.offers.id). */
+  offerId?: string;
   scheduledAt: string;
   status: BookingStatus;
   createdAt: string;
@@ -100,8 +102,14 @@ export type PartsOrder = {
 
 export type ShopOffer = {
   id: string;
+  shopId?: string;
   title: string;
   titleAr?: string;
+  description?: string;
+  discountPercentage: number;
+  startDate: string;
+  endDate: string;
+  /** Legacy alias of endDate for older cached rows. */
   validUntil: string;
   active: boolean;
   createdAt: string;

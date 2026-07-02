@@ -1,5 +1,6 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { Platform, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
 
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
@@ -31,11 +32,32 @@ export default function TabLayout() {
         tabBarActiveTintColor: theme.accent,
         tabBarInactiveTintColor: theme.textDim,
         tabBarStyle: {
-          backgroundColor: theme.bgElevated,
+          backgroundColor: theme.card,
           borderTopColor: theme.border,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          height: Platform.OS === 'ios' ? 88 : 68,
+          paddingTop: 8,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
           display: shop && !hasCustomerArea ? 'none' : 'flex',
+          ...Platform.select({
+            ios: {
+              shadowColor: '#000',
+              shadowOpacity: 0.25,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: -4 },
+            },
+            android: { elevation: 12 },
+            default: {},
+          }),
         },
-        headerStyle: { backgroundColor: theme.bgElevated },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+        headerStyle: {
+          backgroundColor: theme.bg,
+          borderBottomColor: theme.border,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        },
         headerTintColor: theme.text,
         headerTitleStyle: { fontWeight: '700' },
         sceneStyle: { backgroundColor: theme.bg },
@@ -78,20 +100,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="settings"
-        options={{
-          title: t('tab_settings'),
-          tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
-          headerRight: customerHeaderRight,
-          href: hasCustomerArea ? undefined : null,
-        }}
-      />
-      <Tabs.Screen
         name="shop"
         options={{
           title: t('tab_shop'),
           tabBarIcon: ({ color }) => <TabBarIcon name="briefcase" color={color} />,
           href: shop ? undefined : hasCustomerArea ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: t('tab_settings'),
+          tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
+          headerRight: customerHeaderRight,
+          href: shop ? '/shop/merchant-settings' : hasCustomerArea ? undefined : null,
         }}
       />
       <Tabs.Screen name="catalog" options={{ href: null }} />

@@ -7,6 +7,7 @@ import { StarRatingSelector } from '@/components/reviews/StarRatingSelector';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { addShopReview } from '@/lib/booking/reviewsStorage';
 
 type Props = {
@@ -120,9 +121,7 @@ export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Pr
       const message =
         error instanceof Error && error.message === 'shop_review_already_exists'
           ? t('shop_review_already_rated')
-          : error instanceof Error
-            ? error.message
-            : t('shop_review_submit_fail_body');
+          : logAndGetSafeErrorMessage(error, t, 'reviews.addShopReview');
       if (error instanceof Error && error.message === 'shop_review_already_exists') {
         setHasRated(true);
       }

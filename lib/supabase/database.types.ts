@@ -93,6 +93,21 @@ export type DbBranchEmployee = {
   updated_at: string;
 };
 
+/** Time-bound shop discount offer. */
+export type DbOffer = {
+  id: string;
+  shop_id: string;
+  title: string;
+  title_ar?: string | null;
+  description: string;
+  discount_percentage: number;
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Service menu item for a branch. */
 export type DbBranchService = {
   id: string;

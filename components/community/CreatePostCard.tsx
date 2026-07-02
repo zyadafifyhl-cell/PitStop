@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View 
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { createCommunityPost } from '@/lib/community/postRepository';
 import type { CommunityPost, PostCategoryTag } from '@/lib/community/types';
 
@@ -47,8 +48,10 @@ export function CreatePostCard({ onCreated }: Props) {
       setCategoryTag('general');
       onCreated(created);
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('feed_create_fail_body');
-      Alert.alert(t('feed_create_fail_title'), message);
+      Alert.alert(
+        t('feed_create_fail_title'),
+        logAndGetSafeErrorMessage(error, t, 'driverNetwork.createPost'),
+      );
     } finally {
       setBusy(false);
     }

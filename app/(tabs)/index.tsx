@@ -1,27 +1,52 @@
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
+import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
-import { LoyaltyCard } from '@/components/customer/LoyaltyCard';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
-import { getShopById, listShopsByType } from '@/lib/booking/catalogRepository';
+import { getShopById } from '@/lib/booking/catalogRepository';
 import { getAreaById } from '@/lib/booking/areas';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { listBookingsForPhone } from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
-import {
-  getLoyaltyPoints,
-  syncLoyaltyPointsFromBookings,
-} from '@/lib/booking/loyaltyPointsStorage';
-import { listAllShopExtras } from '@/lib/booking/shopExtrasStorage';
+import { listAllActiveOffers } from '@/lib/booking/offerRepository';
+import { isOfferLive } from '@/lib/booking/offerPricing';
+
+function bookingStatusTone(status: Booking['status']) {
+  if (status === 'pending') return { bg: 'rgba(0, 212, 255, 0.18)', color: '#A5F3FC' };
+  if (status === 'confirmed') return { bg: 'rgba(0, 82, 255, 0.20)', color: '#BFDBFE' };
+  if (status === 'in_progress') return { bg: 'rgba(59, 130, 246, 0.22)', color: '#DBEAFE' };
+  if (status === 'done') return { bg: 'rgba(34, 197, 94, 0.22)', color: '#DCFCE7' };
+  if (status === 'no_show') return { bg: 'rgba(234, 179, 8, 0.24)', color: '#FEF08A' };
+  return { bg: 'rgba(239, 68, 68, 0.24)', color: '#FECACA' };
+}
+
+function CurvyCard({
+  theme,
+  children,
+  style,
+}: {
+  theme: ReturnType<typeof useAppTheme>;
+  children: React.ReactNode;
+  style?: object;
+}) {
+  return (
+    <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }, style]}>
+      <View style={[styles.curveBubbleLg, { backgroundColor: theme.accentSoft }]} />
+      <View style={[styles.curveBubbleSm, { backgroundColor: theme.warmSoft }]} />
+      {children}
+    </View>
+  );
+}
 
 export default function HomeScreen() {
   const { t, tp, locale } = useI18n();
@@ -36,7 +61,8 @@ export default function HomeScreen() {
   >([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
-  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
+  const floatAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(0)).current;
 
   const serviceCards = useMemo(
     () =>
@@ -76,24 +102,19 @@ export default function HomeScreen() {
 
   const loadLiveOffers = useCallback(async () => {
     if (!catalogReady) return;
-    const extrasRows = await listAllShopExtras();
-    const extrasByShop = new Map(extrasRows.map((row) => [row.shopId, row]));
+    const activeOffers = await listAllActiveOffers();
     const cards: Array<{ shopId: string; shopName: string; shopArea: string; shopType: ShopType; offer: ShopOffer }> = [];
 
-    for (const shopType of ['wash', 'maintenance'] as ShopType[]) {
-      for (const shop of listShopsByType(shopType)) {
-        const extras = extrasByShop.get(shop.id);
-        if (!extras?.offers.length) continue;
-        const shopName = locale === 'ar' ? shop.nameAr : shop.name;
-        const area = getAreaById(shop.areaId);
-        const shopArea =
-          locale === 'ar'
-            ? area?.nameAr || area?.name || shop.addressAr.split(',')[0] || shop.areaId
-            : area?.name || shop.address.split(',')[0] || shop.areaId;
-        for (const offer of extras.offers) {
-          cards.push({ shopId: shop.id, shopName, shopArea, shopType, offer });
-        }
-      }
+    for (const offer of activeOffers.filter((row) => isOfferLive(row))) {
+      const shop = getShopById(offer.shopId ?? '');
+      if (!shop || (shop.type !== 'wash' && shop.type !== 'maintenance')) continue;
+      const shopName = locale === 'ar' ? shop.nameAr : shop.name;
+      const area = getAreaById(shop.areaId);
+      const shopArea =
+        locale === 'ar'
+          ? area?.nameAr || area?.name || shop.addressAr.split(',')[0] || shop.areaId
+          : area?.name || shop.address.split(',')[0] || shop.areaId;
+      cards.push({ shopId: shop.id, shopName, shopArea, shopType: shop.type, offer });
     }
     setLiveOffers(cards.slice(0, 8));
   }, [catalogReady, catalogVersion, locale]);
@@ -105,15 +126,10 @@ export default function HomeScreen() {
   const refreshHomeData = useCallback(async () => {
     if (!customer) {
       setNextBooking(null);
-      setLoyaltyPoints(0);
       return;
     }
 
     const bookings = customer.phone ? await listBookingsForPhone(customer.phone) : [];
-    await syncLoyaltyPointsFromBookings(bookings, { customerId: customer.id, phone: customer.phone });
-    const points = await getLoyaltyPoints({ customerId: customer.id, phone: customer.phone });
-    setLoyaltyPoints(points);
-
     const now = Date.now();
     const upcoming = bookings
       .filter((booking) => {
@@ -141,13 +157,84 @@ export default function HomeScreen() {
       ? nextBookingShop.nameAr
       : nextBookingShop.name
     : nextBooking?.shopId;
+  const nextStatusTone = nextBooking ? bookingStatusTone(nextBooking.status) : null;
   const backgroundLogo =
     effectivePreference === 'light'
       ? require('../../assets/images/pitstop-logo-light.png')
       : require('../../assets/images/pitstop-logo-dark.png');
+  const floatingY = floatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -10],
+  });
+  const pulseScale = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.04],
+  });
+
+  useEffect(() => {
+    const floatLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue: 1,
+          duration: 2300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue: 0,
+          duration: 2300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0,
+          duration: 1300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    floatLoop.start();
+    pulseLoop.start();
+    return () => {
+      floatLoop.stop();
+      pulseLoop.stop();
+    };
+  }, [floatAnim, pulseAnim]);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <AutomotiveBackground theme={theme} />
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.floatBlobA,
+          {
+            backgroundColor: theme.accentSoft,
+            transform: [{ translateY: floatingY }],
+          },
+        ]}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.floatBlobB,
+          {
+            backgroundColor: theme.warmSoft,
+            transform: [{ translateY: Animated.multiply(floatingY, -0.7) }],
+          },
+        ]}
+      />
       <View pointerEvents="none" style={styles.backgroundLogoWrap}>
         <Image
           source={backgroundLogo}
@@ -158,98 +245,128 @@ export default function HomeScreen() {
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
+        <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
 
-      {customer && !isGuest ? <ActiveVehiclePicker customerId={customer.id} showManageLink /> : null}
+      <CurvyCard theme={theme}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Vehicle</Text>
+        <Text style={[styles.sectionSub, { color: theme.textMuted }]}>Pick your active car before booking services.</Text>
+        {customer && !isGuest ? <ActiveVehiclePicker customerId={customer.id} showManageLink /> : null}
+      </CurvyCard>
 
       {nextBooking ? (
-        <Pressable
-          onPress={() => router.push('/bookings')}
-          style={[styles.nextBookingCard, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
-          <Text style={[styles.sectionEyebrow, { color: theme.accent }]}>{t('home_next_booking_title')}</Text>
+        <View style={[styles.nextBookingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={styles.nextBookingTopRow}>
+            <Text style={[styles.sectionEyebrow, { color: theme.warm }]}>{t('home_next_booking_title')}</Text>
+            {nextStatusTone ? (
+              <View style={[styles.statusBadge, { backgroundColor: nextStatusTone.bg }]}>
+                <Text style={[styles.statusBadgeText, { color: nextStatusTone.color }]}>
+                  {bookingStatusLabel(nextBooking.status, locale)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
           <Text style={[styles.cardTitle, { color: theme.text }]}>{nextBookingShopName}</Text>
           <Text style={[styles.cardMeta, { color: theme.textMuted }]}>{formatBookingDateTime(nextBooking.scheduledAt, locale)}</Text>
-          <Text style={[styles.cardMeta, { color: theme.textMuted }]}>
-            {shopTypeLabel(nextBooking.shopType, locale)} · {bookingStatusLabel(nextBooking.status, locale)}
-          </Text>
-        </Pressable>
+          <Text style={[styles.cardMeta, { color: theme.textMuted }]}>{shopTypeLabel(nextBooking.shopType, locale)}</Text>
+          <Animated.View style={{ transform: [{ scale: pulseScale }] }}>
+            <Pressable onPress={() => router.push('/bookings')} style={styles.primaryActionWrap}>
+              <LinearGradient
+                colors={[theme.accent, theme.warm]}
+                start={{ x: 0, y: 0.2 }}
+                end={{ x: 1, y: 0.8 }}
+                style={styles.primaryActionBtn}>
+                <Text style={styles.primaryActionText}>{t('book_success_view_bookings')}</Text>
+              </LinearGradient>
+            </Pressable>
+          </Animated.View>
+        </View>
       ) : null}
 
-      {customer && !isGuest ? <LoyaltyCard points={loyaltyPoints} /> : null}
-
-      <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
-      <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
-
-      <TextInput
-        value={serviceSearch}
-        onChangeText={setServiceSearch}
-        placeholder={t('home_search_placeholder')}
-        placeholderTextColor={theme.textDim}
-        style={[styles.searchInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
-      />
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
-        {(
-          [
-            { id: 'all' as const, label: t('home_filter_all') },
-            { id: 'wash' as const, label: t('home_filter_wash') },
-          ] as const
-        ).map((chip) => (
-          <Pressable
-            key={chip.id}
-            onPress={() => setServiceFilter(chip.id)}
-            style={[
-              styles.filterChip,
-              { borderColor: theme.border, backgroundColor: theme.bgElevated },
-              serviceFilter === chip.id && { backgroundColor: theme.accent, borderColor: theme.accent },
-            ]}>
-            <Text
-              style={[
-                styles.filterChipText,
-                { color: serviceFilter === chip.id ? theme.onAccent : theme.textMuted },
-              ]}>
-              {chip.label}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      {serviceCards.map((card) => (
-        <ServiceOptionCard
-          key={card.type}
-          type={card.type}
-          title={card.title}
-          subtitle={card.subtitle}
-          onPress={() => router.push(card.href)}
+      <CurvyCard theme={theme}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_pick_service')}</Text>
+        <Text style={[styles.sectionSub, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
+        <TextInput
+          value={serviceSearch}
+          onChangeText={setServiceSearch}
+          placeholder={t('home_search_placeholder')}
+          placeholderTextColor={theme.textDim}
+          style={[styles.searchInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
         />
-      ))}
 
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_carousel')}</Text>
-      <Text style={[styles.offerMeta, { color: theme.textMuted, marginBottom: 10 }]}>{t('home_offers_title')}</Text>
-      {liveOffers.length === 0 ? (
-        <Text style={[styles.offerMeta, { color: theme.textMuted, marginBottom: 8 }]}>{t('home_offers_empty')}</Text>
-      ) : (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.offersCarousel}>
-          {liveOffers.map(({ shopId, shopName, shopArea, shopType, offer }) => (
-            <Pressable
-              key={offer.id}
-              onPress={() =>
-                router.push(`/shop-profile/${shopId}?offerId=${encodeURIComponent(offer.id)}` as Href)
-              }
-              style={[styles.offerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.offerEyebrow, { color: theme.accent }]}>{shopTypeLabel(shopType, locale)}</Text>
-              <Text style={[styles.offerTitle, { color: theme.text }]} numberOfLines={2}>
-                {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
-              </Text>
-              <Text style={[styles.offerMeta, { color: theme.text }]} numberOfLines={1}>
-                {shopName} — {shopArea}
-              </Text>
-            </Pressable>
-          ))}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
+          {(
+            [
+              { id: 'all' as const, label: t('home_filter_all') },
+              { id: 'wash' as const, label: t('home_filter_wash') },
+            ] as const
+          ).map((chip) => {
+            const active = serviceFilter === chip.id;
+            return (
+              <Pressable key={chip.id} onPress={() => setServiceFilter(chip.id)} style={styles.filterChipWrap}>
+                {active ? (
+                  <LinearGradient
+                    colors={[theme.accent, theme.warm]}
+                    start={{ x: 0, y: 0.2 }}
+                    end={{ x: 1, y: 0.8 }}
+                    style={styles.filterChipActive}>
+                    <Text style={styles.filterChipTextActive}>{chip.label}</Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                    <Text style={[styles.filterChipText, { color: theme.textMuted }]}>{chip.label}</Text>
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
         </ScrollView>
-      )}
+
+        {serviceCards.map((card) => (
+          <ServiceOptionCard
+            key={card.type}
+            type={card.type}
+            title={card.title}
+            subtitle={card.subtitle}
+            onPress={() => router.push(card.href)}
+          />
+        ))}
+      </CurvyCard>
+
+      <CurvyCard theme={theme}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('home_offers_carousel')}</Text>
+        <Text style={[styles.sectionSub, { color: theme.textMuted }]}>{t('home_offers_title')}</Text>
+        {liveOffers.length === 0 ? (
+          <Text style={[styles.offerMeta, { color: theme.textMuted, marginBottom: 8 }]}>{t('home_offers_empty')}</Text>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.offersCarousel}>
+            {liveOffers.map(({ shopId, shopName, shopArea, shopType, offer }) => (
+              <Pressable
+                key={offer.id}
+                onPress={() =>
+                  router.push(`/shop-profile/${shopId}?offerId=${encodeURIComponent(offer.id)}` as Href)
+                }
+                style={[styles.offerCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                <Text style={[styles.offerEyebrow, { color: theme.warm }]}>{shopTypeLabel(shopType, locale)}</Text>
+                <Text style={[styles.offerTitle, { color: theme.text }]} numberOfLines={2}>
+                  {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
+                </Text>
+                {offer.discountPercentage > 0 ? (
+                  <Text style={[styles.offerMeta, { color: theme.danger, fontWeight: '800' }]}>
+                    {t('offer_active_badge_pct').replace('{pct}', String(Math.round(offer.discountPercentage)))}
+                  </Text>
+                ) : null}
+                <Text style={[styles.offerMeta, { color: theme.text }]} numberOfLines={1}>
+                  {shopName} — {shopArea}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+      </CurvyCard>
 
       {(customer || isGuest) ? (
         <Pressable onPress={onSignOut} disabled={signingOut} style={styles.signOut}>
@@ -266,6 +383,22 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
+  floatBlobA: {
+    position: 'absolute',
+    top: 86,
+    right: -44,
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+  },
+  floatBlobB: {
+    position: 'absolute',
+    bottom: 120,
+    left: -52,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+  },
   backgroundLogoWrap: {
     position: 'absolute',
     top: 56,
@@ -274,10 +407,35 @@ const styles = StyleSheet.create({
     height: 820,
   },
   backgroundLogo: { width: '100%', height: '100%' },
-  content: { padding: 20, paddingBottom: 40 },
-  greeting: { color: AppTheme.textMuted, fontSize: 14, marginBottom: 6 },
-  title: { color: AppTheme.text, fontSize: 28, fontWeight: '900', marginBottom: 8 },
-  lead: { color: AppTheme.textMuted, fontSize: 15, lineHeight: 22, marginBottom: 24 },
+  content: { padding: 20, paddingBottom: 52, gap: 2 },
+  greeting: { fontSize: 13, marginBottom: 8, fontWeight: '600', letterSpacing: 0.3 },
+  title: { fontSize: 32, fontWeight: '900', marginBottom: 8, letterSpacing: -0.5, lineHeight: 38 },
+  lead: { fontSize: 17, lineHeight: 24, marginBottom: 16 },
+  sectionCard: {
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  curveBubbleLg: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    right: -42,
+    top: -48,
+    opacity: 0.5,
+  },
+  curveBubbleSm: {
+    position: 'absolute',
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    left: -28,
+    bottom: -34,
+    opacity: 0.42,
+  },
   sectionEyebrow: {
     color: AppTheme.accent,
     fontSize: 12,
@@ -287,44 +445,50 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   nextBookingCard: {
-    backgroundColor: AppTheme.accentSoft,
     borderWidth: 1,
-    borderColor: AppTheme.accent,
-    borderRadius: 18,
+    borderRadius: 24,
     padding: 16,
     marginBottom: 14,
   },
-  cardTitle: { color: AppTheme.text, fontSize: 17, fontWeight: '900', marginBottom: 4 },
-  cardMeta: { color: AppTheme.textMuted, fontSize: 13, lineHeight: 19 },
-  sectionTitle: { color: AppTheme.text, fontSize: 20, fontWeight: '900', marginTop: 6, marginBottom: 12 },
+  nextBookingTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 2 },
+  statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  statusBadgeText: { fontSize: 12, fontWeight: '900' },
+  cardTitle: { color: AppTheme.text, fontSize: 20, fontWeight: '900', marginBottom: 6 },
+  cardMeta: { color: AppTheme.textMuted, fontSize: 15, lineHeight: 22 },
+  sectionTitle: { color: AppTheme.text, fontSize: 22, fontWeight: '900', marginBottom: 6 },
+  sectionSub: { color: AppTheme.textMuted, fontSize: 15, lineHeight: 22, marginBottom: 12 },
+  primaryActionWrap: { marginTop: 12, borderRadius: 999, overflow: 'hidden' },
+  primaryActionBtn: { paddingVertical: 13, alignItems: 'center', borderRadius: 999 },
+  primaryActionText: { fontSize: 15, fontWeight: '900', color: '#000000' },
   searchInput: {
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 15,
-    marginBottom: 10,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    marginBottom: 12,
   },
-  filtersRow: { gap: 8, paddingBottom: 14 },
+  filtersRow: { gap: 8, paddingBottom: 16 },
+  filterChipWrap: { borderRadius: 999, overflow: 'hidden' },
   filterChip: {
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
   },
-  filterChipText: { fontSize: 13, fontWeight: '800' },
+  filterChipActive: { borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11 },
+  filterChipText: { fontSize: 15, fontWeight: '900' },
+  filterChipTextActive: { fontSize: 15, fontWeight: '900', color: '#000000' },
   offersCarousel: { gap: 12, paddingBottom: 4 },
   offerCard: {
-    width: 220,
-    backgroundColor: AppTheme.card,
+    width: 230,
     borderWidth: 1,
-    borderColor: AppTheme.border,
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 22,
+    padding: 16,
   },
-  offerTitle: { color: AppTheme.text, fontSize: 14, fontWeight: '900', marginBottom: 6 },
+  offerTitle: { color: AppTheme.text, fontSize: 16, fontWeight: '900', marginBottom: 7, lineHeight: 22 },
   offerEyebrow: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },
-  offerMeta: { color: AppTheme.textMuted, fontSize: 12, lineHeight: 17 },
+  offerMeta: { color: AppTheme.textMuted, fontSize: 14, lineHeight: 20 },
   signOut: { marginTop: 20, alignItems: 'center', paddingVertical: 12 },
   signOutText: { color: AppTheme.textDim, fontSize: 14, fontWeight: '600' },
 });

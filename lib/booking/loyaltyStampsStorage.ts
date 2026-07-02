@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { Booking, BookingStatus } from '@/lib/booking/types';
 import type { WashCouponDiscountType } from '@/lib/booking/wash/types';
+import { getSupabase } from '@/lib/supabase/client';
 
 const LOYALTY_KEY = '@pitstop/loyalty_stamps';
 export const LOYALTY_STAMPS_GOAL = 5;
@@ -24,6 +25,20 @@ type CustomerLoyaltyState = {
 };
 
 type LoyaltyMap = Record<string, CustomerLoyaltyState>;
+
+type RpcStampResult = {
+  stampAdded?: boolean;
+  stamps?: number;
+  rewardUnlocked?: LoyaltyRewardCoupon | null;
+  customerKey?: string;
+};
+
+function isUuid(value: string | undefined): boolean {
+  return (
+    !!value &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
+}
 
 function customerKey(customerId?: string, phone?: string): string | null {
   if (customerId?.trim()) return `id:${customerId.trim()}`;
@@ -65,12 +80,65 @@ function generateRewardCoupon(): LoyaltyRewardCoupon {
   };
 }
 
+async function fetchRemoteStamps(key: string): Promise<number | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('customer_wash_loyalty')
+    .select('stamps')
+    .eq('customer_key', key)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return typeof data.stamps === 'number' ? data.stamps : null;
+}
+
+async function recordStampViaRpc(booking: Booking): Promise<LoyaltyStampResult | null> {
+  const supabase = getSupabase();
+  if (!supabase || !isUuid(booking.id)) return null;
+
+  const { data, error } = await supabase.rpc('record_wash_loyalty_stamp_for_booking', {
+    p_booking_id: booking.id,
+  });
+
+  if (error || !data || typeof data !== 'object') return null;
+
+  const payload = data as RpcStampResult;
+  const key =
+    payload.customerKey ?? customerKey(booking.customerId, booking.customerPhone);
+  if (!key) return null;
+
+  const map = await readMap();
+  const state = map[key] ?? emptyState();
+  if (payload.stampAdded) {
+    state.processedBookingIds = [...state.processedBookingIds, booking.id].slice(-200);
+  }
+  state.stamps = typeof payload.stamps === 'number' ? payload.stamps : state.stamps;
+  if (payload.rewardUnlocked) {
+    state.pendingReward = payload.rewardUnlocked;
+    state.rewards = [payload.rewardUnlocked, ...state.rewards].slice(0, 20);
+  }
+  map[key] = state;
+  await writeMap(map);
+
+  return {
+    stampAdded: Boolean(payload.stampAdded),
+    stamps: state.stamps,
+    rewardUnlocked: payload.rewardUnlocked ?? null,
+  };
+}
+
 export async function getLoyaltyStamps(input: {
   customerId?: string;
   phone?: string;
 }): Promise<number> {
   const key = customerKey(input.customerId, input.phone);
   if (!key) return 0;
+
+  const remote = await fetchRemoteStamps(key);
+  if (remote !== null) return remote;
+
   const map = await readMap();
   return map[key]?.stamps ?? 0;
 }
@@ -98,13 +166,19 @@ export type LoyaltyStampResult = {
 };
 
 /** Call when a wash booking transitions to done. Idempotent per booking id. */
-export async function recordWashBookingDone(booking: Booking, previousStatus?: BookingStatus): Promise<LoyaltyStampResult | null> {
+export async function recordWashBookingDone(
+  booking: Booking,
+  previousStatus?: BookingStatus,
+): Promise<LoyaltyStampResult | null> {
   if (booking.shopType !== 'wash') return null;
   if (booking.status !== 'done') return null;
   if (previousStatus === 'done') return null;
 
   const key = customerKey(booking.customerId, booking.customerPhone);
   if (!key) return null;
+
+  const remoteResult = await recordStampViaRpc(booking);
+  if (remoteResult) return remoteResult;
 
   const map = await readMap();
   const state = map[key] ?? emptyState();

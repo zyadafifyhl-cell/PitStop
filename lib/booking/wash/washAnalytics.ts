@@ -62,7 +62,7 @@ export async function computeWashAnalytics(
 
   let shopBookings = bookings.filter((b) => b.shopId === shopId);
   if (options?.branchId) {
-    shopBookings = shopBookings.filter((b) => !b.branchId || b.branchId === options.branchId);
+    shopBookings = shopBookings.filter((b) => b.branchId === options.branchId);
   }
 
   const todayBookings = shopBookings.filter((b) => {

@@ -14,6 +14,7 @@ import { ShopAuthProvider } from '@/context/ShopAuthContext';
 import { ShopCatalogProvider } from '@/context/ShopCatalogContext';
 import { CustomerAuthProvider } from '@/context/CustomerAuthContext';
 import { ThemePreferenceProvider, useThemePreference } from '@/context/ThemePreferenceContext';
+import { AppDialogProvider } from '@/lib/ui/AppDialogProvider';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -69,11 +70,15 @@ function RootStack() {
       <Stack.Screen name="verify" options={{ title: t('auth_verify_title') }} />
       <Stack.Screen name="shop/wash-notifications" options={{ headerShown: false }} />
       <Stack.Screen name="shop/wash-owner-hub" options={{ headerShown: false }} />
+      <Stack.Screen name="shop/wash-reports" options={{ title: t('wash_report_title') }} />
+      <Stack.Screen name="shop/wash-history" options={{ title: t('wash_hub_tab_history') }} />
       <Stack.Screen name="shop/merchant-settings" options={{ title: t('merchant_settings_title') }} />
       <Stack.Screen name="shop/merchant-staff" options={{ title: t('merchant_settings_staff_row') }} />
       <Stack.Screen name="shop/merchant-services" options={{ title: t('merchant_settings_services_row') }} />
       <Stack.Screen name="shop/merchant-hours" options={{ title: t('merchant_settings_hours_row') }} />
       <Stack.Screen name="shop/merchant-password" options={{ title: t('merchant_settings_change_password') }} />
+      <Stack.Screen name="shop/merchant-terms" options={{ title: t('merchant_settings_terms_row') }} />
+      <Stack.Screen name="shop/merchant-privacy" options={{ title: t('merchant_settings_privacy_row') }} />
       <Stack.Screen name="admin" options={{ headerShown: false }} />
     </Stack>
   );
@@ -105,18 +110,20 @@ function RootLayoutWithTheme() {
   return (
     <ThemeProvider value={navTheme}>
       <I18nProvider>
-        <ShopCatalogProvider>
-          <CustomerAuthProvider>
-            <AuthProvider>
-              <ShopAuthProvider>
-                <AppBootstrap>
-                  <AuthGate />
-                  <RootStack />
-                </AppBootstrap>
-              </ShopAuthProvider>
-            </AuthProvider>
-          </CustomerAuthProvider>
-        </ShopCatalogProvider>
+        <AppDialogProvider>
+          <ShopCatalogProvider>
+            <CustomerAuthProvider>
+              <AuthProvider>
+                <ShopAuthProvider>
+                  <AppBootstrap>
+                    <AuthGate />
+                    <RootStack />
+                  </AppBootstrap>
+                </ShopAuthProvider>
+              </AuthProvider>
+            </CustomerAuthProvider>
+          </ShopCatalogProvider>
+        </AppDialogProvider>
       </I18nProvider>
     </ThemeProvider>
   );

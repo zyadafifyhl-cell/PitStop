@@ -18,6 +18,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useI18n } from '@/context/I18nContext';
 import { photoUrlForCatalogCar } from '@/lib/catalogPhotos';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { addUserVehicle, getCatalogCar } from '@/lib/storage';
 
 export default function AddCarModal() {
@@ -58,7 +59,7 @@ export default function AddCarModal() {
       const userVehicleId = await addUserVehicle(catalogCarId, nickname.trim() || null);
       router.replace(`/car/${userVehicleId}`);
     } catch (e) {
-      Alert.alert(t('add_alert_save_fail_title'), e instanceof Error ? e.message : 'Unknown error');
+      Alert.alert(t('add_alert_save_fail_title'), logAndGetSafeErrorMessage(e, t, 'garage.addCar'));
     } finally {
       setSaving(false);
     }

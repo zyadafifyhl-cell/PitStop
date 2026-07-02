@@ -236,6 +236,7 @@ create table if not exists public.bookings (
   service_name_ar text,
   service_price_egp numeric(10, 2) not null default 0,
   platform_fee_egp numeric(10, 2) not null default 0,
+  offer_id uuid references public.offers(id) on delete set null,
   customer_notes text,
   owner_rejection_note text,
   booking_type public.booking_type not null default 'app',
@@ -249,6 +250,25 @@ create index if not exists bookings_shop_id_idx on public.bookings (shop_id);
 create index if not exists bookings_branch_id_idx on public.bookings (branch_id);
 create index if not exists bookings_customer_phone_idx on public.bookings (customer_phone);
 create index if not exists bookings_booking_type_idx on public.bookings (booking_type);
+create index if not exists bookings_offer_id_idx on public.bookings (offer_id);
+
+create table if not exists public.offers (
+  id uuid primary key default gen_random_uuid(),
+  shop_id text not null references public.shops(id) on delete cascade,
+  title text not null,
+  title_ar text,
+  description text not null default '',
+  discount_percentage numeric(5, 2) not null default 0
+    check (discount_percentage >= 0 and discount_percentage <= 100),
+  start_date timestamptz not null default now(),
+  end_date timestamptz not null,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists offers_shop_active_idx on public.offers (shop_id, is_active, end_date desc);
+create index if not exists offers_live_idx on public.offers (is_active, start_date, end_date);
 
 create table if not exists public.shop_reviews (
   id uuid primary key default gen_random_uuid(),
@@ -451,6 +471,7 @@ alter table public.branch_employees enable row level security;
 alter table public.branch_services enable row level security;
 alter table public.garage_snapshots enable row level security;
 alter table public.bookings enable row level security;
+alter table public.offers enable row level security;
 alter table public.shop_reviews enable row level security;
 alter table public.store enable row level security;
 alter table public.parts_orders enable row level security;
@@ -560,6 +581,30 @@ create policy "Customers can cancel own bookings" on public.bookings
 drop policy if exists "Customers can delete own bookings" on public.bookings;
 create policy "Customers can delete own bookings" on public.bookings
   for delete using (customer_id = auth.uid());
+
+drop policy if exists "Anyone can read live offers" on public.offers;
+create policy "Anyone can read live offers" on public.offers
+  for select using (
+    is_active = true
+    and start_date <= now()
+    and end_date > now()
+  );
+
+drop policy if exists "Shop staff can read shop offers" on public.offers;
+create policy "Shop staff can read shop offers" on public.offers
+  for select using (public.can_manage_shop(shop_id));
+
+drop policy if exists "Shop staff can insert shop offers" on public.offers;
+create policy "Shop staff can insert shop offers" on public.offers
+  for insert with check (public.can_manage_shop(shop_id));
+
+drop policy if exists "Shop staff can update shop offers" on public.offers;
+create policy "Shop staff can update shop offers" on public.offers
+  for update using (public.can_manage_shop(shop_id));
+
+drop policy if exists "Shop staff can delete shop offers" on public.offers;
+create policy "Shop staff can delete shop offers" on public.offers
+  for delete using (public.can_manage_shop(shop_id));
 
 drop policy if exists "Anyone can read visible shop reviews" on public.shop_reviews;
 create policy "Anyone can read visible shop reviews" on public.shop_reviews

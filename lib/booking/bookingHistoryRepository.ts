@@ -20,6 +20,7 @@ type BookingRow = {
   service_name_ar?: string | null;
   service_price_egp: number | string | null;
   platform_fee_egp: number | string | null;
+  offer_id?: string | null;
   customer_notes?: string | null;
   owner_rejection_note?: string | null;
   booking_type?: Booking['bookingType'];
@@ -44,6 +45,7 @@ function mapBookingRow(row: BookingRow): Booking {
     serviceNameAr: row.service_name_ar ?? undefined,
     servicePriceEgp: row.service_price_egp != null ? Number(row.service_price_egp) : undefined,
     platformFeeEgp: row.platform_fee_egp != null ? Number(row.platform_fee_egp) : undefined,
+    offerId: row.offer_id ?? undefined,
     customerNotes: row.customer_notes ?? undefined,
     ownerRejectionNote: row.owner_rejection_note ?? undefined,
     bookingType: row.booking_type ?? undefined,
@@ -80,6 +82,6 @@ export async function listArchivedBookingsForStaff(
   const local = await listBookingsForShop(shopId);
   return local
     .filter((row) => ARCHIVED_STATUSES.includes(row.status))
-    .filter((row) => !branchId || !row.branchId || row.branchId === branchId)
+    .filter((row) => !branchId || row.branchId === branchId)
     .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
 }

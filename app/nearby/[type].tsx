@@ -24,6 +24,7 @@ import {
 } from '@/lib/booking/nearbyDiscovery';
 import { getShopAverageRatings, type ShopRatingSummary } from '@/lib/booking/reviewsStorage';
 import { shopTypeLabel } from '@/lib/booking/format';
+import { listActiveOfferFlagsByShopIds } from '@/lib/booking/offerRepository';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras } from '@/lib/booking/types';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
@@ -50,6 +51,7 @@ export default function NearbyScreen() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<NearbyFilter>('all');
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [offerFlags, setOfferFlags] = useState<Record<string, { hasActiveOffer: boolean; maxDiscount: number }>>({});
 
   const load = useCallback(async () => {
     if (!type || !catalogReady || !isDiscoverableShopType(type)) return;
@@ -77,6 +79,7 @@ export default function NearbyScreen() {
 
     const shopIds = [...new Set(rows.map((row) => row.id))];
     setRatingsMap(await getShopAverageRatings(shopIds));
+    setOfferFlags(await listActiveOfferFlagsByShopIds(shopIds));
 
     if (customer?.id) {
       setFavoriteIds(await listFavoriteShopIds(customer.id));
@@ -211,6 +214,7 @@ export default function NearbyScreen() {
                 t={t}
                 filter={filter}
                 ratingSummary={ratingsMap[shop.id]}
+                offerFlag={offerFlags[shop.id]}
               />
             ))
           )}
@@ -228,6 +232,7 @@ function NearbyShopCard({
   t,
   filter,
   ratingSummary,
+  offerFlag,
 }: {
   shop: DiscoverableListing;
   index: number;
@@ -236,6 +241,7 @@ function NearbyShopCard({
   t: (key: TranslationKey) => string;
   filter: NearbyFilter;
   ratingSummary?: ShopRatingSummary;
+  offerFlag?: { hasActiveOffer: boolean; maxDiscount: number };
 }) {
   const [openNow, setOpenNow] = useState<boolean | null>(null);
   const [washShopStatus, setWashShopStatus] = useState<ShopExtras['washShopStatus']>();
@@ -288,11 +294,8 @@ function NearbyShopCard({
           ? router.push(`/parts-shop/${shop.id}` as any)
           : router.push(`/shop-profile/${shop.id}` as any)
       }
-      onViewDetails={() =>
-        isStoreShopType(shop.type)
-          ? router.push(`/parts-shop/${shop.id}` as any)
-          : router.push(`/shop-profile/${shop.id}` as any)
-      }
+      hasActiveOffer={offerFlag?.hasActiveOffer}
+      offerDiscountPercent={offerFlag?.maxDiscount}
     />
   );
 }

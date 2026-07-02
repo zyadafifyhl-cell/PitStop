@@ -123,6 +123,7 @@ export function PrivacySettingsModal({
 
   async function onSaveProfile() {
     if (!customer) return;
+    const changedPassword = password.trim().length > 0;
     setBusy(true);
     try {
       const result = await updateProfile({
@@ -132,7 +133,10 @@ export function PrivacySettingsModal({
         password: password.trim() || undefined,
       });
       if (result === 'ok') {
-        userAlert(t('privacy_profile_saved_title'), t('privacy_profile_saved_body'));
+        userAlert(
+          changedPassword ? t('customer_reset_password_title') : t('privacy_profile_saved_title'),
+          changedPassword ? t('customer_reset_password_done') : t('privacy_profile_saved_body'),
+        );
         setPassword('');
         return;
       }

@@ -15,6 +15,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { normalizePhoneE164 } from '@/lib/phone';
 
 export default function LoginScreen() {
@@ -35,7 +36,7 @@ export default function LoginScreen() {
       await sendOtp(phone);
       router.push({ pathname: '/verify', params: { phone, displayName: displayName.trim() } });
     } catch (e) {
-      Alert.alert(t('auth_send_fail_title'), e instanceof Error ? e.message : String(e));
+      Alert.alert(t('auth_send_fail_title'), logAndGetSafeErrorMessage(e, t, 'login.sendOtp'));
     }
   }
 

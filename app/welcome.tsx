@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 
 import { AppTheme } from '@/constants/Theme';
+import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -309,7 +310,7 @@ export default function WelcomeScreen() {
     return registerMode && registerIdleLabel ? registerIdleLabel : idleLabel;
   }
 
-  const ownerAccent = effectivePreference === 'light' ? theme.accent : theme.warm;
+  const ownerAccent = theme.accent;
   const logoSource =
     effectivePreference === 'light'
       ? require('../assets/images/pitstop-logo-light.png')
@@ -317,9 +318,12 @@ export default function WelcomeScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <AutomotiveBackground theme={theme} variant="welcome" />
       <LinearGradient
         pointerEvents="none"
-        colors={locale === 'ar' ? [theme.bgElevated, theme.bg, theme.bg] : [theme.bgElevated, theme.bg, theme.bg]}
+        colors={['rgba(46,168,255,0.22)', 'rgba(9,18,38,0.10)', theme.bg]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
       <KeyboardAvoidingView
@@ -327,7 +331,7 @@ export default function WelcomeScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <View style={[styles.logoWrap, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+            <View style={[styles.logoWrap, { backgroundColor: theme.card, borderColor: theme.accentSoft }]}>
               <Image
                 source={logoSource}
                 style={styles.logoImage}
@@ -335,6 +339,7 @@ export default function WelcomeScreen() {
                 accessibilityLabel="PitStop logo"
               />
             </View>
+            <Text style={[styles.heroHeadline, { color: theme.text }]}>{t('welcome_hero_title')}</Text>
             <Text style={[styles.tagline, { color: theme.textMuted }]}>{t('welcome_tagline')}</Text>
           </View>
 
@@ -348,6 +353,7 @@ export default function WelcomeScreen() {
                 styles.modeBtn,
                 { backgroundColor: theme.card, borderColor: theme.border },
                 mode === 'customer' && { backgroundColor: theme.accent, borderColor: theme.accent },
+                mode === 'customer' && styles.modeBtnActive,
               ]}>
               <FontAwesome
                 name="user"
@@ -364,6 +370,7 @@ export default function WelcomeScreen() {
                 styles.modeBtn,
                 { backgroundColor: theme.card, borderColor: theme.border },
                 mode === 'owner' && { backgroundColor: ownerAccent, borderColor: ownerAccent },
+                mode === 'owner' && styles.modeBtnActive,
               ]}>
               <FontAwesome
                 name="briefcase"
@@ -473,7 +480,7 @@ export default function WelcomeScreen() {
                   style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
                   <LinearGradient
                     pointerEvents="none"
-                    colors={[theme.accent, theme.accent]}
+                    colors={[theme.accent, theme.warm]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
@@ -597,7 +604,7 @@ export default function WelcomeScreen() {
                   style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
                   <LinearGradient
                     pointerEvents="none"
-                    colors={[ownerAccent, ownerAccent]}
+                    colors={[ownerAccent, theme.warm]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.submitGradient}>
@@ -656,18 +663,25 @@ const styles = StyleSheet.create({
   },
   hero: { alignItems: 'center', marginBottom: 28 },
   logoWrap: {
-    width: 160,
-    height: 160,
-    borderRadius: 34,
-    backgroundColor: AppTheme.accentSoft,
+    width: 140,
+    height: 140,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: AppTheme.border,
+    marginBottom: 20,
+    borderWidth: 2,
     overflow: 'hidden',
   },
   logoImage: { width: '100%', height: '100%' },
+  heroHeadline: {
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+    textAlign: 'center',
+    lineHeight: 32,
+    marginBottom: 10,
+    maxWidth: 320,
+  },
   appName: {
     color: AppTheme.text,
     fontSize: 32,
@@ -685,9 +699,9 @@ const styles = StyleSheet.create({
   modeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   guestBtn: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 22,
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 13,
     marginBottom: 12,
   },
   guestBtnText: { fontSize: 14, fontWeight: '700' },
@@ -698,36 +712,43 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: AppTheme.border,
-    backgroundColor: AppTheme.card,
   },
-  modeBtnActive: { backgroundColor: AppTheme.accent, borderColor: AppTheme.accent },
-  modeBtnActiveOwner: { backgroundColor: AppTheme.warm, borderColor: AppTheme.warm },
+  modeBtnActive: {
+    shadowColor: '#0EA5FF',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
   modeText: { color: AppTheme.textMuted, fontSize: 14, fontWeight: '700' },
-  modeTextActive: { color: '#fff' },
   formBox: {
     borderWidth: 1,
-    borderColor: AppTheme.border,
-    backgroundColor: AppTheme.card,
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 28,
+    padding: 22,
   },
   formLead: { color: AppTheme.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 14 },
   input: {
     borderWidth: 1,
-    borderColor: AppTheme.border,
-    backgroundColor: AppTheme.bgElevated,
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    borderRadius: 18,
+    paddingHorizontal: 16,
     paddingVertical: 14,
     color: AppTheme.text,
     fontSize: 16,
     marginBottom: 12,
   },
-  submitBtn: { borderRadius: 14, overflow: 'hidden', marginTop: 4 },
-  submitGradient: { paddingVertical: 15, alignItems: 'center' },
+  submitBtn: {
+    borderRadius: 999,
+    overflow: 'hidden',
+    marginTop: 8,
+    shadowColor: '#0EA5FF',
+    shadowOpacity: 0.24,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 7,
+  },
+  submitGradient: { paddingVertical: 16, alignItems: 'center', borderRadius: 999 },
   submitText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   switchLink: { marginTop: 14, alignItems: 'center' },
   switchText: { color: AppTheme.accent, fontSize: 14, fontWeight: '600' },
@@ -747,8 +768,8 @@ const styles = StyleSheet.create({
     borderColor: AppTheme.border,
     backgroundColor: AppTheme.card,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   languageBtnActive: { backgroundColor: AppTheme.accent, borderColor: AppTheme.accent },
   languageText: { color: AppTheme.textMuted, fontSize: 12, fontWeight: '800' },

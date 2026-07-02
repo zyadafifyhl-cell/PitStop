@@ -14,18 +14,13 @@ type Props = {
   profileImage?: string;
   pickingImage: boolean;
   coverEditLabel: string;
-  profileEditLabel: string;
-  logoutLabel: string;
   notificationsLabel?: string;
   notificationCount?: number;
-  settingsLabel?: string;
   accountRoleLabel?: string;
   accountEmail?: string;
   onEditCover: () => void;
   onEditProfile: () => void;
-  onLogout: () => void;
   onOpenNotifications?: () => void;
-  onOpenSettings?: () => void;
 };
 
 export function OwnerProfileHeader({
@@ -37,18 +32,13 @@ export function OwnerProfileHeader({
   profileImage,
   pickingImage,
   coverEditLabel,
-  profileEditLabel,
-  logoutLabel,
   notificationsLabel,
   notificationCount = 0,
-  settingsLabel,
   accountRoleLabel,
   accountEmail,
   onEditCover,
   onEditProfile,
-  onLogout,
   onOpenNotifications,
-  onOpenSettings,
 }: Props) {
   return (
     <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -69,21 +59,6 @@ export function OwnerProfileHeader({
                 <Text style={styles.notifBadgeText}>{notificationCount > 9 ? '9+' : notificationCount}</Text>
               </View>
             ) : null}
-          </Pressable>
-        ) : null}
-        {onOpenSettings ? (
-          <Pressable
-            onPress={onOpenSettings}
-            style={[
-              styles.settingsBtn,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                right: onOpenNotifications ? 60 : 12,
-              },
-            ]}
-            accessibilityLabel={settingsLabel}>
-            <FontAwesome name="cog" size={16} color={theme.text} />
           </Pressable>
         ) : null}
         <Pressable
@@ -130,19 +105,6 @@ export function OwnerProfileHeader({
           </View>
         </View>
 
-        <View style={styles.heroActions}>
-          <Pressable
-            onPress={onEditProfile}
-            disabled={pickingImage}
-            style={[styles.heroBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <Text style={[styles.heroBtnText, { color: theme.text }]}>{profileEditLabel}</Text>
-          </Pressable>
-          <Pressable
-            onPress={onLogout}
-            style={[styles.heroBtn, styles.logoutBtn, { borderColor: theme.danger }]}>
-            <Text style={[styles.heroBtnText, { color: theme.danger }]}>{logoutLabel}</Text>
-          </Pressable>
-        </View>
       </View>
     </View>
   );
@@ -151,9 +113,14 @@ export function OwnerProfileHeader({
 const styles = StyleSheet.create({
   heroCard: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 22,
     overflow: 'hidden',
     marginBottom: 12,
+    shadowColor: '#0EA5FF',
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
   coverWrap: { position: 'relative' },
   coverImage: { width: '100%', height: 160 },
@@ -161,19 +128,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 12,
     top: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  settingsBtn: {
-    position: 'absolute',
-    top: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -198,8 +155,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    shadowColor: '#0EA5FF',
+    shadowOpacity: 0.26,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
   coverEditText: { fontSize: 12, fontWeight: '800' },
   heroBody: { paddingHorizontal: 14, paddingBottom: 14 },
@@ -235,14 +197,4 @@ const styles = StyleSheet.create({
   typeBadgeText: { fontSize: 11, fontWeight: '800' },
   heroSub: { fontSize: 13, lineHeight: 18 },
   accountLine: { fontSize: 12, fontWeight: '800', marginTop: 6 },
-  heroActions: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  heroBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 11,
-    alignItems: 'center',
-  },
-  heroBtnText: { fontSize: 13, fontWeight: '800' },
-  logoutBtn: { backgroundColor: 'rgba(239, 68, 68, 0.12)' },
 });

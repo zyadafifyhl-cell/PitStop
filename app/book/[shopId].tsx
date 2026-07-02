@@ -14,18 +14,18 @@ import {
   View,
 } from 'react-native';
 
+import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
+import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { ServiceMultiPicker } from '@/components/booking/ServiceMultiPicker';
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
 import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { formatVehicleDisplay } from '@/components/customer/ActiveVehiclePicker';
-import { getSavedCarProfile } from '@/lib/booking/carProfileStorage';
 import { getShopById } from '@/lib/booking/catalogRepository';
+import { validateCouponForCheckout } from '@/lib/booking/couponRepository';
 import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
+import { computePlatformFee } from '@/lib/booking/offerPricing';
 import {
   buildScheduledIso,
   defaultBookingDateYmd,
@@ -42,12 +42,14 @@ import {
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
 import { createBooking, getSavedCustomerPhone, listBookingsForShop, saveCustomerPhone } from '@/lib/booking/storage';
-import { getPrimaryVehicle } from '@/lib/booking/vehicleStorage';
+import { listCustomerVehicles } from '@/lib/booking/vehicleStorage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { userAlert } from '@/lib/ui/userAlert';
 import { normalizePhoneE164 } from '@/lib/phone';
-import type { Booking, ShopExtras } from '@/lib/booking/types';
+import type { Booking, CustomerVehicle, ShopExtras } from '@/lib/booking/types';
+import type { AppThemeTokens } from '@/constants/Theme';
 
 function resolveBookingPhone(raw: string): string | null {
   const trimmed = raw.trim();
@@ -61,16 +63,13 @@ export default function BookShopScreen() {
     shopId,
     serviceId: rawServiceId,
     serviceIds: rawServiceIds,
-    offerId: rawOfferId,
   } = useLocalSearchParams<{
     shopId: string;
     serviceId?: string;
     serviceIds?: string;
-    offerId?: string;
   }>();
   const legacyServiceId = Array.isArray(rawServiceId) ? rawServiceId[0] : rawServiceId;
   const serviceIdsParam = Array.isArray(rawServiceIds) ? rawServiceIds[0] : rawServiceIds;
-  const offerId = Array.isArray(rawOfferId) ? rawOfferId[0] : rawOfferId;
   const initialServiceIds = useMemo(() => {
     if (serviceIdsParam) {
       return serviceIdsParam.split(',').map((s: string) => s.trim()).filter(Boolean);
@@ -78,8 +77,6 @@ export default function BookShopScreen() {
     if (legacyServiceId) return [legacyServiceId];
     return [];
   }, [serviceIdsParam, legacyServiceId]);
-  const colorScheme = useColorScheme();
-  const palette = Colors[colorScheme ?? 'light'];
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
   const { customer, isGuest } = useCustomerAuth();
@@ -92,9 +89,8 @@ export default function BookShopScreen() {
 
   const [resolvedPhone, setResolvedPhone] = useState('');
   const [carType, setCarType] = useState('');
-  const [savedCarLabel, setSavedCarLabel] = useState('');
-  const [editingSavedCar, setEditingSavedCar] = useState(false);
   const [carColor, setCarColor] = useState('');
+  const [hasRegisteredVehicles, setHasRegisteredVehicles] = useState(false);
   const [customerNotes, setCustomerNotes] = useState('');
   const [vehicleId, setVehicleId] = useState<string | undefined>();
   const [dateYmd, setDateYmd] = useState(defaultBookingDateYmd());
@@ -112,6 +108,15 @@ export default function BookShopScreen() {
   const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
   const [shopBookings, setShopBookings] = useState<Booking[]>([]);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>(initialServiceIds);
+  const [promoCode, setPromoCode] = useState('');
+  const [applyingPromo, setApplyingPromo] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    couponId: string;
+    code: string;
+    discountType: 'percent' | 'fixed';
+    discountValue: number;
+  } | null>(null);
+  const showCoupons = false;
 
   const activeServices = useMemo(() => getActiveServices(shopExtras), [shopExtras]);
 
@@ -133,11 +138,6 @@ export default function BookShopScreen() {
     [selectedServiceIds, activeServices],
   );
 
-  const activeOffer = useMemo(
-    () => (offerId ? shopExtras?.offers.find((o) => o.id === offerId && o.active) : undefined),
-    [offerId, shopExtras],
-  );
-
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -154,30 +154,32 @@ export default function BookShopScreen() {
     };
   }, [customer?.phone, customer?.id]);
 
-  const loadCarProfileForBooking = useCallback(async () => {
-    if (!customer?.id) return;
-    const vehicle = await getPrimaryVehicle(customer.id);
+  const applyVehicleToBooking = useCallback((vehicle: CustomerVehicle | null) => {
     if (vehicle) {
       setVehicleId(vehicle.id);
       setCarType(vehicle.makeModel);
-      setSavedCarLabel(formatVehicleDisplay(vehicle));
       setCarColor(vehicle.color ?? '');
-      setEditingSavedCar(false);
       return;
     }
-    const profile = await getSavedCarProfile(customer.id);
-    if (profile?.carType) {
-      setSavedCarLabel(profile.carType);
-      setCarType(profile.carType);
-      setCarColor('');
-      setEditingSavedCar(false);
-    }
-  }, [customer?.id]);
+    setVehicleId(undefined);
+    setCarType('');
+    setCarColor('');
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadCarProfileForBooking();
-    }, [loadCarProfileForBooking]),
+      if (!customer?.id || isGuest) {
+        setHasRegisteredVehicles(false);
+        return;
+      }
+      let cancelled = false;
+      listCustomerVehicles(customer.id).then((rows) => {
+        if (!cancelled) setHasRegisteredVehicles(rows.length > 0);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [customer?.id, isGuest]),
   );
 
   useEffect(() => {
@@ -237,8 +239,8 @@ export default function BookShopScreen() {
 
   if (!shop) {
     return (
-      <View style={[styles.center, { backgroundColor: palette.background }]}>
-        <Text style={{ color: palette.text }}>{t('book_shop_not_found')}</Text>
+      <View style={[styles.center, { backgroundColor: theme.bg }]}>
+        <Text style={{ color: theme.text }}>{t('book_shop_not_found')}</Text>
       </View>
     );
   }
@@ -252,7 +254,6 @@ export default function BookShopScreen() {
           returnTo: buildBookReturnTo(
             String(shopId),
             selectedServiceIds.length ? selectedServiceIds : undefined,
-            offerId,
           ),
         },
       });
@@ -283,17 +284,19 @@ export default function BookShopScreen() {
       selectedServices.map((s) => s.nameAr || s.name).join(' + ') || undefined;
     const serviceDurationMinutes =
       selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0) || undefined;
-    const servicePriceEgp =
+    const baseServicePriceEgp =
       selectedServices.reduce((sum, s) => sum + s.priceEgp, 0) ||
-      (shop.type === 'wash' ? activeServices[0]?.priceEgp : shopExtras?.servicePriceEgp);
-    const offerNote = activeOffer
-      ? locale === 'ar'
-        ? activeOffer.titleAr || activeOffer.title
-        : activeOffer.title
-      : undefined;
-    const notesCombined = [offerNote ? `${t('book_offer_applied')}: ${offerNote}` : '', customerNotes.trim()]
-      .filter(Boolean)
-      .join('\n');
+      (shop.type === 'wash' ? activeServices[0]?.priceEgp : shopExtras?.servicePriceEgp) ||
+      0;
+    const discountedServicePriceEgp = showCoupons && appliedCoupon
+      ? appliedCoupon.discountType === 'percent'
+        ? Math.max(
+            0,
+            Math.round(baseServicePriceEgp * (1 - appliedCoupon.discountValue / 100) * 100) / 100,
+          )
+        : Math.max(0, Math.round((baseServicePriceEgp - appliedCoupon.discountValue) * 100) / 100)
+      : baseServicePriceEgp;
+    const notesCombined = customerNotes.trim() || undefined;
 
     setSaving(true);
     try {
@@ -309,22 +312,25 @@ export default function BookShopScreen() {
         serviceName,
         serviceNameAr,
         serviceDurationMinutes,
-        servicePriceEgp,
-        customerNotes: notesCombined || undefined,
+        servicePriceEgp: discountedServicePriceEgp,
+        customerNotes: notesCombined,
         vehicleId,
+      }, {
+        appliedCouponId: showCoupons ? appliedCoupon?.couponId : undefined,
+        couponUsageUserId: showCoupons ? customer.id : undefined,
       });
       await saveCustomerPhone(normalizedPhone);
       setReceiptSummary({
         shopName,
         serviceLabels,
-        totalPrice,
+        totalPrice: discountedServicePriceEgp,
         totalMinutes,
         scheduledAt,
         timeSlot,
       });
       setSuccessVisible(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('book_submit_fail_body');
+      const message = logAndGetSafeErrorMessage(error, t, 'booking.createBooking');
       userAlert(t('book_submit_fail_title'), message);
     } finally {
       setSaving(false);
@@ -352,27 +358,78 @@ export default function BookShopScreen() {
   );
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.priceEgp, 0);
   const totalMinutes = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
+  const baseTotalPrice =
+    totalPrice ||
+    (shop.type === 'wash' ? activeServices[0]?.priceEgp ?? 0 : shopExtras?.servicePriceEgp ?? 0);
+  const discountedTotalPrice = showCoupons && appliedCoupon
+    ? appliedCoupon.discountType === 'percent'
+      ? Math.max(0, Math.round(baseTotalPrice * (1 - appliedCoupon.discountValue / 100) * 100) / 100)
+      : Math.max(0, Math.round((baseTotalPrice - appliedCoupon.discountValue) * 100) / 100)
+    : baseTotalPrice;
+  const estimatedPlatformFee = computePlatformFee(discountedTotalPrice);
 
   const selectedSlot = timeSlots.find((s) => s.time === timeSlot);
 
+  async function onApplyPromoCode() {
+    if (!shop) return;
+    if (!customer?.id || isGuest) {
+      userAlert(t('book_coupon_invalid_title'), t('book_coupon_invalid_or_expired'));
+      return;
+    }
+    const code = promoCode.trim();
+    if (!code) return;
+    setApplyingPromo(true);
+    try {
+      const validation = await validateCouponForCheckout({
+        shopId: shop.id,
+        code,
+        userId: customer.id,
+      });
+      if (!validation.ok) {
+        const messageKey =
+          validation.reason === 'global_limit_reached'
+            ? 'book_coupon_limit_reached'
+            : validation.reason === 'per_user_limit_reached'
+              ? 'book_coupon_already_used'
+              : 'book_coupon_invalid_or_expired';
+        userAlert(t('book_coupon_invalid_title'), t(messageKey));
+        setAppliedCoupon(null);
+        return;
+      }
+      if (validation.minOrderEgp != null && baseTotalPrice < validation.minOrderEgp) {
+        userAlert(t('book_coupon_invalid_title'), t('book_coupon_invalid_or_expired'));
+        setAppliedCoupon(null);
+        return;
+      }
+      setAppliedCoupon({
+        couponId: validation.couponId,
+        code: validation.code,
+        discountType: validation.discountType,
+        discountValue: validation.discountValue,
+      });
+      const discountText =
+        validation.discountType === 'percent'
+          ? `${validation.discountValue}%`
+          : `${validation.discountValue} EGP`;
+      userAlert(
+        t('book_coupon_applied_title'),
+        t('book_coupon_applied_body').replace('{discount}', discountText),
+      );
+    } finally {
+      setApplyingPromo(false);
+    }
+  }
+
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: palette.background }}
+      style={{ flex: 1, backgroundColor: theme.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <AutomotiveBackground theme={theme} />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.shopName, { color: palette.text }]}>{shopName}</Text>
-        <Text style={[styles.meta, { color: palette.text }]}>
+        <Text style={[styles.shopName, { color: theme.text }]}>{shopName}</Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>
           {shopTypeLabel(shop.type, locale)} · {shopAddress}
         </Text>
-
-        {activeOffer ? (
-          <View style={[styles.offerBanner, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
-            <Text style={[styles.offerBannerTitle, { color: theme.accent }]}>{t('book_offer_banner')}</Text>
-            <Text style={[styles.offerBannerBody, { color: theme.text }]}>
-              {locale === 'ar' ? activeOffer.titleAr || activeOffer.title : activeOffer.title}
-            </Text>
-          </View>
-        ) : null}
 
         {shop.type === 'wash' && activeServices.length > 0 ? (
           <ServiceMultiPicker
@@ -386,88 +443,87 @@ export default function BookShopScreen() {
         <View style={styles.shopContactRow}>
           <Pressable
             onPress={() => openPhone(shopPhone).catch(() => Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')))}
-            style={[styles.contactChip, { borderColor: palette.tint }]}>
-            <Text style={[styles.contactChipText, { color: palette.tint }]}>
+            style={[styles.contactChip, { borderColor: theme.accent, backgroundColor: theme.accentSoft }]}>
+            <Text style={[styles.contactChipText, { color: theme.accent }]}>
               {t('book_call_shop')} · {formatPhoneDisplay(shopPhone)}
             </Text>
           </Pressable>
           <Pressable
             onPress={() => openShopInMaps(shop, locale).catch(() => Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body')))}
-            style={[styles.contactChip, { borderColor: palette.tint }]}>
-            <Text style={[styles.contactChipText, { color: palette.tint }]}>{t('book_open_maps')}</Text>
+            style={[styles.contactChip, { borderColor: theme.accent, backgroundColor: theme.accentSoft }]}>
+            <Text style={[styles.contactChipText, { color: theme.accent }]}>{t('book_open_maps')}</Text>
           </Pressable>
         </View>
 
-        <Text style={[styles.label, { color: palette.text }]}>{t('book_your_phone_label')}</Text>
+        <Text style={[styles.label, { color: theme.text }]}>{t('book_your_phone_label')}</Text>
         <View
           style={[
             styles.savedCarCard,
             {
-              borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
-              backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+              borderColor: theme.border,
+              backgroundColor: theme.card,
             },
           ]}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.savedCarLabel, { color: palette.tabIconDefault }]}>
+            <Text style={[styles.savedCarLabel, { color: theme.textMuted }]}>
               {t('book_phone_from_profile')}
             </Text>
-            <Text style={[styles.savedCarText, { color: palette.text }]}>
+            <Text style={[styles.savedCarText, { color: theme.text }]}>
               {resolvedPhone ? formatPhoneDisplay(resolvedPhone) : t('book_phone_missing_profile')}
             </Text>
           </View>
         </View>
 
-        <Text style={[styles.label, { color: palette.text }]}>{t('book_car_type_label')}</Text>
-        {savedCarLabel && !editingSavedCar ? (
-          <View
-            style={[
-              styles.savedCarCard,
-              {
-                borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
-                backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
-              },
-            ]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.savedCarLabel, { color: palette.tabIconDefault }]}>
-                {t('home_active_vehicle_title')}
-              </Text>
-              <Text style={[styles.savedCarText, { color: palette.text }]}>{savedCarLabel}</Text>
-            </View>
-            <Pressable onPress={() => setEditingSavedCar(true)} style={styles.changeCarBtn}>
-              <Text style={{ color: palette.tint, fontWeight: '800', fontSize: 13 }}>
-                {t('home_car_profile_change')}
-              </Text>
-            </Pressable>
-          </View>
+        {customer && !isGuest && hasRegisteredVehicles ? (
+          <>
+            <Text style={[styles.label, { color: theme.text }]}>{t('book_vehicle_select_label')}</Text>
+            <ActiveVehiclePicker
+              customerId={customer.id}
+              embedded
+              showManageLink
+              onVehicleChange={applyVehicleToBooking}
+            />
+          </>
         ) : (
-          <TextInput
-            placeholder={t('book_car_type_placeholder')}
-            placeholderTextColor={palette.tabIconDefault}
-            value={carType}
-            onChangeText={setCarType}
-            style={inputStyle(colorScheme, palette)}
-          />
+          <>
+            <Text style={[styles.label, { color: theme.text }]}>{t('book_car_type_label')}</Text>
+            <TextInput
+              placeholder={t('book_car_type_placeholder')}
+              placeholderTextColor={theme.textDim}
+              value={carType}
+              onChangeText={setCarType}
+              style={inputStyle(theme)}
+            />
+
+            <Text style={[styles.label, { color: theme.text }]}>{t('book_car_color_label')}</Text>
+            <TextInput
+              placeholder={t('book_car_color_placeholder')}
+              placeholderTextColor={theme.textDim}
+              value={carColor}
+              onChangeText={setCarColor}
+              style={inputStyle(theme)}
+            />
+          </>
         )}
 
-        <Text style={[styles.label, { color: palette.text }]}>{t('book_car_color_label')}</Text>
-        <TextInput
-          placeholder={t('book_car_color_placeholder')}
-          placeholderTextColor={palette.tabIconDefault}
-          value={carColor}
-          onChangeText={setCarColor}
-          style={inputStyle(colorScheme, palette)}
-        />
+        {customer && !isGuest && !hasRegisteredVehicles ? (
+          <Pressable
+            onPress={() => router.push('/settings/vehicles')}
+            style={[styles.manageVehiclesLink, { borderColor: theme.border }]}>
+            <Text style={{ color: theme.accent, fontWeight: '800', fontSize: 13 }}>{t('home_manage_vehicles')}</Text>
+          </Pressable>
+        ) : null}
 
-        <Text style={[styles.label, { color: palette.text }]}>{t('book_customer_notes_label')}</Text>
+        <Text style={[styles.label, { color: theme.text }]}>{t('book_customer_notes_label')}</Text>
         <TextInput
           placeholder={t('book_customer_notes_placeholder')}
-          placeholderTextColor={palette.tabIconDefault}
+          placeholderTextColor={theme.textDim}
           value={customerNotes}
           onChangeText={setCustomerNotes}
           multiline
           numberOfLines={3}
           textAlignVertical="top"
-          style={[inputStyle(colorScheme, palette), styles.notesInput]}
+          style={[inputStyle(theme), styles.notesInput]}
         />
 
         <BookingDatePicker
@@ -476,13 +532,13 @@ export default function BookShopScreen() {
           locale={locale}
           label={t('book_date_label')}
           pickHint={t('book_date_pick_hint')}
-          borderColor={colorScheme === 'dark' ? '#444' : '#ccc'}
-          backgroundColor={colorScheme === 'dark' ? '#1c1c1e' : '#fff'}
-          textColor={palette.text}
+          borderColor={theme.border}
+          backgroundColor={theme.card}
+          textColor={theme.text}
         />
 
         {hasOwnerSchedule && shopExtras?.workOpenTime && shopExtras.workCloseTime && shopExtras.serviceDurationMinutes ? (
-          <Text style={[styles.scheduleHint, { color: palette.tabIconDefault }]}>
+          <Text style={[styles.scheduleHint, { color: theme.textMuted }]}>
             {formatShopScheduleLine(
               shopExtras.workOpenTime,
               shopExtras.workCloseTime,
@@ -491,19 +547,20 @@ export default function BookShopScreen() {
             )}
           </Text>
         ) : hasOwnerSchedule ? null : (
-          <Text style={[styles.scheduleHint, { color: palette.tabIconDefault }]}>{t('book_no_shop_hours')}</Text>
+          <Text style={[styles.scheduleHint, { color: theme.textMuted }]}>{t('book_no_shop_hours')}</Text>
         )}
 
-        <Text style={[styles.label, { color: palette.text }]}>{t('book_time_label')}</Text>
+        <Text style={[styles.label, { color: theme.text }]}>{t('book_time_label')}</Text>
         {!hasOwnerSchedule ? (
-          <Text style={[styles.meta, { color: palette.tabIconDefault }]}>{t('book_no_shop_hours')}</Text>
+          <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_no_shop_hours')}</Text>
         ) : timeSlots.length === 0 ? (
-          <Text style={[styles.meta, { color: palette.tabIconDefault }]}>{t('book_no_slots')}</Text>
+          <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_no_slots')}</Text>
         ) : (
           <View style={[styles.slots, isRTL && styles.slotsRtl]}>
             {timeSlots.map((slot) => {
               const active = slot.time === timeSlot;
               const disabled = slot.status === 'booked';
+              const slotColors = slotStyle(slot.status, active, disabled, theme);
               return (
                 <Pressable
                   key={slot.time}
@@ -511,13 +568,16 @@ export default function BookShopScreen() {
                   disabled={disabled}
                   style={[
                     styles.slot,
-                    slotStyle(slot.status, active, disabled, colorScheme, palette),
+                    {
+                      backgroundColor: slotColors.backgroundColor,
+                      borderColor: slotColors.borderColor,
+                      opacity: disabled ? 0.5 : 1,
+                    },
                   ]}>
                   <Text
                     style={{
-                      color: disabled ? palette.tabIconDefault : active ? '#fff' : palette.text,
-                      fontWeight: '600',
-                      opacity: disabled ? 0.5 : 1,
+                      color: disabled ? theme.textDim : active ? theme.onAccent : theme.text,
+                      fontWeight: '700',
                     }}>
                     {slot.time}
                   </Text>
@@ -526,7 +586,7 @@ export default function BookShopScreen() {
                       style={{
                         fontSize: 10,
                         fontWeight: '700',
-                        color: disabled ? palette.tabIconDefault : active ? '#fff' : '#b45309',
+                        color: disabled ? theme.textDim : active ? theme.onAccent : theme.warm,
                         marginTop: 2,
                       }}>
                       {slot.status === 'booked' ? t('slot_booked') : t('slot_almost_full')}
@@ -543,43 +603,80 @@ export default function BookShopScreen() {
             style={[
               styles.summaryCard,
               {
-                borderColor: colorScheme === 'dark' ? '#444' : '#ddd',
-                backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#f8fafc',
+                borderColor: theme.border,
+                backgroundColor: theme.card,
               },
             ]}>
-            <Text style={[styles.summaryTitle, { color: palette.text }]}>{t('book_summary_title')}</Text>
-            <Text style={[styles.summaryLine, { color: palette.text }]}>{shopName}</Text>
+            <Text style={[styles.summaryTitle, { color: theme.text }]}>{t('book_summary_title')}</Text>
+            <Text style={[styles.summaryLine, { color: theme.text }]}>{shopName}</Text>
             {serviceLabels.length ? (
               serviceLabels.map((label) => (
-                <Text key={label} style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+                <Text key={label} style={[styles.summaryLine, { color: theme.textMuted }]}>
                   · {label}
                 </Text>
               ))
             ) : null}
-            {totalPrice > 0 ? (
-              <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
-                {formatEgp(totalPrice, locale)}
-                {totalMinutes > 0
-                  ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}`
-                  : ''}
+            {baseTotalPrice > 0 ? (
+              <Text style={[styles.summaryLine, { color: theme.accent }]}>
+                {formatEgp(baseTotalPrice, locale)}
+                {totalMinutes > 0 ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}` : ''}
               </Text>
             ) : null}
-            <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+            <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
               {carType.trim() || '—'}
               {carColor.trim() ? ` · ${carColor.trim()}` : ''}
             </Text>
-            <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+            <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
               {dateYmd} · {timeSlot}
             </Text>
             {customerNotes.trim() ? (
-              <Text style={[styles.summaryLine, { color: palette.tabIconDefault }]}>
+              <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
                 {customerNotes.trim()}
               </Text>
             ) : null}
           </View>
         ) : null}
 
-        <Text style={[styles.policyText, { color: palette.tabIconDefault }]}>{t('book_cancellation_policy')}</Text>
+        {showCoupons && baseTotalPrice > 0 ? (
+          <View style={[styles.checkoutCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.label, { color: theme.text, marginTop: 0 }]}>{t('book_coupon_label')}</Text>
+            <View style={styles.couponRow}>
+              <TextInput
+                placeholder={t('book_coupon_placeholder')}
+                placeholderTextColor={theme.textDim}
+                value={promoCode}
+                onChangeText={setPromoCode}
+                style={[inputStyle(theme), styles.couponInput]}
+                autoCapitalize="characters"
+              />
+              <Pressable
+                onPress={() => void onApplyPromoCode()}
+                disabled={applyingPromo}
+                style={[styles.couponApplyBtn, { backgroundColor: theme.accent, opacity: applyingPromo ? 0.65 : 1 }]}>
+                <Text style={[styles.couponApplyBtnText, { color: theme.onAccent }]}>
+                  {applyingPromo ? t('book_saving') : t('book_coupon_apply')}
+                </Text>
+              </Pressable>
+            </View>
+            {appliedCoupon ? (
+              <Text style={[styles.checkoutHint, { color: theme.accent }]}>
+                {t('book_coupon_active').replace('{code}', appliedCoupon.code)}
+              </Text>
+            ) : null}
+            <Text style={[styles.checkoutLabel, { color: theme.textMuted }]}>{t('book_checkout_total')}</Text>
+            {appliedCoupon ? (
+              <Text style={[styles.checkoutStrike, { color: theme.textDim }]}>{formatEgp(baseTotalPrice, locale)}</Text>
+            ) : null}
+            <Text style={[styles.checkoutValue, { color: theme.text }]}>
+              {formatEgp(discountedTotalPrice, locale)}
+            </Text>
+            <Text style={[styles.checkoutHint, { color: theme.textDim }]}>
+              {t('book_platform_fee_note').replace('{fee}', formatEgp(estimatedPlatformFee, locale))}
+            </Text>
+          </View>
+        ) : null}
+
+        <Text style={[styles.policyText, { color: theme.textDim }]}>{t('book_cancellation_policy')}</Text>
 
         <Pressable
           onPress={onSubmit}
@@ -587,11 +684,13 @@ export default function BookShopScreen() {
           style={[
             styles.primaryBtn,
             {
-              backgroundColor: palette.tint,
+              backgroundColor: theme.accent,
               opacity: saving || !timeSlot || !resolvedPhone ? 0.65 : 1,
             },
           ]}>
-          <Text style={styles.primaryBtnText}>{saving ? t('book_saving') : t('book_submit')}</Text>
+          <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
+            {saving ? t('book_saving') : t('book_submit')}
+          </Text>
         </Pressable>
       </ScrollView>
 
@@ -664,37 +763,36 @@ function slotStyle(
   status: SlotAvailability,
   active: boolean,
   disabled: boolean,
-  colorScheme: 'light' | 'dark' | null | undefined,
-  palette: (typeof Colors)['light'],
+  theme: AppThemeTokens,
 ) {
   if (disabled) {
     return {
-      backgroundColor: colorScheme === 'dark' ? '#1a1a1a' : '#eee',
-      borderColor: colorScheme === 'dark' ? '#333' : '#ccc',
+      backgroundColor: theme.bgElevated,
+      borderColor: theme.border,
     };
   }
   if (active) {
-    return { backgroundColor: palette.tint, borderColor: palette.tint };
+    return { backgroundColor: theme.accent, borderColor: theme.accent };
   }
   if (status === 'almost_full') {
     return {
-      backgroundColor: colorScheme === 'dark' ? '#2a2008' : '#fef3c7',
-      borderColor: '#f59e0b',
+      backgroundColor: theme.warmSoft,
+      borderColor: theme.warm,
     };
   }
   return {
-    backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#f0f4f8',
-    borderColor: colorScheme === 'dark' ? '#444' : '#ddd',
+    backgroundColor: theme.card,
+    borderColor: theme.border,
   };
 }
 
-function inputStyle(colorScheme: 'light' | 'dark' | null | undefined, palette: (typeof Colors)['light']) {
+function inputStyle(theme: AppThemeTokens) {
   return [
     styles.input,
     {
-      color: palette.text,
-      borderColor: colorScheme === 'dark' ? '#444' : '#ccc',
-      backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
+      color: theme.text,
+      borderColor: theme.border,
+      backgroundColor: theme.card,
     },
   ];
 }
@@ -702,64 +800,103 @@ function inputStyle(colorScheme: 'light' | 'dark' | null | undefined, palette: (
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   content: { padding: 20, paddingBottom: 40 },
-  shopName: { fontSize: 22, fontWeight: '800', marginBottom: 4 },
-  meta: { fontSize: 14, opacity: 0.8, marginBottom: 10 },
-  serviceCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 12 },
-  serviceName: { fontSize: 17, fontWeight: '800', marginBottom: 4 },
-  serviceMeta: { fontSize: 14, fontWeight: '600' },
-  offerBanner: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
-  offerBannerTitle: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },
+  shopName: { fontSize: 24, fontWeight: '900', marginBottom: 4, letterSpacing: -0.3 },
+  meta: { fontSize: 14, marginBottom: 12 },
+  offerBanner: { borderWidth: 1, borderRadius: 20, padding: 14, marginBottom: 14 },
+  offerBannerTitle: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 },
   offerBannerBody: { fontSize: 15, fontWeight: '800' },
-  shopContactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  offerBannerMeta: { fontSize: 13, fontWeight: '800', marginTop: 6 },
+  offerActionBtn: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+  },
+  offerActionBtnText: { fontSize: 14, fontWeight: '800' },
+  checkoutCard: {
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 16,
+    gap: 6,
+  },
+  checkoutLabel: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  checkoutValue: { fontSize: 22, fontWeight: '900' },
+  checkoutStrike: { fontSize: 16, fontWeight: '700', textDecorationLine: 'line-through' },
+  checkoutHint: { fontSize: 12, lineHeight: 18 },
+  couponRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 },
+  couponInput: { flex: 1, marginTop: 0 },
+  couponApplyBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 86,
+  },
+  couponApplyBtnText: { fontSize: 13, fontWeight: '800' },
+  priceRow: { gap: 4, marginBottom: 4 },
+  strikePrice: { textDecorationLine: 'line-through' },
+  shopContactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
   contactChip: {
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
-  contactChipText: { fontSize: 13, fontWeight: '700' },
-  label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 10 },
+  contactChipText: { fontSize: 13, fontWeight: '800' },
+  label: { fontSize: 14, fontWeight: '700', marginBottom: 8, marginTop: 12 },
   scheduleHint: { fontSize: 13, lineHeight: 19, marginBottom: 4, marginTop: 4 },
   savedCarCard: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  savedCarLabel: { fontSize: 12, marginBottom: 2 },
+  savedCarLabel: { fontSize: 12, marginBottom: 3, fontWeight: '600' },
   savedCarText: { fontSize: 16, fontWeight: '800' },
-  changeCarBtn: { paddingHorizontal: 8, paddingVertical: 6 },
+  manageVehiclesLink: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+  },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    borderRadius: 18,
+    paddingHorizontal: 16,
     paddingVertical: 14,
-    fontSize: 17,
+    fontSize: 16,
   },
-  notesInput: { minHeight: 88, paddingTop: 14 },
+  notesInput: { minHeight: 96, paddingTop: 14 },
   slots: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   slotsRtl: { flexDirection: 'row-reverse' },
   slot: {
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
     paddingVertical: 10,
     alignItems: 'center',
+    minWidth: 72,
   },
-  summaryCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 16 },
-  summaryTitle: { fontSize: 15, fontWeight: '800', marginBottom: 8 },
-  summaryLine: { fontSize: 14, lineHeight: 20, marginBottom: 4 },
-  policyText: { fontSize: 12, lineHeight: 18, marginTop: 16 },
+  summaryCard: { borderWidth: 1, borderRadius: 22, padding: 16, marginTop: 18 },
+  summaryTitle: { fontSize: 15, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  summaryLine: { fontSize: 14, lineHeight: 21, marginBottom: 4 },
+  policyText: { fontSize: 12, lineHeight: 18, marginTop: 18 },
   primaryBtn: {
-    marginTop: 16,
-    borderRadius: 12,
-    paddingVertical: 14,
+    marginTop: 18,
+    borderRadius: 28,
+    paddingVertical: 16,
     alignItems: 'center',
   },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  primaryBtnText: { fontWeight: '800', fontSize: 16 },
   successBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -771,7 +908,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 24,
     alignItems: 'center',
   },
@@ -801,8 +938,8 @@ const styles = StyleSheet.create({
   receiptMeta: { fontSize: 13, lineHeight: 18 },
   successBtn: {
     width: '100%',
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 28,
+    paddingVertical: 15,
     alignItems: 'center',
   },
   successBtnText: { fontWeight: '800', fontSize: 16 },

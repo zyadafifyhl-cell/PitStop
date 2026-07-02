@@ -12,6 +12,7 @@ export type WashCoupon = {
   startDate: string;
   endDate: string;
   usageLimit?: number;
+  perCustomerUsageLimit?: number;
   usageCount: number;
   minOrderEgp?: number;
   active: boolean;

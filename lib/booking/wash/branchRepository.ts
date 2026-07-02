@@ -313,26 +313,91 @@ export async function saveBranchServicesRemote(
   const supabase = getSupabase();
   if (!supabase) return false;
 
-  await supabase.from('branch_services').delete().eq('branch_id', branchId);
-  if (!services.length) return true;
+  const sanitizeCategory = (category: ShopService['category'] | undefined): string => {
+    if (!category || category === 'custom') return 'exterior_wash';
+    return category;
+  };
 
-  const rows = services.map((service, index) => ({
-    id: isUuid(service.id) ? service.id : undefined,
-    shop_id: shopId,
-    branch_id: branchId,
-    name: service.name,
-    name_ar: service.nameAr ?? null,
-    description: service.description ?? null,
-    description_ar: service.descriptionAr ?? null,
-    category: service.category ?? 'exterior_wash',
-    price_egp: service.priceEgp,
-    duration_minutes: service.durationMinutes,
-    visible: service.visible !== false,
-    sort_order: service.sortOrder ?? index,
-  }));
+  const { data: existingRows, error: existingError } = await supabase
+    .from('branch_services')
+    .select('id')
+    .eq('branch_id', branchId);
+  if (existingError) return false;
+  const existingIds = new Set(
+    (existingRows ?? [])
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === 'string'),
+  );
 
-  const { error } = await supabase.from('branch_services').insert(rows);
-  return !error;
+  if (!services.length) {
+    const { error } = await supabase.from('branch_services').delete().eq('branch_id', branchId);
+    return !error;
+  }
+
+  const keepIds: string[] = [];
+  for (let index = 0; index < services.length; index += 1) {
+    const service = services[index];
+    const baseRow = {
+      shop_id: shopId,
+      branch_id: branchId,
+      name: service.name,
+      name_ar: service.nameAr ?? null,
+      description: service.description ?? null,
+      description_ar: service.descriptionAr ?? null,
+      category: sanitizeCategory(service.category),
+      price_egp: service.priceEgp,
+      duration_minutes: service.durationMinutes,
+      visible: service.visible !== false,
+      sort_order: service.sortOrder ?? index,
+    };
+
+    if (isUuid(service.id)) {
+      if (existingIds.has(service.id)) {
+        const { data, error } = await supabase
+          .from('branch_services')
+          .update(baseRow)
+          .eq('id', service.id)
+          .eq('branch_id', branchId)
+          .select('id')
+          .maybeSingle();
+        if (error) return false;
+        keepIds.push(data?.id ?? service.id);
+      } else {
+        // If an id came from another branch/state, never overwrite it across branches.
+        const { data, error } = await supabase
+          .from('branch_services')
+          .insert(baseRow)
+          .select('id')
+          .maybeSingle();
+        if (error || !data?.id) return false;
+        keepIds.push(data.id);
+      }
+      continue;
+    }
+
+    const { data, error } = await supabase
+      .from('branch_services')
+      .insert(baseRow)
+      .select('id')
+      .maybeSingle();
+    if (error || !data?.id) return false;
+    keepIds.push(data.id);
+  }
+
+  const staleIds = (existingRows ?? [])
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === 'string' && !keepIds.includes(id));
+
+  if (staleIds.length) {
+    const { error } = await supabase
+      .from('branch_services')
+      .delete()
+      .eq('branch_id', branchId)
+      .in('id', staleIds);
+    if (error) return false;
+  }
+
+  return true;
 }
 
 export async function addBranchRemote(
@@ -415,10 +480,7 @@ export async function addBranchEmployeeRemote(input: {
 export async function removeBranchEmployeeRemote(employeeId: string): Promise<boolean> {
   const supabase = getSupabase();
   if (!supabase) return false;
-  const { error } = await supabase
-    .from('branch_employees')
-    .update({ is_active: false, updated_at: new Date().toISOString() })
-    .eq('id', employeeId);
+  const { error } = await supabase.from('branch_employees').delete().eq('id', employeeId);
   return !error;
 }
 
@@ -449,6 +511,31 @@ export async function fetchDefaultBranchProfile(shopId: string): Promise<WashBra
       .order('is_default', { ascending: false })
       .order('sort_order', { ascending: true })
       .limit(1)
+      .maybeSingle(),
+    null,
+  );
+
+  if (!response || response.error || !response.data) return null;
+  const row = response.data as BranchRow;
+  const serviceMap = await fetchServicesForBranches([row.id]);
+  return mapBranchRow(row, serviceMap.get(row.id) ?? []);
+}
+
+/** Specific branch profile for customer-facing pages (wash). */
+export async function fetchBranchProfile(shopId: string, branchId: string): Promise<WashBranch | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const resolvedBranchId = await resolveRemoteBranchId(shopId, branchId);
+  if (!resolvedBranchId) return null;
+
+  const response = await withTimeout(
+    supabase
+      .from('shop_branches')
+      .select('*')
+      .eq('shop_id', shopId)
+      .eq('id', resolvedBranchId)
+      .eq('is_active', true)
       .maybeSingle(),
     null,
   );

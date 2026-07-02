@@ -1,3 +1,4 @@
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -23,9 +24,18 @@ import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
+import { OsmLocationPicker } from '@/components/maps/OsmLocationPicker';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
+import { getSupabase } from '@/lib/supabase/client';
+import {
+  deleteCouponRemote,
+  listActiveCouponsForShop,
+  saveCouponForShopRemote,
+  setCouponActiveRemote,
+} from '@/lib/booking/couponRepository';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
   bookingStatusLabel,
@@ -37,7 +47,10 @@ import {
   cancelBookingReminders,
   scheduleBookingReminders,
 } from '@/lib/booking/bookingReminders';
-import { formatEgp, toYmdLocal } from '@/lib/booking/reporting';
+import {
+  formatEgp,
+  toYmdLocal,
+} from '@/lib/booking/reporting';
 import {
   listShopReviews,
   seedDemoReviews,
@@ -48,13 +61,13 @@ import {
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { openPhone } from '@/lib/linking/contact';
+import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopReview, ShopService } from '@/lib/booking/types';
 import { computeWashAnalytics } from '@/lib/booking/wash/washAnalytics';
 import {
   addWashBranch,
   getActiveWashBranch,
   getWashBranchState,
-  saveWashBranchCoupons,
   saveWashBranchServices,
   saveWashBranchStatus,
   saveWashBranchWeeklyHours,
@@ -67,17 +80,21 @@ import {
   addBranchEmployeeRemote,
   listBranchEmployeesRemote,
   removeBranchEmployeeRemote,
+  updateBranchRemote,
 } from '@/lib/booking/wash/branchRepository';
 import {
   createBranchManagerAccount,
   fetchBranchManagerRemote,
+  hasAnyBranchManagerRemote,
   linkBranchManagerByEmail,
+  removeBranchManagerRemote,
 } from '@/lib/booking/wash/branchManagerRepository';
-import { listWashCenterNotifications } from '@/lib/booking/wash/washNotificationCenter';
-import { clearBranchManagerCache, filterWashNotificationsForStaff } from '@/lib/booking/wash/bookingDispatch';
+import {
+  clearBranchManagerCache,
+  filterPendingQueueBookingsForStaff,
+} from '@/lib/booking/wash/bookingDispatch';
 import {
   WASH_DAY_LABELS,
-  WASH_SERVICE_CATEGORIES,
   type WashAnalyticsSnapshot,
   type WashBranch,
   type WashBranchState,
@@ -95,10 +112,10 @@ const webListScrollStyle =
     : null;
 
 const EDITOR_DAY_ORDER: ShopDayHours['day'][] = [1, 2, 3, 4, 5, 6, 0];
+const DEFAULT_BRANCH_MAP_COORDS = { latitude: 30.0444, longitude: 31.2357 };
 
 type Props = {
   shop: Shop;
-  onLogout: () => Promise<void>;
 };
 
 type ServiceDraft = {
@@ -118,9 +135,9 @@ type CouponDraft = {
   code: string;
   discountType: WashCouponDiscountType;
   discountValue: string;
-  startDate: string;
-  endDate: string;
+  liveDays: string;
   usageLimit: string;
+  perCustomerUsageLimit: string;
   minOrderEgp: string;
   active: boolean;
 };
@@ -151,29 +168,29 @@ function emptyServiceDraft(): ServiceDraft {
 }
 
 function emptyCouponDraft(): CouponDraft {
-  const today = toYmdLocal(new Date());
-  const end = new Date();
-  end.setDate(end.getDate() + 30);
   return {
     code: '',
     discountType: 'percent',
     discountValue: '10',
-    startDate: today,
-    endDate: toYmdLocal(end),
+    liveDays: '30',
     usageLimit: '',
+    perCustomerUsageLimit: '',
     minOrderEgp: '',
     active: true,
   };
 }
 
-function serviceLabel(service: ShopService, locale: 'en' | 'ar'): string {
-  return locale === 'ar' ? service.nameAr || service.name : service.name;
+function normalizeNumberText(value: string): string {
+  return value
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 1776))
+    .replace(/\u066B/g, '.')
+    .replace(/\u066C/g, ',')
+    .trim();
 }
 
-function categoryLabel(category: ShopService['category'], locale: 'en' | 'ar'): string {
-  const row = WASH_SERVICE_CATEGORIES.find((c) => c.id === category);
-  if (!row) return category ?? '—';
-  return locale === 'ar' ? row.ar : row.en;
+function serviceLabel(service: ShopService, locale: 'en' | 'ar'): string {
+  return locale === 'ar' ? service.nameAr || service.name : service.name;
 }
 
 function branchDisplayName(branch: WashBranch, locale: 'en' | 'ar'): string {
@@ -183,7 +200,7 @@ function branchDisplayName(branch: WashBranch, locale: 'en' | 'ar'): string {
 
 function filterBookingsForStaff(bookings: Booking[], staff: ShopStaffUser | null): Booking[] {
   if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
-  return bookings.filter((booking) => !booking.branchId || booking.branchId === staff.branchId);
+  return bookings.filter((booking) => booking.branchId === staff.branchId);
 }
 
 function washStatusLabelKey(status: WashShopStatus): 'wash_status_open' | 'wash_status_closed' | 'wash_status_busy' | 'wash_status_vacation' {
@@ -229,7 +246,7 @@ function applyBranchToForms(branch: WashBranch, setters: {
   setters.setBranchLongitude(branch.longitude ?? null);
 }
 
-export function WashOwnerPanel({ shop, onLogout }: Props) {
+export function WashOwnerPanel({ shop }: Props) {
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
   const { shopStaff, staff, isOwner, isBranchManager, isPremium } = useShopAuth();
@@ -265,6 +282,10 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const [branchLatitude, setBranchLatitude] = useState<number | null>(null);
   const [branchLongitude, setBranchLongitude] = useState<number | null>(null);
   const [capturingGps, setCapturingGps] = useState(false);
+  const [mapPickerVisible, setMapPickerVisible] = useState(false);
+  const [mapDraftLatitude, setMapDraftLatitude] = useState<number>(DEFAULT_BRANCH_MAP_COORDS.latitude);
+  const [mapDraftLongitude, setMapDraftLongitude] = useState<number>(DEFAULT_BRANCH_MAP_COORDS.longitude);
+  const [mapLocating, setMapLocating] = useState(false);
 
   const [weeklyHours, setWeeklyHours] = useState<ShopDayHours[]>([]);
   const [selectedHoursDay, setSelectedHoursDay] = useState<ShopDayHours['day']>(1);
@@ -297,12 +318,19 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const [newEmployeeJobTitle, setNewEmployeeJobTitle] = useState('');
   const [employeeBusy, setEmployeeBusy] = useState(false);
   const [branchManager, setBranchManager] = useState<DbUser | null>(null);
+  const [hasDedicatedBranchManager, setHasDedicatedBranchManager] = useState(false);
+  const [hasAnyBranchManager, setHasAnyBranchManager] = useState(false);
   const [managerFullName, setManagerFullName] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
   const [managerPassword, setManagerPassword] = useState('');
   const [managerBusy, setManagerBusy] = useState(false);
+  const [managerResolved, setManagerResolved] = useState(false);
+  const [branchSwitching, setBranchSwitching] = useState(false);
+  const [pendingBranchSyncId, setPendingBranchSyncId] = useState<string | null>(null);
+  const [branchMetaLoading, setBranchMetaLoading] = useState(false);
   const [walkInModalVisible, setWalkInModalVisible] = useState(false);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
+  const [adminTab, setAdminTab] = useState<'dashboard' | 'profile' | 'operations' | 'management'>('dashboard');
 
   const formSetters = useMemo(
     () => ({
@@ -337,20 +365,29 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const refreshAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [state, branch, bookingRows, reviewRows, notifRows] = await Promise.all([
+      const [state, branch, bookingRows, reviewRows, couponRows] = await Promise.all([
         getWashBranchState(shop, branchCtx),
         getActiveWashBranch(shop, branchCtx),
         listBookingsForShop(shop.id),
         listShopReviews(shop.id),
-        listWashCenterNotifications(shop.id),
+        listActiveCouponsForShop(shop.id),
       ]);
       const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
-      const filteredNotifs = await filterWashNotificationsForStaff(shopStaff, notifRows);
-      setBranchState(state);
-      syncBranchForms(branch);
+      const pendingQueue = await filterPendingQueueBookingsForStaff(shopStaff, scopedBookings);
+      const branchWithCoupons = { ...branch, coupons: couponRows };
+      const stateWithCoupons = {
+        ...state,
+        branches: state.branches.map((row) =>
+          row.id === branch.id ? { ...row, coupons: couponRows } : row,
+        ),
+      };
+      setBranchState(stateWithCoupons);
+      syncBranchForms(branchWithCoupons);
       setBookings(scopedBookings);
       setReviews(reviewRows.length ? reviewRows : seedDemoReviews(shop.id));
-      setUnreadNotifCount(filteredNotifs.filter((row) => !row.read).length);
+      setUnreadNotifCount(
+        branch?.id ? pendingQueue.filter((booking) => booking.branchId === branch.id).length : pendingQueue.length,
+      );
       const stats = await computeWashAnalytics(shop.id, scopedBookings, {
         branchId: branch?.id,
         branchServices: branch?.services ?? [],
@@ -364,31 +401,67 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   }, [shop, branchCtx, shopStaff, syncBranchForms, locale, t]);
 
   useEffect(() => {
-    if (!activeBranch || !isUuid(activeBranch.id)) {
+    if (!activeBranch) {
       setEmployees([]);
       setBranchManager(null);
+      setHasDedicatedBranchManager(false);
+      setHasAnyBranchManager(false);
+      setManagerResolved(!isOwner);
+      setBranchMetaLoading(false);
       return;
     }
     let cancelled = false;
+    setBranchMetaLoading(true);
     (async () => {
-      const [employeeRows, managerRow] = await Promise.all([
-        listBranchEmployeesRemote(activeBranch.id),
-        isOwner ? fetchBranchManagerRemote(activeBranch.id) : Promise.resolve(null),
-      ]);
-      if (cancelled) return;
-      setEmployees(employeeRows);
-      setBranchManager(managerRow);
+      try {
+        const employeePromise = isUuid(activeBranch.id)
+          ? listBranchEmployeesRemote(activeBranch.id)
+          : Promise.resolve([]);
+        const [employeeRows, dedicatedManagerRow, anyManagerExists] = await Promise.all([
+          employeePromise,
+          fetchBranchManagerRemote(activeBranch.id, shop.id),
+          isOwner ? hasAnyBranchManagerRemote(shop.id) : Promise.resolve(false),
+        ]);
+        if (cancelled) return;
+        setEmployees(employeeRows);
+        setHasDedicatedBranchManager(!!dedicatedManagerRow);
+        setHasAnyBranchManager(anyManagerExists);
+        // Management UI must show only a dedicated branch manager (never owner fallback).
+        setBranchManager(dedicatedManagerRow);
+        setManagerResolved(true);
+      } finally {
+        if (!cancelled) setBranchMetaLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeBranch?.id, isOwner]);
+  }, [activeBranch?.id, isOwner, shop.id]);
 
   useFocusEffect(
     useCallback(() => {
       refreshAll();
     }, [refreshAll]),
   );
+
+  useEffect(() => {
+    if (!pendingBranchSyncId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await setActiveWashBranch(shop, pendingBranchSyncId, branchCtx);
+        await refreshAll();
+      } finally {
+        if (!cancelled) {
+          setBranchSwitching(false);
+          setPendingBranchSyncId(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingBranchSyncId, shop, branchCtx, refreshAll]);
 
   const fieldStyle = [styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }];
 
@@ -397,19 +470,14 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       ? profileNameAr || profileName || shop.nameAr
       : profileName || shop.name;
   const coverImage = activeBranch?.imageUrls?.[0];
-  const profileImage = activeBranch?.profileImageUrl;
+  const profileImage = useMemo(() => {
+    const firstBranchImage = (branchState?.branches ?? []).find(
+      (branch) => !!branch.profileImageUrl && branch.profileImageUrl.trim().length > 0,
+    )?.profileImageUrl;
+    return firstBranchImage ?? activeBranch?.profileImageUrl;
+  }, [branchState?.branches, activeBranch?.profileImageUrl]);
   const displayLatitude = activeBranch?.latitude ?? branchLatitude;
   const displayLongitude = activeBranch?.longitude ?? branchLongitude;
-
-  const pendingOrderCount = useMemo(
-    () => bookings.filter((b) => b.status === 'pending' || b.status === 'confirmed' || b.status === 'in_progress').length,
-    [bookings],
-  );
-
-  const historyCount = useMemo(
-    () => bookings.filter((b) => b.status === 'done' || b.status === 'cancelled' || b.status === 'no_show').length,
-    [bookings],
-  );
 
   const selectedDayRow = useMemo(() => {
     const row = weeklyHours.find((r) => r.day === selectedHoursDay);
@@ -427,6 +495,14 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   const maxTrend = useMemo(
     () => Math.max(1, ...(analytics?.bookingTrend.map((x) => x.count) ?? [1])),
     [analytics],
+  );
+  const sortedServices = useMemo(
+    () => (activeBranch?.services ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
+    [activeBranch?.services],
+  );
+  const visibleReviews = useMemo(
+    () => reviews.filter((review) => !review.hidden),
+    [reviews],
   );
 
   function requestPremiumUpgrade() {
@@ -453,6 +529,63 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     setSaveNotice({ title, body });
   }
 
+  async function persistBranchCoordinates(lat: number, lng: number) {
+    setBranchLatitude(lat);
+    setBranchLongitude(lng);
+    const { branch, remoteSaved } = await saveBranchCoordinates(shop, lat, lng, branchCtx);
+    syncBranchForms(branch);
+    if (remoteSaved) {
+      showNotice(t('wash_branch_gps_saved_title'), t('wash_branch_gps_saved_body_synced'));
+    } else {
+      showNotice(t('wash_branch_gps_saved_title'), t('wash_branch_gps_saved_body_local_only'));
+    }
+  }
+
+  function openBranchMapPicker() {
+    const lat = displayLatitude ?? DEFAULT_BRANCH_MAP_COORDS.latitude;
+    const lng = displayLongitude ?? DEFAULT_BRANCH_MAP_COORDS.longitude;
+    setMapDraftLatitude(lat);
+    setMapDraftLongitude(lng);
+    setMapPickerVisible(true);
+  }
+
+  function useSavedBranchMapCoords() {
+    const lat = displayLatitude ?? DEFAULT_BRANCH_MAP_COORDS.latitude;
+    const lng = displayLongitude ?? DEFAULT_BRANCH_MAP_COORDS.longitude;
+    setMapDraftLatitude(lat);
+    setMapDraftLongitude(lng);
+  }
+
+  async function onDetectMapGps() {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(t('wash_branch_gps_denied_title'), t('wash_branch_gps_denied_body'));
+      return;
+    }
+    setMapLocating(true);
+    try {
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setMapDraftLatitude(pos.coords.latitude);
+      setMapDraftLongitude(pos.coords.longitude);
+    } catch {
+      Alert.alert(t('wash_branch_gps_fail_title'), t('wash_branch_gps_fail_body'));
+    } finally {
+      setMapLocating(false);
+    }
+  }
+
+  async function onSaveBranchMapLocation() {
+    setMapPickerVisible(false);
+    setCapturingGps(true);
+    try {
+      await persistBranchCoordinates(mapDraftLatitude, mapDraftLongitude);
+    } catch {
+      Alert.alert(t('wash_branch_gps_fail_title'), t('wash_branch_gps_fail_body'));
+    } finally {
+      setCapturingGps(false);
+    }
+  }
+
   async function onCaptureBranchGps() {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
@@ -464,15 +597,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
-      setBranchLatitude(lat);
-      setBranchLongitude(lng);
-      const { branch, remoteSaved } = await saveBranchCoordinates(shop, lat, lng, branchCtx);
-      syncBranchForms(branch);
-      if (remoteSaved) {
-        showNotice(t('wash_branch_gps_saved_title'), t('wash_branch_gps_saved_body_synced'));
-      } else {
-        showNotice(t('wash_branch_gps_saved_title'), t('wash_branch_gps_saved_body_local_only'));
-      }
+      await persistBranchCoordinates(lat, lng);
     } catch {
       Alert.alert(t('wash_branch_gps_fail_title'), t('wash_branch_gps_fail_body'));
     } finally {
@@ -489,10 +614,31 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
   async function onSelectBranch(branchId: string) {
     if (branchId === branchState?.activeBranchId) return;
-    const state = await setActiveWashBranch(shop, branchId, branchCtx);
-    setBranchState(state);
-    const branch = state.branches.find((b) => b.id === branchId);
-    if (branch) syncBranchForms(branch);
+    setManagerResolved(false);
+    setBranchSwitching(true);
+
+    const optimisticBranch = branchState?.branches.find((branch) => branch.id === branchId);
+    if (optimisticBranch) {
+      setBranchState((prev) =>
+        prev
+          ? {
+              ...prev,
+              activeBranchId: branchId,
+            }
+          : prev,
+      );
+      syncBranchForms(optimisticBranch);
+      void computeWashAnalytics(shop.id, bookings, {
+        branchId: optimisticBranch.id,
+        branchServices: optimisticBranch.services ?? [],
+        locale,
+        noServiceDataLabel: t('wash_analytics_no_service_data'),
+      }).then((stats) => {
+        setAnalytics(stats);
+      });
+    }
+
+    setPendingBranchSyncId(branchId);
   }
 
   async function onAddBranch() {
@@ -550,22 +696,22 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   }
 
   async function onRemoveEmployee(employeeId: string) {
-    Alert.alert(t('wash_employee_remove_title'), t('wash_employee_remove_body'), [
-      { text: t('alert_cancel'), style: 'cancel' },
-      {
-        text: t('wash_employee_remove_confirm'),
-        style: 'destructive',
-        onPress: async () => {
-          setEmployeeBusy(true);
-          try {
-            const ok = await removeBranchEmployeeRemote(employeeId);
-            if (ok) setEmployees((prev) => prev.filter((employee) => employee.id !== employeeId));
-          } finally {
-            setEmployeeBusy(false);
-          }
-        },
-      },
-    ]);
+    const confirmed = await userConfirm(t('wash_employee_remove_title'), t('wash_employee_remove_body'), {
+      confirmLabel: t('wash_employee_remove_confirm'),
+      cancelLabel: t('alert_cancel'),
+    });
+    if (!confirmed) return;
+    setEmployeeBusy(true);
+    try {
+      const ok = await removeBranchEmployeeRemote(employeeId);
+      if (ok) {
+        setEmployees((prev) => prev.filter((employee) => employee.id !== employeeId));
+      } else {
+        userAlert(t('wash_employee_save_fail_title'), t('wash_employee_save_fail_body'));
+      }
+    } finally {
+      setEmployeeBusy(false);
+    }
   }
 
   async function finishManagerSave(
@@ -576,8 +722,9 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       showNotice(t('wash_manager_save_fail_title'), result.message ?? t('wash_manager_save_fail_body'));
       return;
     }
-    const managerRow = await fetchBranchManagerRemote(activeBranch.id);
+    const managerRow = await fetchBranchManagerRemote(activeBranch.id, shop.id);
     setBranchManager(managerRow);
+    setHasDedicatedBranchManager(true);
     clearBranchManagerCache();
     setManagerFullName('');
     setManagerEmail('');
@@ -627,6 +774,39 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     }
   }
 
+  async function onRemoveBranchManager() {
+    if (!activeBranch || !branchManager || !isUuid(activeBranch.id)) return;
+    const confirmed = await userConfirm(
+      t('wash_manager_remove_title'),
+      t('wash_manager_remove_body'),
+      {
+        confirmLabel: t('wash_manager_remove_confirm'),
+        cancelLabel: t('alert_cancel'),
+      },
+    );
+    if (!confirmed) return;
+
+    setManagerBusy(true);
+    try {
+      const ok = await removeBranchManagerRemote({
+        shopId: shop.id,
+        branchId: activeBranch.id,
+        managerUserId: branchManager.id,
+      });
+      if (!ok) {
+        userAlert(t('wash_manager_remove_fail_title'), t('wash_manager_remove_fail_body'));
+        return;
+      }
+      setBranchManager(null);
+      setHasDedicatedBranchManager(false);
+      setHasAnyBranchManager(await hasAnyBranchManagerRemote(shop.id));
+      clearBranchManagerCache();
+      userAlert(t('wash_manager_removed_title'), t('wash_manager_removed_body'));
+    } finally {
+      setManagerBusy(false);
+    }
+  }
+
   async function onSaveProfile() {
     if (!profileName.trim() || !profileAddress.trim() || !profilePhone.trim()) {
       Alert.alert(t('wash_profile_invalid_title'), t('wash_profile_invalid_body'));
@@ -648,25 +828,33 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   }
 
   async function onSetCoverImage() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(t('wash_image_permission_title'), t('wash_image_permission_body'));
-      return;
+    if (Platform.OS !== 'web') {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t('wash_image_permission_title'), t('wash_image_permission_body'));
+        return;
+      }
     }
     setPickingImage(true);
     try {
       const picked = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [16, 9],
+        allowsEditing: Platform.OS !== 'web',
         quality: 0.8,
       });
       if (picked.canceled || !picked.assets?.length || !activeBranch) return;
-      const uri = picked.assets[0].uri;
+      const asset = picked.assets[0];
+      const uri = asset.uri;
       if (!uri) return;
+      const uploadedUrl = await uploadImageToBucket({
+        localUri: uri,
+        mimeType: asset.mimeType,
+        bucket: 'shop-assets',
+        folderPath: `${shop.id}/branches/${activeBranch.id}/cover`,
+      });
       const gallery = (activeBranch.imageUrls ?? []).slice(1).filter((url) => url !== uri);
       const { branch } = await updateActiveWashBranch(shop, {
-        imageUrls: [uri, ...gallery],
+        imageUrls: [uploadedUrl, ...gallery],
       }, branchCtx);
       syncBranchForms(branch);
     } finally {
@@ -684,16 +872,30 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     try {
       const picked = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit: 5,
         quality: 0.8,
       });
       if (picked.canceled || !picked.assets?.length) return;
-      const uri = picked.assets[0].uri;
-      if (!uri || !activeBranch) return;
+      if (!activeBranch) return;
       const cover = activeBranch.imageUrls?.[0];
-      const gallery = (activeBranch.imageUrls ?? []).slice(1).filter((url) => url !== uri);
-      if (uri === cover || gallery.includes(uri)) return;
-      const nextUrls = cover ? [cover, ...gallery, uri] : [uri];
+      const gallery = (activeBranch.imageUrls ?? []).slice(1);
+      const uploadedUrls: string[] = [];
+      for (const asset of picked.assets) {
+        if (!asset.uri) continue;
+        const uploadedUrl = await uploadImageToBucket({
+          localUri: asset.uri,
+          mimeType: asset.mimeType,
+          bucket: 'shop-gallery',
+          folderPath: `${shop.id}/branches/${activeBranch.id}/gallery`,
+        });
+        if (uploadedUrl && uploadedUrl !== cover && !gallery.includes(uploadedUrl) && !uploadedUrls.includes(uploadedUrl)) {
+          uploadedUrls.push(uploadedUrl);
+        }
+      }
+      if (!uploadedUrls.length) return;
+      const nextUrls = cover ? [cover, ...gallery, ...uploadedUrls] : [...gallery, ...uploadedUrls];
       const { branch } = await updateActiveWashBranch(shop, {
         imageUrls: nextUrls.slice(0, 8),
       }, branchCtx);
@@ -704,6 +906,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
   }
 
   async function onSetProfileImage() {
+    if (!activeBranch) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert(t('wash_image_permission_title'), t('wash_image_permission_body'));
@@ -717,9 +920,33 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
         quality: 0.8,
       });
       if (picked.canceled || !picked.assets?.length) return;
-      const uri = picked.assets[0].uri;
+      const asset = picked.assets[0];
+      const uri = asset.uri;
       if (!uri) return;
-      const { branch } = await updateActiveWashBranch(shop, { profileImageUrl: uri }, branchCtx);
+      const uploadedUrl = await uploadImageToBucket({
+        localUri: uri,
+        mimeType: asset.mimeType,
+        bucket: 'shop-assets',
+        folderPath: `${shop.id}/profile`,
+      });
+      const siblingBranches = (branchState?.branches ?? [])
+        .filter((branch) => branch.id !== activeBranch.id)
+        .filter((branch) => isUuid(branch.id));
+      await Promise.all(
+        siblingBranches.map((branch) =>
+          updateBranchRemote(branch.id, { profileImageUrl: uploadedUrl }, shop.id),
+        ),
+      );
+      const { branch } = await updateActiveWashBranch(shop, { profileImageUrl: uploadedUrl }, branchCtx);
+      setBranchState((prev) =>
+        prev
+          ? {
+              ...prev,
+              branches: prev.branches.map((branchRow) => ({ ...branchRow, profileImageUrl: uploadedUrl })),
+              updatedAt: new Date().toISOString(),
+            }
+          : prev,
+      );
       syncBranchForms(branch);
     } finally {
       setPickingImage(false);
@@ -805,18 +1032,14 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
   async function onDeleteService(serviceId: string) {
     if (!activeBranch) return;
-    Alert.alert(t('wash_service_delete_title'), t('wash_service_delete_body'), [
-      { text: t('alert_cancel'), style: 'cancel' },
-      {
-        text: t('wash_service_delete_confirm'),
-        style: 'destructive',
-        onPress: async () => {
-          const services = activeBranch.services.filter((s) => s.id !== serviceId);
-          const branch = await saveWashBranchServices(shop, services, branchCtx);
-          syncBranchForms(branch);
-        },
-      },
-    ]);
+    const confirmed = await userConfirm(t('wash_service_delete_title'), t('wash_service_delete_body'), {
+      confirmLabel: t('wash_service_delete_confirm'),
+      cancelLabel: t('alert_cancel'),
+    });
+    if (!confirmed) return;
+    const services = activeBranch.services.filter((s) => s.id !== serviceId);
+    const branch = await saveWashBranchServices(shop, services, branchCtx);
+    syncBranchForms(branch);
   }
 
   async function onToggleServiceVisibility(serviceId: string) {
@@ -900,14 +1123,21 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
 
   function openCouponEditor(coupon?: WashCoupon) {
     if (coupon) {
+      const startMs = new Date(coupon.startDate).getTime();
+      const endMs = new Date(coupon.endDate).getTime();
+      const derivedDays =
+        Number.isNaN(startMs) || Number.isNaN(endMs)
+          ? 30
+          : Math.max(1, Math.ceil((endMs - startMs) / (24 * 60 * 60 * 1000)));
       setCouponDraft({
         id: coupon.id,
         code: coupon.code,
         discountType: coupon.discountType,
         discountValue: String(coupon.discountValue),
-        startDate: coupon.startDate,
-        endDate: coupon.endDate,
+        liveDays: String(derivedDays),
         usageLimit: coupon.usageLimit != null ? String(coupon.usageLimit) : '',
+        perCustomerUsageLimit:
+          coupon.perCustomerUsageLimit != null ? String(coupon.perCustomerUsageLimit) : '',
         minOrderEgp: coupon.minOrderEgp != null ? String(coupon.minOrderEgp) : '',
         active: coupon.active,
       });
@@ -917,81 +1147,99 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     setCouponModalVisible(true);
   }
 
+  function syncActiveBranchCoupons(coupons: WashCoupon[]) {
+    setActiveBranch((prev) => (prev ? { ...prev, coupons } : prev));
+    setBranchState((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        branches: prev.branches.map((row) =>
+          row.id === prev.activeBranchId ? { ...row, coupons } : row,
+        ),
+      };
+    });
+  }
+
+  async function reloadCouponsFromRemote() {
+    const coupons = await listActiveCouponsForShop(shop.id);
+    syncActiveBranchCoupons(coupons);
+    return coupons;
+  }
+
   async function onSaveCoupon() {
     if (!activeBranch) return;
-    const value = Number(couponDraft.discountValue);
-    const usageLimit = couponDraft.usageLimit.trim() ? Number(couponDraft.usageLimit) : undefined;
-    const minOrder = couponDraft.minOrderEgp.trim() ? Number(couponDraft.minOrderEgp) : undefined;
+    const discountValue = Number(normalizeNumberText(couponDraft.discountValue));
+    const globalLimit = couponDraft.usageLimit.trim()
+      ? Number.parseInt(normalizeNumberText(couponDraft.usageLimit), 10)
+      : undefined;
+    const perCustomerUsageLimit = couponDraft.perCustomerUsageLimit.trim()
+      ? Number.parseInt(normalizeNumberText(couponDraft.perCustomerUsageLimit), 10)
+      : undefined;
+    const minOrderValue = couponDraft.minOrderEgp.trim()
+      ? Number.parseInt(normalizeNumberText(couponDraft.minOrderEgp), 10)
+      : undefined;
+    const liveDays = Number.parseInt(normalizeNumberText(couponDraft.liveDays), 10);
+
     if (
       !couponDraft.code.trim() ||
-      Number.isNaN(value) ||
-      value <= 0 ||
-      (usageLimit != null && (Number.isNaN(usageLimit) || usageLimit < 1)) ||
-      (minOrder != null && (Number.isNaN(minOrder) || minOrder < 0))
+      Number.isNaN(discountValue) ||
+      discountValue <= 0 ||
+      (couponDraft.discountType === 'percent' && discountValue > 100) ||
+      globalLimit == null ||
+      Number.isNaN(globalLimit) ||
+      globalLimit <= 0 ||
+      Number.isNaN(liveDays) ||
+      liveDays <= 0 ||
+      (perCustomerUsageLimit != null &&
+        (Number.isNaN(perCustomerUsageLimit) || perCustomerUsageLimit < 1)) ||
+      (minOrderValue != null && (Number.isNaN(minOrderValue) || minOrderValue < 0))
     ) {
       Alert.alert(t('wash_coupon_invalid_title'), t('wash_coupon_invalid_body'));
       return;
     }
-    const coupons = activeBranch.coupons.slice();
-    if (couponDraft.id) {
-      const idx = coupons.findIndex((c) => c.id === couponDraft.id);
-      if (idx >= 0) {
-        coupons[idx] = {
-          ...coupons[idx],
-          code: couponDraft.code.trim().toUpperCase(),
-          discountType: couponDraft.discountType,
-          discountValue: value,
-          startDate: couponDraft.startDate,
-          endDate: couponDraft.endDate,
-          usageLimit,
-          minOrderEgp: minOrder,
-          active: couponDraft.active,
-        };
-      }
-    } else {
-      coupons.unshift({
-        id: newId('cpn'),
-        code: couponDraft.code.trim().toUpperCase(),
-        discountType: couponDraft.discountType,
-        discountValue: value,
-        startDate: couponDraft.startDate,
-        endDate: couponDraft.endDate,
-        usageLimit,
-        minOrderEgp: minOrder,
-        active: couponDraft.active,
-        usageCount: 0,
-        createdAt: new Date().toISOString(),
-      });
+
+    const saved = await saveCouponForShopRemote({
+      shopId: shop.id,
+      couponId: couponDraft.id,
+      code: couponDraft.code,
+      discountType: couponDraft.discountType,
+      discountValue,
+      globalLimit,
+      perUserLimit: perCustomerUsageLimit,
+      minValue: minOrderValue,
+      liveDays,
+      isActive: couponDraft.active,
+    });
+    if (!saved) {
+      Alert.alert(t('wash_coupon_save_fail_title'), t('wash_coupon_save_fail_body'));
+      return;
     }
-    const branch = await saveWashBranchCoupons(shop, coupons, branchCtx);
-    syncBranchForms(branch);
+    await reloadCouponsFromRemote();
     setCouponModalVisible(false);
+    setCouponDraft(emptyCouponDraft());
     showNotice(t('wash_coupon_saved_title'), t('wash_coupon_saved_body'));
   }
 
   async function onToggleCoupon(couponId: string) {
     if (!activeBranch) return;
-    const coupons = activeBranch.coupons.map((c) =>
-      c.id === couponId ? { ...c, active: !c.active } : c,
-    );
-    const branch = await saveWashBranchCoupons(shop, coupons, branchCtx);
-    syncBranchForms(branch);
+    const target = activeBranch.coupons.find((c) => c.id === couponId);
+    if (!target) return;
+    const ok = await setCouponActiveRemote(couponId, shop.id, !target.active);
+    if (!ok) return;
+    await reloadCouponsFromRemote();
   }
 
   async function onDeleteCoupon(couponId: string) {
     if (!activeBranch) return;
-    Alert.alert(t('wash_coupon_delete_title'), t('wash_coupon_delete_body'), [
-      { text: t('alert_cancel'), style: 'cancel' },
-      {
-        text: t('wash_coupon_delete_confirm'),
-        style: 'destructive',
-        onPress: async () => {
-          const coupons = activeBranch.coupons.filter((c) => c.id !== couponId);
-          const branch = await saveWashBranchCoupons(shop, coupons, branchCtx);
-          syncBranchForms(branch);
-        },
-      },
-    ]);
+    const confirmed = await userConfirm(t('wash_coupon_delete_title'), t('wash_coupon_delete_body'), {
+      confirmLabel: t('wash_coupon_delete_confirm'),
+      cancelLabel: t('alert_cancel'),
+    });
+    if (!confirmed) return;
+
+    const ok = await deleteCouponRemote(couponId, shop.id);
+    if (!ok) return;
+    syncActiveBranchCoupons(activeBranch.coupons.filter((c) => c.id !== couponId));
   }
 
   async function onBookingStatusChange(booking: Booking, status: BookingStatus, note?: string) {
@@ -1059,10 +1307,28 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     setReviews(rows);
   }
 
-  async function onReportReview(reviewId: string) {
-    await setReviewReported(shop.id, reviewId, true);
-    const rows = await listShopReviews(shop.id);
-    setReviews(rows);
+  async function onReportReview(review: ShopReview) {
+    await setReviewReported(shop.id, review.id, true);
+    await setReviewHidden(shop.id, review.id, true);
+    if (review.customerId) {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('notifications').insert({
+          user_id: review.customerId,
+          shop_id: shop.id,
+          review_id: review.id,
+          type: 'review_dismissed',
+          title: locale === 'ar' ? 'تم حذف التقييم' : 'Review removed',
+          body:
+            locale === 'ar'
+              ? 'تم حذف تقييمك بواسطة إدارة المغسلة لمخالفته السياسات.'
+              : 'Your review was removed by the wash merchant moderation team.',
+          is_read: false,
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+    setReviews((prev) => prev.filter((row) => row.id !== review.id));
     showNotice(t('wash_review_reported_title'), t('wash_review_reported_body'));
   }
 
@@ -1170,691 +1436,882 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
     );
   }
 
-  const sortedServices = (activeBranch?.services ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  const canUseWalkInPos =
+    isBranchManager || (isOwner && managerResolved && !hasAnyBranchManager && !hasDedicatedBranchManager);
+  const showCoupons = false;
+
+  const TABS = [
+    { id: 'dashboard' as const, labelKey: 'wash_tab_dashboard' as const, icon: 'dashboard' as const },
+    { id: 'profile' as const, labelKey: 'wash_tab_profile' as const, icon: 'id-card-o' as const },
+    { id: 'operations' as const, labelKey: 'wash_tab_operations' as const, icon: 'wrench' as const },
+    { id: 'management' as const, labelKey: 'wash_tab_management' as const, icon: 'users' as const },
+  ];
 
   return (
-    <>
-      <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.page}>
-        <OwnerProfileHeader
-          theme={theme}
-          shopName={shopName}
-          typeLabel={shopTypeLabel(shop.type, locale)}
-          welcomeLine={t('wash_welcome_back').replace('{name}', shopName)}
-          coverImage={coverImage}
-          profileImage={profileImage}
-          pickingImage={pickingImage}
-          coverEditLabel={t('wash_manage_set_cover_image')}
-          profileEditLabel={t('wash_manage_set_profile_image')}
-          logoutLabel={t('wash_logout')}
-          notificationsLabel={t('wash_notifications_button')}
-          notificationCount={unreadNotifCount}
-          accountRoleLabel={accountRoleLabel}
-          accountEmail={accountEmail}
-          onEditCover={onSetCoverImage}
-          onEditProfile={onSetProfileImage}
-          onLogout={onLogout}
-          onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=queue')}
-          onOpenSettings={() => router.push('/shop/merchant-settings')}
-          settingsLabel={t('merchant_settings_open')}
-        />
-
-        <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
-          {(
-            [
-              { id: 'workspace' as const, label: t('owner_panel_tab_workspace') },
-              { id: 'history' as const, label: t('owner_panel_tab_history') },
-            ] as const
-          ).map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() => setPanelTab(item.id)}
-              style={[
-                styles.panelTabBtn,
-                {
-                  backgroundColor: panelTab === item.id ? theme.accent : theme.bgElevated,
-                  borderColor: panelTab === item.id ? theme.accent : theme.border,
-                },
-              ]}>
-              <Text style={[styles.panelTabText, { color: panelTab === item.id ? theme.onAccent : theme.text }]}>
-                {item.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {panelTab === 'history' ? (
-          <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="wash" pushReportNotification />
-        ) : (
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+        {adminTab === 'dashboard' && (
           <>
-        {isBranchManager && activeBranch ? (
-          <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <View style={styles.branchSelect}>
-              <Text style={[styles.branchLabel, { color: theme.textMuted }]}>{t('wash_branch_label')}</Text>
-              <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
-                {branchDisplayName(activeBranch, locale)}
-              </Text>
-              <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 6 }, isRTL && styles.textRtl]}>
-                {t('wash_branch_manager_scope_hint')}
-              </Text>
+            <OwnerProfileHeader
+              theme={theme}
+              shopName={shopName}
+              typeLabel={shopTypeLabel(shop.type, locale)}
+              welcomeLine={t('wash_welcome_back').replace('{name}', shopName)}
+              coverImage={coverImage}
+              profileImage={profileImage}
+              pickingImage={pickingImage}
+              coverEditLabel={t('wash_manage_set_cover_image')}
+              notificationsLabel={t('wash_notifications_button')}
+              notificationCount={unreadNotifCount}
+              accountRoleLabel={accountRoleLabel}
+              accountEmail={accountEmail}
+              onEditCover={onSetCoverImage}
+              onEditProfile={onSetProfileImage}
+              onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=orders')}
+            />
+
+            <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
+              {(
+                [
+                  { id: 'workspace' as const, label: t('owner_panel_tab_workspace') },
+                  { id: 'history' as const, label: t('owner_panel_tab_history') },
+                ] as const
+              ).map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setPanelTab(item.id)}
+                  style={[
+                    styles.panelTabBtn,
+                    {
+                      backgroundColor: panelTab === item.id ? theme.accent : theme.bgElevated,
+                      borderColor: panelTab === item.id ? theme.accent : theme.border,
+                    },
+                  ]}>
+                  <Text style={[styles.panelTabText, { color: panelTab === item.id ? theme.onAccent : theme.text }]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
-          </View>
-        ) : isOwner ? (
-          <View style={styles.branchTabsWrap}>
-            {!isPremium ? (
-              <Text style={[styles.emptyHint, { color: theme.textDim, marginBottom: 8 }, isRTL && styles.textRtl]}>
-                {t('premium_branch_free_hint')}
-              </Text>
-            ) : null}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
-              {(branchState?.branches ?? []).map((branch) => {
-                const active = branch.id === branchState?.activeBranchId;
-                return (
+
+            {panelTab === 'history' ? (
+              <OwnerHistoryPanel
+                shop={shop}
+                staff={shopStaff}
+                variant="wash"
+                mode="history"
+                selectedBranchId={activeBranch?.id ?? branchState?.activeBranchId ?? 'all'}
+              />
+            ) : (
+              <>
+                {isBranchManager && activeBranch ? (
+                  <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                    <View style={styles.branchSelect}>
+                      <Text style={[styles.branchLabel, { color: theme.textMuted }]}>{t('wash_branch_label')}</Text>
+                      <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
+                        {branchDisplayName(activeBranch, locale)}
+                      </Text>
+                      <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 6 }, isRTL && styles.textRtl]}>
+                        {t('wash_branch_manager_scope_hint')}
+                      </Text>
+                    </View>
+                  </View>
+                ) : isOwner ? (
+                  <View style={styles.branchTabsWrap}>
+                    {!isPremium ? (
+                      <Text style={[styles.emptyHint, { color: theme.textDim, marginBottom: 8 }, isRTL && styles.textRtl]}>
+                        {t('premium_branch_free_hint')}
+                      </Text>
+                    ) : null}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
+                      {(branchState?.branches ?? []).map((branch) => {
+                        const active = branch.id === branchState?.activeBranchId;
+                        return (
+                          <Pressable
+                            key={branch.id}
+                            onPress={() => onSelectBranchOrUpgrade(branch.id)}
+                            style={[
+                              styles.branchTab,
+                              {
+                                backgroundColor: active ? theme.accent : theme.bgElevated,
+                                borderColor: active ? theme.accent : theme.border,
+                              },
+                            ]}>
+                            <Text
+                              style={[styles.branchTabText, { color: active ? theme.onAccent : theme.text }]}
+                              numberOfLines={1}>
+                              {branchDisplayName(branch, locale)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                      <Pressable
+                        onPress={onAddBranchPress}
+                        style={[styles.branchTab, { backgroundColor: theme.card, borderColor: theme.accent, borderStyle: 'dashed' }]}>
+                        <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
+                      </Pressable>
+                    </ScrollView>
+                    {branchSwitching ? (
+                      <View style={styles.inlineLoadingRow}>
+                        <ActivityIndicator size="small" color={theme.accent} />
+                        <Text style={[styles.inlineLoadingText, { color: theme.textMuted }]}>
+                          {t('wash_branch_select_title')}...
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {loading && !analytics ? (
+                  <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} />
+                ) : null}
+
+                {/* Dashboard overview */}
+                {analytics ? (
+                  <OwnerSectionCard theme={theme} title={t('wash_dashboard_title')} subtitle={t('wash_dashboard_lead')}>
+                    <View style={styles.statGrid}>
+                      {renderStatCard(t('wash_stat_today_bookings'), String(analytics.todayBookings))}
+                      {renderStatCard(t('wash_stat_pending'), String(analytics.pendingRequests), true)}
+                      {isOwner && isPremium ? (
+                        <>
+                          {renderStatCard(t('wash_stat_monthly_revenue'), formatEgp(analytics.monthlyRevenue, locale))}
+                          {renderStatCard(t('wash_stat_avg_rating'), analytics.averageRating.toFixed(1))}
+                          {renderStatCard(t('wash_stat_total_customers'), String(analytics.totalCustomers))}
+                          {renderStatCard(t('wash_stat_returning'), String(analytics.returningCustomers))}
+                        </>
+                      ) : null}
+                    </View>
+                  </OwnerSectionCard>
+                ) : null}
+
+                {/* Shop status */}
+                <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('wash_status_lead')}>
+                  <View style={styles.actions}>
+                    {(['open', 'closed', 'busy', 'vacation'] as WashShopStatus[]).map((status) => (
+                      <Pressable
+                        key={status}
+                        onPress={() => onSaveShopStatus(status)}
+                        style={[
+                          styles.chipBtn,
+                          {
+                            backgroundColor: shopStatus === status ? theme.accent : theme.bgElevated,
+                            borderColor: shopStatus === status ? theme.accent : theme.border,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.chipBtnText,
+                            { color: shopStatus === status ? theme.onAccent : theme.text },
+                          ]}>
+                          {t(washStatusLabelKey(status))}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {shopStatus === 'vacation' ? (
+                    <>
+                      <BookingDatePicker
+                        valueYmd={vacationReturnDate || toYmdLocal(new Date())}
+                        onChangeYmd={setVacationReturnDate}
+                        locale={locale}
+                        label={t('wash_vacation_return_date')}
+                        pickHint={t('book_date_pick_hint')}
+                        minimumDate={new Date()}
+                        borderColor={theme.border}
+                        backgroundColor={theme.bgElevated}
+                        textColor={theme.text}
+                      />
+                      <TextInput
+                        placeholder={t('wash_vacation_message_placeholder')}
+                        placeholderTextColor={theme.textDim}
+                        value={vacationMessage}
+                        onChangeText={setVacationMessage}
+                        multiline
+                        style={[fieldStyle, styles.noteInput]}
+                      />
+                      <TextInput
+                        placeholder={t('wash_vacation_message_ar_placeholder')}
+                        placeholderTextColor={theme.textDim}
+                        value={vacationMessageAr}
+                        onChangeText={setVacationMessageAr}
+                        multiline
+                        style={[fieldStyle, styles.noteInput]}
+                      />
+                      <Pressable onPress={onSaveVacationDetails} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+                        <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_vacation_save')}</Text>
+                      </Pressable>
+                    </>
+                  ) : null}
+                </OwnerSectionCard>
+
+                {/* Analytics widgets */}
+                {analytics ? (
+                  <OwnerSectionCard
+                    theme={theme}
+                    title={t('wash_analytics_title')}
+                    subtitle={t(isBranchManager ? 'wash_analytics_lead_manager' : 'wash_analytics_lead')}>
+                    {isOwner && isPremium ? (
+                      <Text style={[styles.metaStrong, { color: theme.text }]}>
+                        {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
+                      </Text>
+                    ) : null}
+                    <Text style={[styles.meta, { color: theme.textMuted, marginTop: isOwner && isPremium ? 8 : 0 }]}>
+                      {t('wash_analytics_peak_hour')}: {analytics.peakHourLabel}
+                    </Text>
+                    <Text style={[styles.meta, { color: theme.textMuted }]}>
+                      {t('wash_analytics_top_service')}: {analytics.mostBookedService}
+                    </Text>
+                    <Text style={[styles.inlineSectionTitle, { color: theme.text, marginTop: 12 }]}>
+                      {t('wash_analytics_trend_title')}
+                    </Text>
+                    {analytics.bookingTrend.map((point) => (
+                      <View key={point.label} style={styles.trendRow}>
+                        <Text style={[styles.trendLabel, { color: theme.textMuted }]}>{point.label}</Text>
+                        <View style={[styles.trendBarTrack, { backgroundColor: theme.bgElevated }]}>
+                          <View
+                            style={[
+                              styles.trendBarFill,
+                              {
+                                backgroundColor: theme.accent,
+                                width: `${Math.round((point.count / maxTrend) * 100)}%`,
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={[styles.trendCount, { color: theme.text }]}>{point.count}</Text>
+                      </View>
+                    ))}
+                  </OwnerSectionCard>
+                ) : null}
+
+                {/* Orders & history shortcuts */}
+                <OwnerSectionCard theme={theme} title={t('wash_hub_shortcuts_title')} subtitle={t('wash_hub_shortcuts_lead')}>
+                  {canUseWalkInPos ? (
+                    <Pressable
+                      onPress={() => setWalkInModalVisible(true)}
+                      style={[styles.walkInBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+                      <Text style={[styles.walkInBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
+                    </Pressable>
+                  ) : null}
+                  <View style={styles.shortcutRow}>
+                    <Pressable
+                      onPress={() => router.push('/shop/wash-reports')}
+                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                      <View style={styles.shortcutCardRow}>
+                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reports')}</Text>
+                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => router.push('/shop/wash-owner-hub?tab=reviews')}
+                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                      <View style={styles.shortcutCardRow}>
+                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reviews')}</Text>
+                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => router.push('/shop/wash-owner-hub?tab=queue')}
+                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                      <View style={styles.shortcutCardRow}>
+                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_stat_pending')}</Text>
+                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => router.push('/shop/wash-history')}
+                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                      <View style={styles.shortcutCardRow}>
+                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_tab_history')}</Text>
+                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
+                      </View>
+                    </Pressable>
+                  </View>
+                </OwnerSectionCard>
+              </>
+            )}
+          </>
+        )}
+
+        {adminTab === 'profile' && (
+          <>
+            {/* Profile */}
+            <OwnerSectionCard theme={theme} title={t('wash_profile_title')} subtitle={t('wash_profile_lead')}>
+              <TextInput placeholder={t('wash_profile_name_placeholder')} placeholderTextColor={theme.textDim} value={profileName} onChangeText={setProfileName} style={fieldStyle} />
+              <TextInput placeholder={t('wash_profile_name_ar_placeholder')} placeholderTextColor={theme.textDim} value={profileNameAr} onChangeText={setProfileNameAr} style={fieldStyle} />
+              <TextInput placeholder={t('wash_profile_phone_placeholder')} placeholderTextColor={theme.textDim} keyboardType="phone-pad" value={profilePhone} onChangeText={setProfilePhone} style={fieldStyle} />
+              <TextInput placeholder={t('wash_profile_email_placeholder')} placeholderTextColor={theme.textDim} keyboardType="email-address" autoCapitalize="none" value={profileEmail} onChangeText={setProfileEmail} style={fieldStyle} />
+              <TextInput placeholder={t('wash_profile_address_placeholder')} placeholderTextColor={theme.textDim} value={profileAddress} onChangeText={setProfileAddress} style={fieldStyle} />
+              <TextInput placeholder={t('wash_profile_address_ar_placeholder')} placeholderTextColor={theme.textDim} value={profileAddressAr} onChangeText={setProfileAddressAr} style={fieldStyle} />
+              <TextInput placeholder={t('wash_profile_more_info_placeholder')} placeholderTextColor={theme.textDim} value={moreInfo} onChangeText={setMoreInfo} multiline style={[fieldStyle, styles.noteInput]} />
+              <TextInput placeholder={t('wash_profile_more_info_ar_placeholder')} placeholderTextColor={theme.textDim} value={moreInfoAr} onChangeText={setMoreInfoAr} multiline style={[fieldStyle, styles.noteInput]} />
+              <Pressable
+                onPress={onCaptureBranchGps}
+                disabled={capturingGps}
+                style={[styles.secondaryBtn, { borderColor: theme.accent, opacity: capturingGps ? 0.65 : 1 }]}>
+                <Text style={[styles.secondaryBtnText, { color: theme.accent }]}>
+                  {capturingGps ? t('wash_branch_gps_capturing') : t('wash_branch_gps_button')}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={openBranchMapPicker}
+                disabled={capturingGps}
+                style={[styles.secondaryBtn, { borderColor: theme.border, opacity: capturingGps ? 0.65 : 1 }]}>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_branch_gps_pick_on_map')}</Text>
+              </Pressable>
+              {displayLatitude != null && displayLongitude != null ? (
+                <View style={[styles.gpsCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                  <Text style={[styles.gpsCardLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                    {t('wash_branch_gps_coords_label')}
+                  </Text>
+                  <Text style={[styles.gpsCardValue, { color: theme.text }, isRTL && styles.textRtl]}>
+                    {t('wash_branch_gps_coords')
+                      .replace('{lat}', displayLatitude.toFixed(5))
+                      .replace('{lng}', displayLongitude.toFixed(5))}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={[styles.emptyHint, { color: theme.textDim }, isRTL && styles.textRtl]}>{t('wash_branch_gps_empty')}</Text>
+              )}
+              <Pressable onPress={onSaveProfile} style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
+                <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_profile_save')}</Text>
+              </Pressable>
+            </OwnerSectionCard>
+
+            {/* Gallery */}
+            <OwnerSectionCard theme={theme} title={t('wash_gallery_title')} subtitle={t('wash_gallery_lead')}>
+              <Pressable onPress={onPickGalleryImage} disabled={pickingImage} style={[styles.secondaryBtn, { borderColor: theme.border, opacity: pickingImage ? 0.65 : 1 }]}>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
+                  {pickingImage ? t('wash_manage_picking_image') : t('wash_manage_add_image')}
+                </Text>
+              </Pressable>
+              {(activeBranch?.imageUrls?.length ?? 0) > 1 ? (
+                <View style={styles.albumGrid}>
+                  {(activeBranch?.imageUrls ?? []).slice(1).map((url) => (
+                    <View key={url} style={[styles.albumTile, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                      <Image source={{ uri: url }} style={styles.albumImage} contentFit="cover" />
+                      <Pressable onPress={() => onRemoveGalleryImage(url)} style={[styles.removePhotoBtn, { backgroundColor: theme.danger }]}>
+                        <Text style={styles.actionText}>{t('wash_manage_remove_image')}</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_gallery_empty')}</Text>
+              )}
+            </OwnerSectionCard>
+          </>
+        )}
+
+        {adminTab === 'operations' && (
+          <>
+            {/* Services CRUD */}
+            <PremiumFeatureGate>
+              <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
+                <Pressable onPress={() => openServiceEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_service_add')}</Text>
+                </Pressable>
+                {sortedServices.length === 0 ? (
+                  <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
+                ) : (
+                  sortedServices.map((service, index) => (
+                    <View key={service.id} style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.metaStrong, { color: theme.text }]}>
+                          {serviceLabel(service, locale)}
+                          {service.visible === false ? ` (${t('wash_service_hidden')})` : ''}
+                        </Text>
+                        <Text style={[styles.meta, { color: theme.textMuted }]}>
+                          {formatEgp(service.priceEgp, locale)} · {service.durationMinutes} {t('wash_service_minutes')}
+                        </Text>
+                      </View>
+                      <View style={styles.actions}>
+                        <Pressable onPress={() => onMoveService(service.id, -1)} disabled={index === 0} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === 0 ? 0.4 : 1 }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↑</Text>
+                        </Pressable>
+                        <Pressable onPress={() => onMoveService(service.id, 1)} disabled={index === sortedServices.length - 1} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === sortedServices.length - 1 ? 0.4 : 1 }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↓</Text>
+                        </Pressable>
+                        <Pressable onPress={() => openServiceEditor(service)} style={[styles.chipBtn, { borderColor: theme.border }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_service_edit')}</Text>
+                        </Pressable>
+                        <Pressable onPress={() => onToggleServiceVisibility(service.id)} style={[styles.chipBtn, { borderColor: theme.border }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>
+                            {service.visible === false ? t('wash_service_show') : t('wash_service_hide')}
+                          </Text>
+                        </Pressable>
+                        <Pressable onPress={() => onDeleteService(service.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+                          <Text style={styles.actionText}>{t('wash_service_delete')}</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </OwnerSectionCard>
+            </PremiumFeatureGate>
+
+            {/* Weekly hours */}
+            <OwnerSectionCard theme={theme} title={t('wash_hours_title')} subtitle={t('wash_hours_lead')}>
+              <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_hours_pick_day')}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+                {EDITOR_DAY_ORDER.map((day) => (
                   <Pressable
-                    key={branch.id}
-                    onPress={() => onSelectBranchOrUpgrade(branch.id)}
+                    key={day}
+                    onPress={() => setSelectedHoursDay(day)}
                     style={[
-                      styles.branchTab,
+                      styles.filterChip,
                       {
-                        backgroundColor: active ? theme.accent : theme.bgElevated,
-                        borderColor: active ? theme.accent : theme.border,
+                        backgroundColor: selectedHoursDay === day ? theme.accent : theme.bgElevated,
+                        borderColor: selectedHoursDay === day ? theme.accent : theme.border,
+                      },
+                    ]}>
+                    <Text style={{ color: selectedHoursDay === day ? theme.onAccent : theme.text, fontWeight: '800', fontSize: 12 }}>
+                      {WASH_DAY_LABELS[day][locale === 'ar' ? 'ar' : 'en']}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              <View style={[styles.dayRow, { borderColor: theme.border }]}>
+                <Text style={[styles.dayName, { color: theme.text }]}>
+                  {WASH_DAY_LABELS[selectedDayRow.day][locale === 'ar' ? 'ar' : 'en']}
+                </Text>
+                <View style={[styles.dayToggleRow, styles.actions]}>
+                  <Pressable
+                    onPress={() => updateDayHours(selectedDayRow.day, { closed: false })}
+                    style={[
+                      styles.chipBtn,
+                      styles.dayToggleBtn,
+                      {
+                        backgroundColor: !selectedDayRow.closed ? theme.accent : theme.bgElevated,
+                        borderColor: !selectedDayRow.closed ? theme.accent : theme.border,
                       },
                     ]}>
                     <Text
-                      style={[styles.branchTabText, { color: active ? theme.onAccent : theme.text }]}
-                      numberOfLines={1}>
-                      {branchDisplayName(branch, locale)}
+                      style={[
+                        styles.chipBtnText,
+                        { color: !selectedDayRow.closed ? theme.onAccent : theme.text },
+                      ]}>
+                      {t('wash_hours_open')}
                     </Text>
                   </Pressable>
-                );
-              })}
-              <Pressable
-                onPress={onAddBranchPress}
-                style={[styles.branchTab, { backgroundColor: theme.card, borderColor: theme.accent, borderStyle: 'dashed' }]}>
-                <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
-              </Pressable>
-            </ScrollView>
-          </View>
-        ) : null}
-
-        {loading && !analytics ? (
-          <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} />
-        ) : null}
-
-        {/* Dashboard overview */}
-        {analytics ? (
-          <OwnerSectionCard theme={theme} title={t('wash_dashboard_title')} subtitle={t('wash_dashboard_lead')}>
-            <View style={styles.statGrid}>
-              {renderStatCard(t('wash_stat_today_bookings'), String(analytics.todayBookings))}
-              {renderStatCard(t('wash_stat_pending'), String(analytics.pendingRequests), true)}
-              {isOwner && isPremium ? (
-                <>
-                  {renderStatCard(t('wash_stat_monthly_revenue'), formatEgp(analytics.monthlyRevenue, locale))}
-                  {renderStatCard(t('wash_stat_avg_rating'), analytics.averageRating.toFixed(1))}
-                  {renderStatCard(t('wash_stat_total_customers'), String(analytics.totalCustomers))}
-                  {renderStatCard(t('wash_stat_returning'), String(analytics.returningCustomers))}
-                </>
-              ) : null}
-            </View>
-          </OwnerSectionCard>
-        ) : null}
-
-        {/* Shop status */}
-        <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('wash_status_lead')}>
-          <View style={styles.actions}>
-            {(['open', 'closed', 'busy', 'vacation'] as WashShopStatus[]).map((status) => (
-              <Pressable
-                key={status}
-                onPress={() => onSaveShopStatus(status)}
-                style={[
-                  styles.chipBtn,
-                  {
-                    backgroundColor: shopStatus === status ? theme.accent : theme.bgElevated,
-                    borderColor: shopStatus === status ? theme.accent : theme.border,
-                  },
-                ]}>
-                <Text
-                  style={[
-                    styles.chipBtnText,
-                    { color: shopStatus === status ? theme.onAccent : theme.text },
-                  ]}>
-                  {t(washStatusLabelKey(status))}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {shopStatus === 'vacation' ? (
-            <>
-              <BookingDatePicker
-                valueYmd={vacationReturnDate || toYmdLocal(new Date())}
-                onChangeYmd={setVacationReturnDate}
-                locale={locale}
-                label={t('wash_vacation_return_date')}
-                pickHint={t('book_date_pick_hint')}
-                minimumDate={new Date()}
-                borderColor={theme.border}
-                backgroundColor={theme.bgElevated}
-                textColor={theme.text}
-              />
-              <TextInput
-                placeholder={t('wash_vacation_message_placeholder')}
-                placeholderTextColor={theme.textDim}
-                value={vacationMessage}
-                onChangeText={setVacationMessage}
-                multiline
-                style={[fieldStyle, styles.noteInput]}
-              />
-              <TextInput
-                placeholder={t('wash_vacation_message_ar_placeholder')}
-                placeholderTextColor={theme.textDim}
-                value={vacationMessageAr}
-                onChangeText={setVacationMessageAr}
-                multiline
-                style={[fieldStyle, styles.noteInput]}
-              />
-              <Pressable onPress={onSaveVacationDetails} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-                <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_vacation_save')}</Text>
-              </Pressable>
-            </>
-          ) : null}
-        </OwnerSectionCard>
-
-        {/* Analytics widgets — operational metrics for all staff; revenue owner-only */}
-        {analytics ? (
-          <OwnerSectionCard
-            theme={theme}
-            title={t('wash_analytics_title')}
-            subtitle={t(isBranchManager ? 'wash_analytics_lead_manager' : 'wash_analytics_lead')}>
-            {isOwner && isPremium ? (
-              <Text style={[styles.metaStrong, { color: theme.text }]}>
-                {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
-              </Text>
-            ) : null}
-            <Text style={[styles.meta, { color: theme.textMuted, marginTop: isOwner && isPremium ? 8 : 0 }]}>
-              {t('wash_analytics_peak_hour')}: {analytics.peakHourLabel}
-            </Text>
-            <Text style={[styles.meta, { color: theme.textMuted }]}>
-              {t('wash_analytics_top_service')}: {analytics.mostBookedService}
-            </Text>
-            <Text style={[styles.inlineSectionTitle, { color: theme.text, marginTop: 12 }]}>
-              {t('wash_analytics_trend_title')}
-            </Text>
-            {analytics.bookingTrend.map((point) => (
-              <View key={point.label} style={styles.trendRow}>
-                <Text style={[styles.trendLabel, { color: theme.textMuted }]}>{point.label}</Text>
-                <View style={[styles.trendBarTrack, { backgroundColor: theme.bgElevated }]}>
-                  <View
-                    style={[
-                      styles.trendBarFill,
-                      {
-                        backgroundColor: theme.accent,
-                        width: `${Math.round((point.count / maxTrend) * 100)}%`,
-                      },
-                    ]}
-                  />
-                </View>
-                <Text style={[styles.trendCount, { color: theme.text }]}>{point.count}</Text>
-              </View>
-            ))}
-          </OwnerSectionCard>
-        ) : null}
-
-        {/* Orders & history shortcuts */}
-        <OwnerSectionCard theme={theme} title={t('wash_hub_shortcuts_title')} subtitle={t('wash_hub_shortcuts_lead')}>
-          <Pressable
-            onPress={() => setWalkInModalVisible(true)}
-            style={[styles.walkInBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-            <Text style={[styles.walkInBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
-          </Pressable>
-          <View style={styles.shortcutRow}>
-            <Pressable
-              onPress={() => router.push('/shop/wash-owner-hub?tab=queue')}
-              style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_queue')}</Text>
-              <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>
-                {unreadNotifCount > 0 ? `${unreadNotifCount} ${t('wash_hub_unread')}` : t('wash_notif_empty')}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push('/shop/wash-owner-hub?tab=reports')}
-              style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reports')}</Text>
-              <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>{t('wash_hub_reports_empty')}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push('/shop/wash-owner-hub?tab=reviews')}
-              style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reviews')}</Text>
-              <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>{t('wash_hub_reviews_empty')}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push('/shop/wash-owner-hub?tab=orders')}
-              style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_tab_orders')}</Text>
-              <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>
-                {pendingOrderCount > 0 ? `${pendingOrderCount} ${t('wash_hub_active')}` : t('wash_active_requests_empty')}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push('/shop/wash-owner-hub?tab=history')}
-              style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-              <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_tab_history')}</Text>
-              <Text style={[styles.shortcutMeta, { color: theme.textMuted }]}>
-                {historyCount > 0 ? `${historyCount} ${t('wash_hub_records')}` : t('wash_booking_history_empty')}
-              </Text>
-            </Pressable>
-          </View>
-        </OwnerSectionCard>
-
-        {/* Profile */}
-        <OwnerSectionCard theme={theme} title={t('wash_profile_title')} subtitle={t('wash_profile_lead')}>
-          <TextInput placeholder={t('wash_profile_name_placeholder')} placeholderTextColor={theme.textDim} value={profileName} onChangeText={setProfileName} style={fieldStyle} />
-          <TextInput placeholder={t('wash_profile_name_ar_placeholder')} placeholderTextColor={theme.textDim} value={profileNameAr} onChangeText={setProfileNameAr} style={fieldStyle} />
-          <TextInput placeholder={t('wash_profile_phone_placeholder')} placeholderTextColor={theme.textDim} keyboardType="phone-pad" value={profilePhone} onChangeText={setProfilePhone} style={fieldStyle} />
-          <TextInput placeholder={t('wash_profile_email_placeholder')} placeholderTextColor={theme.textDim} keyboardType="email-address" autoCapitalize="none" value={profileEmail} onChangeText={setProfileEmail} style={fieldStyle} />
-          <TextInput placeholder={t('wash_profile_address_placeholder')} placeholderTextColor={theme.textDim} value={profileAddress} onChangeText={setProfileAddress} style={fieldStyle} />
-          <TextInput placeholder={t('wash_profile_address_ar_placeholder')} placeholderTextColor={theme.textDim} value={profileAddressAr} onChangeText={setProfileAddressAr} style={fieldStyle} />
-          <TextInput placeholder={t('wash_profile_more_info_placeholder')} placeholderTextColor={theme.textDim} value={moreInfo} onChangeText={setMoreInfo} multiline style={[fieldStyle, styles.noteInput]} />
-          <TextInput placeholder={t('wash_profile_more_info_ar_placeholder')} placeholderTextColor={theme.textDim} value={moreInfoAr} onChangeText={setMoreInfoAr} multiline style={[fieldStyle, styles.noteInput]} />
-          <Pressable
-            onPress={onCaptureBranchGps}
-            disabled={capturingGps}
-            style={[styles.secondaryBtn, { borderColor: theme.accent, opacity: capturingGps ? 0.65 : 1 }]}>
-            <Text style={[styles.secondaryBtnText, { color: theme.accent }]}>
-              {capturingGps ? t('wash_branch_gps_capturing') : t('wash_branch_gps_button')}
-            </Text>
-          </Pressable>
-          {displayLatitude != null && displayLongitude != null ? (
-            <View style={[styles.gpsCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-              <Text style={[styles.gpsCardLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-                {t('wash_branch_gps_coords_label')}
-              </Text>
-              <Text style={[styles.gpsCardValue, { color: theme.text }, isRTL && styles.textRtl]}>
-                {t('wash_branch_gps_coords')
-                  .replace('{lat}', displayLatitude.toFixed(5))
-                  .replace('{lng}', displayLongitude.toFixed(5))}
-              </Text>
-            </View>
-          ) : (
-            <Text style={[styles.emptyHint, { color: theme.textDim }, isRTL && styles.textRtl]}>{t('wash_branch_gps_empty')}</Text>
-          )}
-          <Pressable onPress={onSaveProfile} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_profile_save')}</Text>
-          </Pressable>
-        </OwnerSectionCard>
-
-        {/* Gallery */}
-        <OwnerSectionCard theme={theme} title={t('wash_gallery_title')} subtitle={t('wash_gallery_lead')}>
-          <Pressable onPress={onPickGalleryImage} disabled={pickingImage} style={[styles.secondaryBtn, { borderColor: theme.border, opacity: pickingImage ? 0.65 : 1 }]}>
-            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
-              {pickingImage ? t('wash_manage_picking_image') : t('wash_manage_add_image')}
-            </Text>
-          </Pressable>
-          {(activeBranch?.imageUrls?.length ?? 0) > 1 ? (
-            <View style={styles.albumGrid}>
-              {(activeBranch?.imageUrls ?? []).slice(1).map((url) => (
-                <View key={url} style={[styles.albumTile, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                  <Image source={{ uri: url }} style={styles.albumImage} contentFit="cover" />
-                  <Pressable onPress={() => onRemoveGalleryImage(url)} style={[styles.removePhotoBtn, { backgroundColor: theme.danger }]}>
-                    <Text style={styles.actionText}>{t('wash_manage_remove_image')}</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_gallery_empty')}</Text>
-          )}
-        </OwnerSectionCard>
-
-        {/* Services CRUD */}
-        <PremiumFeatureGate>
-        <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
-          <Pressable onPress={() => openServiceEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_service_add')}</Text>
-          </Pressable>
-          {sortedServices.length === 0 ? (
-            <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
-          ) : (
-            sortedServices.map((service, index) => (
-              <View key={service.id} style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.metaStrong, { color: theme.text }]}>
-                    {serviceLabel(service, locale)}
-                    {service.visible === false ? ` (${t('wash_service_hidden')})` : ''}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {categoryLabel(service.category, locale)} · {formatEgp(service.priceEgp, locale)} · {service.durationMinutes} {t('wash_service_minutes')}
-                  </Text>
-                </View>
-                <View style={styles.actions}>
-                  <Pressable onPress={() => onMoveService(service.id, -1)} disabled={index === 0} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === 0 ? 0.4 : 1 }]}>
-                    <Text style={[styles.chipBtnText, { color: theme.text }]}>↑</Text>
-                  </Pressable>
-                  <Pressable onPress={() => onMoveService(service.id, 1)} disabled={index === sortedServices.length - 1} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === sortedServices.length - 1 ? 0.4 : 1 }]}>
-                    <Text style={[styles.chipBtnText, { color: theme.text }]}>↓</Text>
-                  </Pressable>
-                  <Pressable onPress={() => openServiceEditor(service)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                    <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_service_edit')}</Text>
-                  </Pressable>
-                  <Pressable onPress={() => onToggleServiceVisibility(service.id)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                    <Text style={[styles.chipBtnText, { color: theme.text }]}>
-                      {service.visible === false ? t('wash_service_show') : t('wash_service_hide')}
-                    </Text>
-                  </Pressable>
-                  <Pressable onPress={() => onDeleteService(service.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                    <Text style={styles.actionText}>{t('wash_service_delete')}</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))
-          )}
-        </OwnerSectionCard>
-        </PremiumFeatureGate>
-
-        {/* Weekly hours — pick one day */}
-        <OwnerSectionCard theme={theme} title={t('wash_hours_title')} subtitle={t('wash_hours_lead')}>
-          <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_hours_pick_day')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            {EDITOR_DAY_ORDER.map((day) => (
-              <Pressable
-                key={day}
-                onPress={() => setSelectedHoursDay(day)}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: selectedHoursDay === day ? theme.accent : theme.bgElevated,
-                    borderColor: selectedHoursDay === day ? theme.accent : theme.border,
-                  },
-                ]}>
-                <Text style={{ color: selectedHoursDay === day ? theme.onAccent : theme.text, fontWeight: '800', fontSize: 12 }}>
-                  {WASH_DAY_LABELS[day][locale === 'ar' ? 'ar' : 'en']}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <View style={[styles.dayRow, { borderColor: theme.border }]}>
-            <Text style={[styles.dayName, { color: theme.text }]}>
-              {WASH_DAY_LABELS[selectedDayRow.day][locale === 'ar' ? 'ar' : 'en']}
-            </Text>
-            <View style={[styles.dayToggleRow, styles.actions]}>
-              <Pressable
-                onPress={() => updateDayHours(selectedDayRow.day, { closed: false })}
-                style={[
-                  styles.chipBtn,
-                  styles.dayToggleBtn,
-                  {
-                    backgroundColor: !selectedDayRow.closed ? theme.accent : theme.bgElevated,
-                    borderColor: !selectedDayRow.closed ? theme.accent : theme.border,
-                  },
-                ]}>
-                <Text
-                  style={[
-                    styles.chipBtnText,
-                    { color: !selectedDayRow.closed ? theme.onAccent : theme.text },
-                  ]}>
-                  {t('wash_hours_open')}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => updateDayHours(selectedDayRow.day, { closed: true })}
-                style={[
-                  styles.chipBtn,
-                  styles.dayToggleBtn,
-                  {
-                    backgroundColor: selectedDayRow.closed ? theme.danger : theme.bgElevated,
-                    borderColor: selectedDayRow.closed ? theme.danger : theme.border,
-                  },
-                ]}>
-                <Text style={[styles.chipBtnText, { color: selectedDayRow.closed ? '#fff' : theme.text }]}>
-                  {t('wash_hours_closed')}
-                </Text>
-              </Pressable>
-            </View>
-            {!selectedDayRow.closed ? (
-              <>
-                <TextInput placeholder={t('wash_hours_open_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.openTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { openTime: v })} style={fieldStyle} />
-                <TextInput placeholder={t('wash_hours_close_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.closeTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { closeTime: v })} style={fieldStyle} />
-                <TextInput placeholder={t('wash_hours_break_start')} placeholderTextColor={theme.textDim} value={selectedDayRow.breakStartTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { breakStartTime: v })} style={fieldStyle} />
-                <TextInput placeholder={t('wash_hours_break_end')} placeholderTextColor={theme.textDim} value={selectedDayRow.breakEndTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { breakEndTime: v })} style={fieldStyle} />
-              </>
-            ) : null}
-          </View>
-          <Pressable onPress={onSaveWeeklyHours} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_hours_save')}</Text>
-          </Pressable>
-        </OwnerSectionCard>
-
-        {/* Coupons */}
-        <PremiumFeatureGate>
-        <OwnerSectionCard theme={theme} title={t('wash_coupons_title')} subtitle={t('wash_coupons_lead')}>
-          <Pressable onPress={() => openCouponEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_coupon_add')}</Text>
-          </Pressable>
-          {(activeBranch?.coupons ?? []).length === 0 ? (
-            <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_coupons_empty')}</Text>
-          ) : (
-            activeBranch!.coupons.map((coupon) => (
-              <View key={coupon.id} style={[styles.couponRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <Text style={[styles.metaStrong, { color: theme.text }]}>{coupon.code}</Text>
-                <Text style={[styles.meta, { color: theme.textMuted }]}>
-                  {coupon.discountType === 'percent'
-                    ? `${coupon.discountValue}%`
-                    : formatEgp(coupon.discountValue, locale)}{' '}
-                  · {coupon.startDate} → {coupon.endDate}
-                </Text>
-                <Text style={[styles.meta, { color: theme.textMuted }]}>
-                  {t('wash_coupon_usage')}: {coupon.usageCount}
-                  {coupon.usageLimit != null ? ` / ${coupon.usageLimit}` : ''}
-                  {coupon.minOrderEgp != null ? ` · min ${formatEgp(coupon.minOrderEgp, locale)}` : ''}
-                </Text>
-                <View style={styles.actions}>
-                  <Pressable onPress={() => openCouponEditor(coupon)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                    <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_coupon_edit')}</Text>
-                  </Pressable>
-                  <Pressable onPress={() => onToggleCoupon(coupon.id)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                    <Text style={[styles.chipBtnText, { color: coupon.active ? theme.danger : theme.accent }]}>
-                      {coupon.active ? t('wash_coupon_disable') : t('wash_coupon_enable')}
-                    </Text>
-                  </Pressable>
-                  <Pressable onPress={() => onDeleteCoupon(coupon.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                    <Text style={styles.actionText}>{t('wash_coupon_delete')}</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))
-          )}
-        </OwnerSectionCard>
-        </PremiumFeatureGate>
-
-        {isOwner && activeBranch && isUuid(activeBranch.id) ? (
-          <PremiumFeatureGate>
-          <OwnerSectionCard theme={theme} title={t('wash_manager_title')} subtitle={t('wash_manager_lead')}>
-            {branchManager ? (
-              <View style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.metaStrong, { color: theme.text }]}>
-                    {branchManager.full_name || branchManager.email}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>{branchManager.email}</Text>
-                </View>
-                <Text style={[styles.meta, { color: theme.accent, fontWeight: '800' }]}>
-                  {t('wash_role_branch_manager')}
-                </Text>
-              </View>
-            ) : (
-              <>
-                <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 4 }]}>
-                  {t('wash_manager_empty')}
-                </Text>
-                <TextInput
-                  placeholder={t('wash_manager_name_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  value={managerFullName}
-                  onChangeText={setManagerFullName}
-                  style={fieldStyle}
-                />
-                <TextInput
-                  placeholder={t('wash_manager_email_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={managerEmail}
-                  onChangeText={setManagerEmail}
-                  style={fieldStyle}
-                />
-                <TextInput
-                  placeholder={t('wash_manager_password_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  secureTextEntry
-                  value={managerPassword}
-                  onChangeText={setManagerPassword}
-                  style={fieldStyle}
-                />
-                <Text style={[styles.meta, { color: theme.textMuted, marginTop: 4 }]}>
-                  {t('wash_manager_hint')}
-                </Text>
-                <Pressable
-                  onPress={onLinkBranchManager}
-                  disabled={managerBusy}
-                  style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: managerBusy ? 0.65 : 1 }]}>
-                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_manager_link')}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={onCreateBranchManager}
-                  disabled={managerBusy}
-                  style={[styles.secondaryBtn, { borderColor: theme.border, marginTop: 10, opacity: managerBusy ? 0.65 : 1 }]}>
-                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_manager_create')}</Text>
-                </Pressable>
-              </>
-            )}
-          </OwnerSectionCard>
-          </PremiumFeatureGate>
-        ) : null}
-
-        {activeBranch && isUuid(activeBranch.id) ? (
-          <OwnerSectionCard
-            theme={theme}
-            title={t('wash_employees_title')}
-            subtitle={t(isBranchManager ? 'wash_employees_lead_manager' : 'wash_employees_lead')}>
-            <TextInput
-              placeholder={t('wash_employee_name_placeholder')}
-              placeholderTextColor={theme.textDim}
-              value={newEmployeeName}
-              onChangeText={setNewEmployeeName}
-              style={fieldStyle}
-            />
-            <TextInput
-              placeholder={t('wash_employee_phone_placeholder')}
-              placeholderTextColor={theme.textDim}
-              keyboardType="phone-pad"
-              value={newEmployeePhone}
-              onChangeText={setNewEmployeePhone}
-              style={fieldStyle}
-            />
-            <TextInput
-              placeholder={t('wash_employee_job_placeholder')}
-              placeholderTextColor={theme.textDim}
-              value={newEmployeeJobTitle}
-              onChangeText={setNewEmployeeJobTitle}
-              style={fieldStyle}
-            />
-            <Pressable
-              onPress={onAddEmployee}
-              disabled={employeeBusy}
-              style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: employeeBusy ? 0.65 : 1 }]}>
-              <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_employee_add')}</Text>
-            </Pressable>
-            {employees.length === 0 ? (
-              <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_employees_empty')}</Text>
-            ) : (
-              employees.map((employee) => (
-                <View
-                  key={employee.id}
-                  style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.metaStrong, { color: theme.text }]}>{employee.full_name}</Text>
-                    {employee.job_title ? (
-                      <Text style={[styles.meta, { color: theme.textMuted }]}>{employee.job_title}</Text>
-                    ) : null}
-                    {employee.phone ? (
-                      <Text style={[styles.meta, { color: theme.textMuted }]}>{employee.phone}</Text>
-                    ) : null}
-                  </View>
                   <Pressable
-                    onPress={() => onRemoveEmployee(employee.id)}
-                    disabled={employeeBusy}
-                    style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                    <Text style={styles.actionText}>{t('wash_employee_remove')}</Text>
+                    onPress={() => updateDayHours(selectedDayRow.day, { closed: true })}
+                    style={[
+                      styles.chipBtn,
+                      styles.dayToggleBtn,
+                      {
+                        backgroundColor: selectedDayRow.closed ? theme.danger : theme.bgElevated,
+                        borderColor: selectedDayRow.closed ? theme.danger : theme.border,
+                      },
+                    ]}>
+                    <Text style={[styles.chipBtnText, { color: selectedDayRow.closed ? '#fff' : theme.text }]}>
+                      {t('wash_hours_closed')}
+                    </Text>
                   </Pressable>
                 </View>
-              ))
-            )}
-          </OwnerSectionCard>
-        ) : null}
+                {!selectedDayRow.closed ? (
+                  <>
+                    <TextInput placeholder={t('wash_hours_open_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.openTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { openTime: v })} style={fieldStyle} />
+                    <TextInput placeholder={t('wash_hours_close_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.closeTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { closeTime: v })} style={fieldStyle} />
+                  </>
+                ) : null}
+              </View>
+              <Pressable onPress={onSaveWeeklyHours} style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
+                <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_hours_save')}</Text>
+              </Pressable>
+            </OwnerSectionCard>
 
-        {/* Reviews */}
-        <OwnerSectionCard
-          theme={theme}
-          title={t('wash_reviews_title')}
-          subtitle={t(isBranchManager ? 'wash_reviews_lead_manager' : 'wash_reviews_lead')}>
-          {reviews.filter((r) => !r.hidden).length === 0 ? (
-            <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_reviews_empty')}</Text>
-          ) : (
-            reviews
-              .filter((r) => !r.hidden)
-              .map((review) => (
-                <View key={review.id} style={[styles.reviewRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                  <Text style={[styles.metaStrong, { color: theme.text }]}>
-                    {'★'.repeat(review.rating)}{' '}
-                    {review.customerName}
-                  </Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>{review.body}</Text>
-                  {review.ownerReply ? (
-                    <Text style={[styles.meta, { color: theme.accent }]}>
-                      {t('wash_review_owner_reply')}: {review.ownerReply}
+            {/* Coupons hidden by request */}
+            {showCoupons ? (
+              <PremiumFeatureGate>
+                <OwnerSectionCard theme={theme} title={t('wash_coupons_title')} subtitle={t('wash_coupons_lead')}>
+                  <Pressable onPress={() => openCouponEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+                    <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_coupon_add')}</Text>
+                  </Pressable>
+                  {(activeBranch?.coupons ?? []).length === 0 ? (
+                    <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_coupons_empty')}</Text>
+                  ) : (
+                    activeBranch!.coupons.map((coupon) => (
+                      <View key={coupon.id} style={[styles.couponRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                        <Text style={[styles.metaStrong, { color: theme.text }]}>{coupon.code}</Text>
+                        <Text style={[styles.meta, { color: theme.textMuted }]}>
+                          {coupon.discountType === 'percent'
+                            ? `${coupon.discountValue}%`
+                            : formatEgp(coupon.discountValue, locale)}{' '}
+                          · {coupon.startDate} → {coupon.endDate}
+                        </Text>
+                        <Text style={[styles.meta, { color: theme.textMuted }]}>
+                          {t('wash_coupon_usage')}: {coupon.usageCount}
+                          {coupon.usageLimit != null ? ` / ${coupon.usageLimit}` : ''}
+                          {coupon.perCustomerUsageLimit != null
+                            ? ` · /${coupon.perCustomerUsageLimit} ${locale === 'ar' ? 'لكل عميل' : 'per customer'}`
+                            : ''}
+                          {coupon.minOrderEgp != null ? ` · min ${formatEgp(coupon.minOrderEgp, locale)}` : ''}
+                        </Text>
+                        <View style={styles.actions}>
+                          <Pressable onPress={() => openCouponEditor(coupon)} style={[styles.chipBtn, { borderColor: theme.border }]}>
+                            <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_coupon_edit')}</Text>
+                          </Pressable>
+                          <Pressable onPress={() => onToggleCoupon(coupon.id)} style={[styles.chipBtn, { borderColor: theme.border }]}>
+                            <Text style={[styles.chipBtnText, { color: coupon.active ? theme.danger : theme.accent }]}>
+                              {coupon.active ? t('wash_coupon_disable') : t('wash_coupon_enable')}
+                            </Text>
+                          </Pressable>
+                          <Pressable onPress={() => onDeleteCoupon(coupon.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+                            <Text style={styles.actionText}>{t('wash_coupon_delete')}</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </OwnerSectionCard>
+              </PremiumFeatureGate>
+            ) : null}
+          </>
+        )}
+
+        {adminTab === 'management' && (
+          <>
+            {/* Branch manager */}
+            {isOwner && activeBranch && isUuid(activeBranch.id) ? (
+              <PremiumFeatureGate>
+                <OwnerSectionCard theme={theme} title={t('wash_manager_title')} subtitle={t('wash_manager_lead')}>
+                  {branchManager ? (
+                    <>
+                      <View style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.metaStrong, { color: theme.text }]}>
+                            {branchManager.full_name || branchManager.email}
+                          </Text>
+                          <Text style={[styles.meta, { color: theme.textMuted }]}>{branchManager.email}</Text>
+                        </View>
+                        <Text style={[styles.meta, { color: theme.accent, fontWeight: '800' }]}>
+                          {branchManager.role === 'owner'
+                            ? t('wash_role_owner')
+                            : t('wash_role_branch_manager')}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => void onRemoveBranchManager()}
+                        disabled={managerBusy}
+                        style={[
+                          styles.secondaryBtn,
+                          {
+                            borderColor: theme.danger,
+                            marginTop: 10,
+                            opacity: managerBusy ? 0.65 : 1,
+                          },
+                        ]}>
+                        <Text style={[styles.secondaryBtnText, { color: theme.danger }]}>
+                          {t('wash_manager_remove_action')}
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 4 }]}>
+                        {t('wash_manager_empty')}
+                      </Text>
+                      <TextInput
+                        placeholder={t('wash_manager_name_placeholder')}
+                        placeholderTextColor={theme.textDim}
+                        value={managerFullName}
+                        onChangeText={setManagerFullName}
+                        style={fieldStyle}
+                      />
+                      <TextInput
+                        placeholder={t('wash_manager_email_placeholder')}
+                        placeholderTextColor={theme.textDim}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        value={managerEmail}
+                        onChangeText={setManagerEmail}
+                        style={fieldStyle}
+                      />
+                      <TextInput
+                        placeholder={t('wash_manager_password_placeholder')}
+                        placeholderTextColor={theme.textDim}
+                        secureTextEntry
+                        value={managerPassword}
+                        onChangeText={setManagerPassword}
+                        style={fieldStyle}
+                      />
+                      <Text style={[styles.meta, { color: theme.textMuted, marginTop: 4 }]}>
+                        {t('wash_manager_hint')}
+                      </Text>
+                      <Pressable
+                        onPress={onLinkBranchManager}
+                        disabled={managerBusy}
+                        style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: managerBusy ? 0.65 : 1 }]}>
+                        <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_manager_link')}</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={onCreateBranchManager}
+                        disabled={managerBusy}
+                        style={[styles.secondaryBtn, { borderColor: theme.border, marginTop: 10, opacity: managerBusy ? 0.65 : 1 }]}>
+                        <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_manager_create')}</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </OwnerSectionCard>
+              </PremiumFeatureGate>
+            ) : null}
+
+            {/* Branch employees */}
+            {activeBranch && isUuid(activeBranch.id) ? (
+              <OwnerSectionCard
+                theme={theme}
+                title={t('wash_employees_title')}
+                subtitle={t(isBranchManager ? 'wash_employees_lead_manager' : 'wash_employees_lead')}>
+                {branchMetaLoading ? (
+                  <View style={styles.inlineLoadingRow}>
+                    <ActivityIndicator size="small" color={theme.accent} />
+                    <Text style={[styles.inlineLoadingText, { color: theme.textMuted }]}>
+                      {t('wash_employees_title')}...
                     </Text>
-                  ) : null}
-                  <TextInput
-                    placeholder={t('wash_review_reply_placeholder')}
-                    placeholderTextColor={theme.textDim}
-                    value={replyDrafts[review.id] ?? ''}
-                    onChangeText={(v) => setReplyDrafts((prev) => ({ ...prev, [review.id]: v }))}
-                    style={fieldStyle}
-                  />
-                  <View style={styles.actions}>
-                    <Pressable onPress={() => onSaveReviewReply(review.id)} style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                      <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_review_reply_save')}</Text>
-                    </Pressable>
-                    <Pressable onPress={() => onToggleReviewHidden(review.id, true)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                      <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_review_hide')}</Text>
-                    </Pressable>
-                    <Pressable onPress={() => onReportReview(review.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                      <Text style={styles.actionText}>{t('wash_review_report')}</Text>
-                    </Pressable>
                   </View>
-                </View>
-              ))
-          )}
-        </OwnerSectionCard>
+                ) : null}
+                <TextInput
+                  placeholder={t('wash_employee_name_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  value={newEmployeeName}
+                  onChangeText={setNewEmployeeName}
+                  style={fieldStyle}
+                />
+                <TextInput
+                  placeholder={t('wash_employee_phone_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  keyboardType="phone-pad"
+                  value={newEmployeePhone}
+                  onChangeText={setNewEmployeePhone}
+                  style={fieldStyle}
+                />
+                <TextInput
+                  placeholder={t('wash_employee_job_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  value={newEmployeeJobTitle}
+                  onChangeText={setNewEmployeeJobTitle}
+                  style={fieldStyle}
+                />
+                <Pressable
+                  onPress={onAddEmployee}
+                  disabled={employeeBusy}
+                  style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: employeeBusy ? 0.65 : 1 }]}>
+                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_employee_add')}</Text>
+                </Pressable>
+                {employees.length === 0 ? (
+                  <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_employees_empty')}</Text>
+                ) : (
+                  employees.map((employee) => (
+                    <View
+                      key={employee.id}
+                      style={[styles.serviceRow, styles.employeeCardRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                      <View style={styles.employeeMetaCol}>
+                        <Text style={[styles.metaStrong, { color: theme.text }]}>{employee.full_name}</Text>
+                        {employee.job_title ? (
+                          <Text style={[styles.meta, { color: theme.textMuted }]}>{employee.job_title}</Text>
+                        ) : null}
+                        {employee.phone ? (
+                          <Text style={[styles.meta, { color: theme.textMuted }]}>{employee.phone}</Text>
+                        ) : null}
+                      </View>
+                      <Pressable
+                        onPress={() => void onRemoveEmployee(employee.id)}
+                        disabled={employeeBusy}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('wash_employee_remove')}
+                        style={[
+                          styles.employeeRemoveBtn,
+                          {
+                            backgroundColor: 'rgba(239, 68, 68, 0.10)',
+                            borderColor: 'rgba(239, 68, 68, 0.26)',
+                            opacity: employeeBusy ? 0.7 : 1,
+                          },
+                        ]}>
+                        <FontAwesome name="trash-o" size={14} color={theme.danger} />
+                      </Pressable>
+                    </View>
+                  ))
+                )}
+              </OwnerSectionCard>
+            ) : null}
+
+            {/* Reviews */}
+            <OwnerSectionCard
+              theme={theme}
+              title={t('wash_reviews_title')}
+              subtitle={t(isBranchManager ? 'wash_reviews_lead_manager' : 'wash_reviews_lead')}>
+              {visibleReviews.length === 0 ? (
+                <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_reviews_empty')}</Text>
+              ) : (
+                visibleReviews.map((review) => (
+                    <View key={review.id} style={[styles.reviewRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                      <Text style={[styles.metaStrong, { color: theme.text }]}>
+                        {'★'.repeat(review.rating)}{' '}
+                        {review.customerName}
+                      </Text>
+                      <Text style={[styles.meta, { color: theme.textMuted }]}>{review.body}</Text>
+                      {review.ownerReply ? (
+                        <Text style={[styles.meta, { color: theme.accent }]}>
+                          {t('wash_review_owner_reply')}: {review.ownerReply}
+                        </Text>
+                      ) : null}
+                      <TextInput
+                        placeholder={t('wash_review_reply_placeholder')}
+                        placeholderTextColor={theme.textDim}
+                        value={replyDrafts[review.id] ?? ''}
+                        onChangeText={(v) => setReplyDrafts((prev) => ({ ...prev, [review.id]: v }))}
+                        style={fieldStyle}
+                      />
+                      <View style={styles.actions}>
+                        <Pressable onPress={() => onSaveReviewReply(review.id)} style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+                          <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_review_reply_save')}</Text>
+                        </Pressable>
+                        <Pressable onPress={() => onToggleReviewHidden(review.id, true)} style={[styles.chipBtn, { borderColor: theme.border }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_review_hide')}</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => void onReportReview(review)}
+                          style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+                          <Text style={styles.actionText}>{t('wash_review_report')}</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))
+              )}
+            </OwnerSectionCard>
           </>
         )}
       </ScrollView>
 
+      {/* Persistent Bottom Tab Bar */}
+      <View style={[styles.bottomTabBar, { backgroundColor: theme.bgElevated, borderTopColor: theme.border }]}>
+        {TABS.map((tabItem) => {
+          const active = adminTab === tabItem.id;
+          return (
+            <Pressable
+              key={tabItem.id}
+              onPress={() => setAdminTab(tabItem.id)}
+              style={styles.bottomTabItem}>
+              <FontAwesome
+                name={tabItem.icon}
+                size={20}
+                color={active ? theme.accent : theme.textDim}
+              />
+              <Text
+                style={[
+                  styles.bottomTabLabel,
+                  { color: active ? theme.accent : theme.textDim },
+                ]}>
+                {t(tabItem.labelKey)}
+              </Text>
+            </Pressable>
+          );
+        })}
+        <Pressable
+          onPress={() => router.push('/shop/merchant-settings')}
+          style={styles.bottomTabItem}>
+          <FontAwesome name="cog" size={20} color={theme.textDim} />
+          <Text style={[styles.bottomTabLabel, { color: theme.textDim }]}>{t('tab_settings')}</Text>
+        </Pressable>
+      </View>
+
       <PremiumUpgradeModal visible={premiumModalVisible} onClose={() => setPremiumModalVisible(false)} />
 
-      {activeBranch ? (
+      {activeBranch && canUseWalkInPos ? (
         <WalkInBookingModal
           visible={walkInModalVisible}
           onClose={() => setWalkInModalVisible(false)}
           shop={shop}
           branchId={activeBranch.id}
           branchLabel={branchDisplayName(activeBranch, locale)}
-          services={activeBranch.services ?? []}
+          services={sortedServices}
           onCreated={() => {
             void refreshAll();
           }}
         />
       ) : null}
+
+      <Modal
+        visible={mapPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMapPickerVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, isRTL && styles.textRtl]}>
+              {t('wash_branch_gps_pick_on_map')}
+            </Text>
+            <Text style={[styles.modalLead, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+              {t('wash_branch_gps_map_hint')}
+            </Text>
+            <View style={styles.mapDraftStatsRow}>
+              <View style={[styles.mapDraftStatCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.mapDraftStatLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                  {t('wash_branch_map_saved_pin')}
+                </Text>
+                <Text style={[styles.mapDraftStatValue, { color: theme.text }, isRTL && styles.textRtl]}>
+                  {displayLatitude != null && displayLongitude != null
+                    ? `${displayLatitude.toFixed(5)}, ${displayLongitude.toFixed(5)}`
+                    : '—'}
+                </Text>
+              </View>
+              <View style={[styles.mapDraftStatCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.mapDraftStatLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                  {t('wash_branch_map_selected_pin')}
+                </Text>
+                <Text style={[styles.mapDraftStatValue, { color: theme.accent }, isRTL && styles.textRtl]}>
+                  {mapDraftLatitude.toFixed(5)}, {mapDraftLongitude.toFixed(5)}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.mapQuickActionsRow}>
+              <Pressable
+                onPress={useSavedBranchMapCoords}
+                style={[styles.mapQuickBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.mapQuickBtnText, { color: theme.text }]}>{t('wash_branch_map_use_saved')}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void onDetectMapGps()}
+                disabled={mapLocating}
+                style={[styles.mapQuickBtn, { borderColor: theme.accent, backgroundColor: theme.accentSoft, opacity: mapLocating ? 0.65 : 1 }]}>
+                <Text style={[styles.mapQuickBtnText, { color: theme.accent }]}>
+                  {mapLocating ? t('wash_branch_gps_capturing') : t('wash_branch_map_use_device')}
+                </Text>
+              </Pressable>
+            </View>
+            <View style={[styles.mapPickerWrap, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <OsmLocationPicker
+              initialLatitude={mapDraftLatitude}
+              initialLongitude={mapDraftLongitude}
+              onChange={(lat, lng) => {
+                setMapDraftLatitude(lat);
+                setMapDraftLongitude(lng);
+              }}
+              height={360}
+            />
+            </View>
+            <Text style={[styles.modalHelp, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+              {t('wash_branch_gps_coords')
+                .replace('{lat}', mapDraftLatitude.toFixed(5))
+                .replace('{lng}', mapDraftLongitude.toFixed(5))}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setMapPickerVisible(false)}
+                style={[styles.modalBtnSecondary, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('add_cancel')}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void onSaveBranchMapLocation()}
+                style={[styles.modalBtnPrimary, { backgroundColor: theme.accent }]}>
+                <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('wash_branch_gps_save_map_location')}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Add branch modal */}
       <Modal visible={addBranchModalVisible} transparent animationType="fade" onRequestClose={() => setAddBranchModalVisible(false)}>
@@ -1903,21 +2360,36 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
               <TextInput placeholder={t('wash_service_desc_placeholder')} placeholderTextColor={theme.textDim} value={serviceDraft.description} onChangeText={(v) => setServiceDraft((d) => ({ ...d, description: v }))} multiline style={[fieldStyle, styles.noteInput]} />
               <TextInput placeholder={t('wash_service_desc_ar_placeholder')} placeholderTextColor={theme.textDim} value={serviceDraft.descriptionAr} onChangeText={(v) => setServiceDraft((d) => ({ ...d, descriptionAr: v }))} multiline style={[fieldStyle, styles.noteInput]} />
               <TextInput placeholder={t('wash_service_price_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={serviceDraft.priceEgp} onChangeText={(v) => setServiceDraft((d) => ({ ...d, priceEgp: v }))} style={fieldStyle} />
-              <TextInput placeholder={t('wash_service_duration_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={serviceDraft.durationMinutes} onChangeText={(v) => setServiceDraft((d) => ({ ...d, durationMinutes: v }))} style={fieldStyle} />
-              <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_service_category_label')}</Text>
+              <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_service_duration_picker_label')}</Text>
               <View style={styles.actions}>
-                {WASH_SERVICE_CATEGORIES.map((cat) => (
+                {[10, 15, 20, 30, 45, 60, 90, 120].map((minutes) => (
                   <Pressable
-                    key={cat.id}
-                    onPress={() => setServiceDraft((d) => ({ ...d, category: cat.id }))}
-                    style={[styles.chipBtn, { backgroundColor: serviceDraft.category === cat.id ? theme.accent : theme.bgElevated, borderColor: serviceDraft.category === cat.id ? theme.accent : theme.border }]}>
-                    <Text style={[styles.chipBtnText, { color: serviceDraft.category === cat.id ? theme.onAccent : theme.text }]}>
-                      {locale === 'ar' ? cat.ar : cat.en}
+                    key={minutes}
+                    onPress={() => setServiceDraft((d) => ({ ...d, durationMinutes: String(minutes) }))}
+                    style={[
+                      styles.chipBtn,
+                      {
+                        backgroundColor:
+                          Number(serviceDraft.durationMinutes) === minutes ? theme.accent : theme.bgElevated,
+                        borderColor:
+                          Number(serviceDraft.durationMinutes) === minutes ? theme.accent : theme.border,
+                        minWidth: '23%',
+                        alignItems: 'center',
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        styles.chipBtnText,
+                        {
+                          color: Number(serviceDraft.durationMinutes) === minutes ? theme.onAccent : theme.text,
+                        },
+                      ]}>
+                      {minutes} {locale === 'ar' ? 'د' : 'min'}
                     </Text>
                   </Pressable>
                 ))}
               </View>
-              <View style={styles.modalActions}>
+              <View style={[styles.modalActions, styles.serviceModalActions]}>
                 <Pressable onPress={() => setServiceModalVisible(false)} style={[styles.modalBtnSecondary, { borderColor: theme.border }]}>
                   <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('alert_cancel')}</Text>
                 </Pressable>
@@ -1931,7 +2403,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
       </Modal>
 
       {/* Coupon editor modal */}
-      <Modal visible={couponModalVisible} transparent animationType="fade" onRequestClose={() => setCouponModalVisible(false)}>
+      <Modal visible={showCoupons && couponModalVisible} transparent animationType="fade" onRequestClose={() => setCouponModalVisible(false)}>
         <View style={styles.modalBackdrop}>
           <ScrollView contentContainerStyle={styles.modalScrollOuter}>
             <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -1952,11 +2424,51 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
                 ))}
               </View>
               <TextInput placeholder={t('wash_coupon_value_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={couponDraft.discountValue} onChangeText={(v) => setCouponDraft((d) => ({ ...d, discountValue: v }))} style={fieldStyle} />
-              <BookingDatePicker valueYmd={couponDraft.startDate} onChangeYmd={(v) => setCouponDraft((d) => ({ ...d, startDate: v }))} locale={locale} label={t('wash_coupon_start_date')} pickHint={t('book_date_pick_hint')} minimumDate={new Date('2020-01-01')} borderColor={theme.border} backgroundColor={theme.bgElevated} textColor={theme.text} />
-              <BookingDatePicker valueYmd={couponDraft.endDate} onChangeYmd={(v) => setCouponDraft((d) => ({ ...d, endDate: v }))} locale={locale} label={t('wash_coupon_end_date')} pickHint={t('book_date_pick_hint')} minimumDate={new Date('2020-01-01')} borderColor={theme.border} backgroundColor={theme.bgElevated} textColor={theme.text} />
-              <TextInput placeholder={t('wash_coupon_usage_limit_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={couponDraft.usageLimit} onChangeText={(v) => setCouponDraft((d) => ({ ...d, usageLimit: v }))} style={fieldStyle} />
-              <TextInput placeholder={t('wash_coupon_min_order_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={couponDraft.minOrderEgp} onChangeText={(v) => setCouponDraft((d) => ({ ...d, minOrderEgp: v }))} style={fieldStyle} />
-              <View style={styles.modalActions}>
+              <Text style={[styles.couponFieldLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {t('wash_coupon_live_days_label')}
+              </Text>
+              <TextInput
+                placeholder={t('wash_coupon_live_days_placeholder')}
+                placeholderTextColor={theme.textDim}
+                keyboardType="numeric"
+                value={couponDraft.liveDays}
+                onChangeText={(v) => setCouponDraft((d) => ({ ...d, liveDays: v }))}
+                style={fieldStyle}
+              />
+              <Text style={[styles.couponFieldLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {t('wash_coupon_global_limit_label')}
+              </Text>
+              <TextInput
+                placeholder={t('wash_coupon_global_limit_placeholder')}
+                placeholderTextColor={theme.textDim}
+                keyboardType="numeric"
+                value={couponDraft.usageLimit}
+                onChangeText={(v) => setCouponDraft((d) => ({ ...d, usageLimit: v }))}
+                style={fieldStyle}
+              />
+              <Text style={[styles.couponFieldLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {t('wash_coupon_per_user_limit_label')}
+              </Text>
+              <TextInput
+                placeholder={t('wash_coupon_per_user_limit_placeholder')}
+                placeholderTextColor={theme.textDim}
+                keyboardType="numeric"
+                value={couponDraft.perCustomerUsageLimit}
+                onChangeText={(v) => setCouponDraft((d) => ({ ...d, perCustomerUsageLimit: v }))}
+                style={fieldStyle}
+              />
+              <Text style={[styles.couponFieldLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {t('wash_coupon_min_value_label')}
+              </Text>
+              <TextInput
+                placeholder={t('wash_coupon_min_value_placeholder')}
+                placeholderTextColor={theme.textDim}
+                keyboardType="numeric"
+                value={couponDraft.minOrderEgp}
+                onChangeText={(v) => setCouponDraft((d) => ({ ...d, minOrderEgp: v }))}
+                style={fieldStyle}
+              />
+              <View style={[styles.modalActions, styles.couponModalActions]}>
                 <Pressable onPress={() => setCouponModalVisible(false)} style={[styles.modalBtnSecondary, { borderColor: theme.border }]}>
                   <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('alert_cancel')}</Text>
                 </Pressable>
@@ -1981,7 +2493,7 @@ export function WashOwnerPanel({ shop, onLogout }: Props) {
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 }
 
@@ -2004,6 +2516,8 @@ const styles = StyleSheet.create({
   addBranchText: { fontSize: 13, fontWeight: '800' },
   branchTabsWrap: { marginBottom: 12 },
   branchTabsRow: { gap: 8, paddingVertical: 4 },
+  inlineLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  inlineLoadingText: { fontSize: 12, fontWeight: '600' },
   branchTab: {
     borderWidth: 1,
     borderRadius: 999,
@@ -2053,8 +2567,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
-  shortcutTitle: { fontSize: 14, fontWeight: '800', marginBottom: 4 },
-  shortcutMeta: { fontSize: 12, lineHeight: 17 },
+  shortcutCardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  shortcutTitle: { flex: 1, fontSize: 14, fontWeight: '800' },
   statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statCard: {
     width: '47%',
@@ -2193,7 +2707,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 560,
     maxHeight: '85%',
     borderWidth: 1,
     borderRadius: 18,
@@ -2201,8 +2715,38 @@ const styles = StyleSheet.create({
   },
   modalScrollOuter: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 8 },
+  modalLead: { fontSize: 13, lineHeight: 19, marginBottom: 10 },
+  modalHelp: { fontSize: 12, lineHeight: 18, marginTop: 10 },
+  mapDraftStatsRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  mapDraftStatCard: { flex: 1, borderWidth: 1, borderRadius: 10, padding: 10 },
+  mapDraftStatLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
+  mapDraftStatValue: { fontSize: 12, fontWeight: '800' },
+  mapQuickActionsRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  mapQuickBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapQuickBtnText: { fontSize: 12, fontWeight: '800' },
+  mapPickerWrap: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 6,
+    overflow: 'hidden',
+  },
   modalScroll: { maxHeight: 320 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  couponModalActions: { gap: 12, width: '100%' },
+  serviceModalActions: {
+    marginTop: 18,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(148,163,184,0.35)',
+  },
+  couponFieldLabel: { fontSize: 12, fontWeight: '700', marginTop: 4, marginBottom: 6 },
   modalBtnSecondary: {
     flex: 1,
     borderWidth: 1,
@@ -2218,6 +2762,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalBtnPrimaryText: { fontSize: 15, fontWeight: '800' },
+  employeeCardRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  employeeMetaCol: {
+    flex: 1,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  employeeRemoveBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   branchOption: {
     borderWidth: 1,
     borderRadius: 12,
@@ -2237,4 +2800,42 @@ const styles = StyleSheet.create({
   reportModalBtn: { paddingVertical: 8, paddingHorizontal: 4, minWidth: 84 },
   reportModalScreen: { flex: 1 },
   reportIframeWrap: { flex: 1, minHeight: 0 },
+  container: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 90,
+  },
+  bottomTabBar: {
+    flexDirection: 'row',
+    height: 65,
+    borderTopWidth: 1,
+    paddingBottom: Platform.OS === 'ios' ? 15 : 0,
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  bottomTabItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    paddingVertical: 8,
+  },
+  bottomTabLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 4,
+  },
 });

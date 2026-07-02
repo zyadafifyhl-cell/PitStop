@@ -18,10 +18,12 @@ export function LoyaltyCard({ points }: Props) {
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.header}>
-        <FontAwesome name="star" size={18} color={theme.accent} />
+        <View style={[styles.iconChip, { backgroundColor: theme.accentSoft }]}>
+          <FontAwesome name="star" size={16} color={theme.accent} />
+        </View>
         <Text style={[styles.title, { color: theme.text }]}>{t('loyalty_points_card_title')}</Text>
       </View>
-      <View style={[styles.pointsRow, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+      <View style={[styles.pointsRow, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
         <Text style={[styles.pointsValue, { color: theme.accent }]}>{points}</Text>
         <Text style={[styles.pointsLabel, { color: theme.textMuted }]}>{t('loyalty_points_card_label')}</Text>
       </View>
@@ -30,8 +32,8 @@ export function LoyaltyCard({ points }: Props) {
       </Text>
       <Pressable
         onPress={() => router.push('/points-marketplace')}
-        style={[styles.marketBtn, { borderColor: theme.accent, backgroundColor: theme.bgElevated }]}>
-        <Text style={[styles.marketBtnText, { color: theme.accent }]}>{t('loyalty_marketplace_link')}</Text>
+        style={[styles.marketBtn, { backgroundColor: theme.accent }]}>
+        <Text style={[styles.marketBtnText, { color: theme.onAccent }]}>{t('loyalty_marketplace_link')}</Text>
       </Pressable>
     </View>
   );
@@ -40,32 +42,38 @@ export function LoyaltyCard({ points }: Props) {
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 24,
+    padding: 18,
     marginBottom: 16,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+    gap: 10,
+    marginBottom: 12,
   },
-  title: { fontSize: 17, fontWeight: '800' },
+  iconChip: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
   pointsRow: {
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 16,
     alignItems: 'center',
     marginBottom: 10,
   },
-  pointsValue: { fontSize: 36, fontWeight: '900' },
-  pointsLabel: { fontSize: 13, fontWeight: '700', marginTop: 2 },
-  lead: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
+  pointsValue: { fontSize: 40, fontWeight: '900' },
+  pointsLabel: { fontSize: 12, fontWeight: '700', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.6 },
+  lead: { fontSize: 13, lineHeight: 18, marginBottom: 14 },
   marketBtn: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 11,
+    borderRadius: 28,
+    paddingVertical: 13,
     alignItems: 'center',
   },
-  marketBtnText: { fontSize: 13, fontWeight: '800' },
+  marketBtnText: { fontSize: 14, fontWeight: '800' },
 });

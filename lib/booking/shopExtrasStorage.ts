@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { ShopDayHours, ShopExtras, ShopOffer, ShopService } from '@/lib/booking/types';
+import { isOfferLive } from '@/lib/booking/offerPricing';
+import { createShopOffer, deactivateShopOffer, listActiveOffersForShop } from '@/lib/booking/offerRepository';
 import { defaultWashServices } from '@/lib/booking/shopSchedule';
 import { persistImageUri } from '@/lib/media/persistImageUri';
 
@@ -52,7 +54,15 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     scheduleSavedAt: row?.scheduleSavedAt,
     weeklyHours: row?.weeklyHours,
     services: (row?.services ?? []).filter((service) => service.active),
-    offers: (row?.offers ?? []).filter((offer) => offer.active && new Date(offer.validUntil).getTime() > Date.now()),
+    offers: (row?.offers ?? [])
+      .map((offer) => ({
+        ...offer,
+        discountPercentage: offer.discountPercentage ?? 0,
+        startDate: offer.startDate || offer.createdAt || offer.validUntil,
+        endDate: offer.endDate || offer.validUntil,
+        validUntil: offer.endDate || offer.validUntil,
+      }))
+      .filter((offer) => isOfferLive(offer)),
     washShopStatus,
     vacationReturnDate:
       washShopStatus === 'vacation' ? row?.vacationReturnDate?.trim() || undefined : undefined,
@@ -73,6 +83,10 @@ function parseWashShopStatus(value: unknown): ShopExtras['washShopStatus'] | und
 export async function getShopExtras(shopId: string): Promise<ShopExtras> {
   const map = await readMap();
   const normalized = normalizeExtras(shopId, map[shopId]);
+  const remoteOffers = await listActiveOffersForShop(shopId);
+  if (remoteOffers.length) {
+    normalized.offers = remoteOffers;
+  }
   if (JSON.stringify(map[shopId]) !== JSON.stringify(normalized)) {
     map[shopId] = normalized;
     await writeMap(map);
@@ -248,21 +262,14 @@ export async function addShopOffer(input: {
   shopId: string;
   title: string;
   titleAr?: string;
+  description?: string;
+  discountPercentage: number;
   validDays: number;
 }): Promise<ShopExtras> {
+  const offer = await createShopOffer(input);
   const map = await readMap();
   const row = normalizeExtras(input.shopId, map[input.shopId]);
-  const validDays = Math.max(1, Math.floor(input.validDays));
-  const validUntil = new Date(Date.now() + validDays * 24 * 60 * 60 * 1000).toISOString();
-  const offer: ShopOffer = {
-    id: id('offer'),
-    title: input.title.trim(),
-    titleAr: input.titleAr?.trim() || undefined,
-    validUntil,
-    active: true,
-    createdAt: nowIso(),
-  };
-  row.offers = [offer, ...row.offers].slice(0, 20);
+  row.offers = [offer, ...row.offers.filter((item) => item.id !== offer.id)].slice(0, 20);
   row.updatedAt = nowIso();
   map[input.shopId] = row;
   await writeMap(map);
@@ -270,11 +277,10 @@ export async function addShopOffer(input: {
 }
 
 export async function cancelShopOffer(shopId: string, offerId: string): Promise<ShopExtras> {
+  await deactivateShopOffer(shopId, offerId);
   const map = await readMap();
   const row = normalizeExtras(shopId, map[shopId]);
-  row.offers = row.offers.map((offer) =>
-    offer.id === offerId ? { ...offer, active: false } : offer,
-  ).filter((offer) => offer.active);
+  row.offers = row.offers.filter((offer) => offer.id !== offerId);
   row.updatedAt = nowIso();
   map[shopId] = row;
   await writeMap(map);

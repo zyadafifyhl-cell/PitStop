@@ -1,22 +1,156 @@
 import { setStaffInviteLock } from '@/lib/auth/staffInviteLock';
+import { resolveRemoteBranchId } from '@/lib/booking/wash/branchRepository';
 import type { DbUser } from '@/lib/supabase/database.types';
 import { getSupabase } from '@/lib/supabase/client';
 import type { Session } from '@supabase/supabase-js';
 
-export async function fetchBranchManagerRemote(branchId: string): Promise<DbUser | null> {
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+export async function fetchBranchManagerRemote(branchId: string, shopId?: string): Promise<DbUser | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const targetBranchId =
+    !isUuid(branchId) && shopId
+      ? (await resolveRemoteBranchId(shopId, branchId)) ?? branchId
+      : branchId;
+  const direct = await supabase
+    .from('users')
+    .select('*')
+    .eq('branch_id', targetBranchId)
+    .eq('role', 'branch_manager')
+    .eq('is_active', true)
+    .maybeSingle();
+  if (!direct.error && direct.data) {
+    return direct.data as DbUser;
+  }
+
+  // Fallback: some projects link manager on shop_branches.manager_user_id
+  const branchRow = await supabase
+    .from('shop_branches')
+    .select('manager_user_id')
+    .eq('id', targetBranchId)
+    .maybeSingle();
+  const managerUserId = branchRow.data?.manager_user_id;
+  if (!managerUserId) return null;
+
+  const linked = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', managerUserId)
+    .eq('role', 'branch_manager')
+    .eq('is_active', true)
+    .maybeSingle();
+  if (linked.error) return null;
+  return (linked.data as DbUser) ?? null;
+}
+
+/**
+ * Returns true when the shop has any active branch_manager profile.
+ * Used to enforce manager-only controls for owner accounts.
+ */
+export async function hasAnyBranchManagerRemote(shopId: string): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('shop_id', shopId)
+    .eq('role', 'branch_manager')
+    .eq('is_active', true)
+    .limit(1);
+
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
+}
+
+/** Remove manager assignment from a branch and deactivate manager access. */
+export async function removeBranchManagerRemote(input: {
+  shopId: string;
+  branchId: string;
+  managerUserId: string;
+}): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  const targetBranchId =
+    !isUuid(input.branchId) ? (await resolveRemoteBranchId(input.shopId, input.branchId)) ?? input.branchId : input.branchId;
+
+  const timestamp = new Date().toISOString();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const ownerUserId = sessionData.session?.user?.id;
+
+  if (ownerUserId) {
+    const { data: deletedRows, error: deleteError } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', input.managerUserId)
+      .eq('role', 'branch_manager')
+      .eq('shop_id', input.shopId)
+      .eq('created_by', ownerUserId)
+      .select('id');
+    if (deleteError) return false;
+    if ((deletedRows?.length ?? 0) === 0) {
+      const { error: demoteError } = await supabase
+        .from('users')
+        .update({
+          role: 'customer',
+          shop_id: null,
+          branch_id: null,
+          is_active: true,
+          updated_at: timestamp,
+        })
+        .eq('id', input.managerUserId)
+        .eq('role', 'branch_manager')
+        .eq('shop_id', input.shopId);
+      if (demoteError) return false;
+    }
+  } else {
+    const { error: demoteError } = await supabase
+      .from('users')
+      .update({
+        role: 'customer',
+        shop_id: null,
+        branch_id: null,
+        is_active: true,
+        updated_at: timestamp,
+      })
+      .eq('id', input.managerUserId)
+      .eq('role', 'branch_manager')
+      .eq('shop_id', input.shopId);
+    if (demoteError) return false;
+  }
+
+  const { error: branchError } = await supabase
+    .from('shop_branches')
+    .update({ manager_user_id: null, updated_at: timestamp })
+    .eq('id', targetBranchId)
+    .eq('shop_id', input.shopId);
+  if (branchError) return false;
+
+  return true;
+}
+
+/** Returns branch manager if assigned, otherwise owner fallback for operational routing. */
+export async function fetchBranchOperationalHandlerRemote(
+  shopId: string,
+  branchId: string,
+): Promise<DbUser | null> {
+  const manager = await fetchBranchManagerRemote(branchId, shopId);
+  if (manager) return manager;
+
   const supabase = getSupabase();
   if (!supabase) return null;
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .eq('branch_id', branchId)
-    .eq('role', 'branch_manager')
+    .eq('shop_id', shopId)
+    .eq('role', 'owner')
     .eq('is_active', true)
     .maybeSingle();
-  if (error) {
-    console.warn('Failed to load branch manager:', error.message);
-    return null;
-  }
+  if (error) return null;
   return (data as DbUser) ?? null;
 }
 

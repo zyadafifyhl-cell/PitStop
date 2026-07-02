@@ -1,8 +1,11 @@
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,26 +19,12 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
-import {
-  getActiveWashBranch,
-  getWashBranchState,
-  saveWashBranchStatus,
-  type WashBranchContext,
-} from '@/lib/booking/wash/washBranchStorage';
-import type { WashShopStatus } from '@/lib/booking/wash/types';
-
-const LIVE_STATUSES: WashShopStatus[] = ['open', 'busy', 'closed'];
-
-function statusLabelKey(status: WashShopStatus): 'wash_status_open' | 'wash_status_busy' | 'wash_status_closed' {
-  if (status === 'busy') return 'wash_status_busy';
-  if (status === 'closed') return 'wash_status_closed';
-  return 'wash_status_open';
-}
+import { getActiveWashBranch, getWashBranchState, type WashBranchContext } from '@/lib/booking/wash/washBranchStorage';
 
 export default function MerchantSettingsScreen() {
   const theme = useAppTheme();
-  const { t, isRTL } = useI18n();
-  const { ready, shop, shopStaff, staff, isOwner, isBranchManager } = useShopAuth();
+  const { t, isRTL, locale, setLocale } = useI18n();
+  const { ready, shop, shopStaff, staff } = useShopAuth();
   const { signOut, busy: signingOut } = useAppSignOut();
 
   const branchCtx = useMemo<WashBranchContext | undefined>(
@@ -44,8 +33,6 @@ export default function MerchantSettingsScreen() {
   );
 
   const [loading, setLoading] = useState(true);
-  const [savingStatus, setSavingStatus] = useState(false);
-  const [branchStatus, setBranchStatus] = useState<WashShopStatus>('open');
   const [branchName, setBranchName] = useState('');
 
   const displayName =
@@ -54,9 +41,9 @@ export default function MerchantSettingsScreen() {
     shop?.name ||
     '—';
   const displayEmail = shopStaff?.email ?? staff?.email ?? shop?.ownerEmail ?? '—';
-  const roleLabel = isOwner
+  const roleLabel = staff?.role === 'owner'
     ? t('wash_role_owner')
-    : isBranchManager
+    : staff?.role === 'branch_manager'
       ? t('wash_role_branch_manager')
       : t('merchant_settings_role_unknown');
 
@@ -69,8 +56,6 @@ export default function MerchantSettingsScreen() {
     try {
       await getWashBranchState(shop, branchCtx);
       const branch = await getActiveWashBranch(shop, branchCtx);
-      const status = branch.shopStatus ?? 'open';
-      setBranchStatus(status === 'vacation' ? 'closed' : status);
       setBranchName(branch.profileName || branch.name);
     } finally {
       setLoading(false);
@@ -83,28 +68,59 @@ export default function MerchantSettingsScreen() {
     }, [loadBranch]),
   );
 
-  async function onSelectLiveStatus(next: WashShopStatus) {
-    if (!shop || savingStatus || next === branchStatus) return;
-    setSavingStatus(true);
+  async function clearLocalPitstopCache() {
     try {
-      const branch = await getActiveWashBranch(shop, branchCtx);
-      await saveWashBranchStatus(shop, next, branch.vacationMode ?? { enabled: false }, branchCtx);
-      setBranchStatus(next);
+      const keys = await AsyncStorage.getAllKeys();
+      const pitstopKeys = keys.filter((key) => key.startsWith('@pitstop/'));
+      if (pitstopKeys.length) {
+        await AsyncStorage.multiRemove(pitstopKeys);
+      }
+      if (typeof window !== 'undefined') {
+        sessionStorage.clear();
+      }
     } catch {
-      Alert.alert(t('merchant_settings_status_fail_title'), t('merchant_settings_status_fail_body'));
-    } finally {
-      setSavingStatus(false);
+      // Best-effort cache wipe; sign-out still proceeds.
     }
   }
 
   function onSignOutPress() {
+    const doSignOut = async () => {
+      await clearLocalPitstopCache();
+      await signOut({ welcomeFocus: 'owner' });
+    };
+    if (Platform.OS === 'web') {
+      void doSignOut();
+      return;
+    }
     Alert.alert(t('merchant_settings_sign_out_confirm_title'), t('merchant_settings_sign_out_confirm_body'), [
       { text: t('alert_cancel'), style: 'cancel' },
       {
         text: t('merchant_settings_sign_out'),
         style: 'destructive',
         onPress: () => {
-          void signOut({ welcomeFocus: 'owner' });
+          void doSignOut();
+        },
+      },
+    ]);
+  }
+
+  function onToggleLanguage() {
+    void setLocale(locale === 'ar' ? 'en' : 'ar');
+  }
+
+  function onOpenSupport() {
+    Alert.alert(t('merchant_settings_support_contact_row'), t('merchant_settings_support_contact_subtitle'), [
+      { text: t('alert_cancel'), style: 'cancel' },
+      {
+        text: t('merchant_settings_support_email_action'),
+        onPress: () => {
+          void Linking.openURL('mailto:Pitstopeg26@gmail.com');
+        },
+      },
+      {
+        text: t('merchant_settings_support_call_action'),
+        onPress: () => {
+          void Linking.openURL('tel:01033332022');
         },
       },
     ]);
@@ -137,99 +153,13 @@ export default function MerchantSettingsScreen() {
         <View style={[styles.roleBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
           <Text style={[styles.roleBadgeText, { color: theme.accent }]}>{roleLabel}</Text>
         </View>
-        {branchName ? (
+        {loading ? (
+          <ActivityIndicator color={theme.accent} style={{ marginTop: 10 }} />
+        ) : branchName ? (
           <Text style={[styles.branchHint, { color: theme.textDim }, isRTL && styles.textRtl]}>
             {t('wash_branch_label')}: {branchName}
           </Text>
         ) : null}
-      </MerchantSettingsCard>
-
-      <MerchantSettingsCard
-        theme={theme}
-        title={t('merchant_settings_live_status_title')}
-        subtitle={t('merchant_settings_live_status_lead')}>
-        {loading ? (
-          <ActivityIndicator color={theme.accent} style={{ marginVertical: 8 }} />
-        ) : (
-          <View style={styles.statusRow}>
-            {LIVE_STATUSES.map((status) => {
-              const active = branchStatus === status;
-              const bg =
-                status === 'closed' && active
-                  ? theme.danger
-                  : status === 'busy' && active
-                    ? theme.warm
-                    : active
-                      ? theme.success
-                      : theme.bgElevated;
-              const border =
-                status === 'closed' && active
-                  ? theme.danger
-                  : status === 'busy' && active
-                    ? theme.warm
-                    : active
-                      ? theme.success
-                      : theme.border;
-              return (
-                <Pressable
-                  key={status}
-                  disabled={savingStatus}
-                  onPress={() => void onSelectLiveStatus(status)}
-                  style={[
-                    styles.statusChip,
-                    {
-                      backgroundColor: bg,
-                      borderColor: border,
-                      opacity: savingStatus ? 0.65 : 1,
-                    },
-                  ]}>
-                  <Text
-                    style={[
-                      styles.statusChipText,
-                      {
-                        color:
-                          active && status !== 'busy'
-                            ? '#fff'
-                            : active && status === 'busy'
-                              ? theme.onAccent
-                              : theme.text,
-                      },
-                    ]}>
-                    {t(statusLabelKey(status))}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-      </MerchantSettingsCard>
-
-      {isOwner ? (
-        <MerchantSettingsCard theme={theme}>
-          <MerchantNavRow
-            theme={theme}
-            label={t('merchant_settings_staff_row')}
-            subtitle={t('merchant_settings_staff_subtitle')}
-            onPress={() => router.push('/shop/merchant-staff')}
-            showDivider={false}
-          />
-        </MerchantSettingsCard>
-      ) : null}
-
-      <MerchantSettingsCard theme={theme} title={t('merchant_settings_business_title')}>
-        <MerchantNavRow
-          theme={theme}
-          label={t('merchant_settings_services_row')}
-          subtitle={t('merchant_settings_services_subtitle')}
-          onPress={() => router.push('/shop/merchant-services')}
-        />
-        <MerchantNavRow
-          theme={theme}
-          label={t('merchant_settings_hours_row')}
-          subtitle={t('merchant_settings_hours_subtitle')}
-          onPress={() => router.push('/shop/merchant-hours')}
-          showDivider={false}
-        />
       </MerchantSettingsCard>
 
       <MerchantSettingsCard theme={theme} title={t('merchant_settings_security_title')}>
@@ -238,6 +168,38 @@ export default function MerchantSettingsScreen() {
           label={t('merchant_settings_change_password')}
           subtitle={t('merchant_settings_change_password_subtitle')}
           onPress={() => router.push('/shop/merchant-password')}
+          showDivider={false}
+        />
+      </MerchantSettingsCard>
+
+      <MerchantSettingsCard theme={theme} title={t('merchant_settings_preferences_title')}>
+        <MerchantNavRow
+          theme={theme}
+          label={t('merchant_settings_language_row')}
+          subtitle={locale === 'ar' ? t('merchant_settings_language_current_ar') : t('merchant_settings_language_current_en')}
+          onPress={onToggleLanguage}
+          showDivider={false}
+        />
+      </MerchantSettingsCard>
+
+      <MerchantSettingsCard theme={theme} title={t('merchant_settings_support_legal_title')}>
+        <MerchantNavRow
+          theme={theme}
+          label={t('merchant_settings_terms_row')}
+          subtitle={t('merchant_settings_terms_subtitle')}
+          onPress={() => router.push('/shop/merchant-terms')}
+        />
+        <MerchantNavRow
+          theme={theme}
+          label={t('merchant_settings_privacy_row')}
+          subtitle={t('merchant_settings_privacy_subtitle')}
+          onPress={() => router.push('/shop/merchant-privacy')}
+        />
+        <MerchantNavRow
+          theme={theme}
+          label={t('merchant_settings_support_contact_row')}
+          subtitle={t('merchant_settings_support_contact_subtitle')}
+          onPress={onOpenSupport}
           showDivider={false}
         />
       </MerchantSettingsCard>
@@ -272,16 +234,6 @@ const styles = StyleSheet.create({
   roleBadgeText: { fontSize: 12, fontWeight: '800' },
   branchHint: { fontSize: 12, marginTop: 10 },
   textRtl: { textAlign: 'right' },
-  statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  statusChip: {
-    flex: 1,
-    minWidth: '30%',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  statusChipText: { fontSize: 13, fontWeight: '800' },
   signOutBtn: {
     borderWidth: 1,
     borderRadius: 14,

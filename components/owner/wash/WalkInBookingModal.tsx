@@ -1,3 +1,4 @@
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,7 +16,9 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
-import { createWalkInBooking } from '@/lib/booking/storage';
+import { createWalkInBooking, resolveCustomerIdByPhoneRemote } from '@/lib/booking/storage';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
+import { userAlert } from '@/lib/ui/userAlert';
 import type { Booking, Shop, ShopService } from '@/lib/booking/types';
 
 type Props = {
@@ -46,7 +49,10 @@ export function WalkInBookingModal({
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState<string | undefined>();
+  const [servicePickerOpen, setServicePickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resolvingCustomer, setResolvingCustomer] = useState(false);
+  const [resolvedCustomerId, setResolvedCustomerId] = useState<string | undefined>();
   const [createdBooking, setCreatedBooking] = useState<Booking | null>(null);
 
   const activeServices = useMemo(
@@ -66,9 +72,44 @@ export function WalkInBookingModal({
     setPhone('');
     setNotes('');
     setSelectedServiceId(activeServices[0]?.id);
+    setServicePickerOpen(false);
     setCreatedBooking(null);
     setBusy(false);
+    setResolvingCustomer(false);
+    setResolvedCustomerId(undefined);
   }, [visible, activeServices]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const trimmed = phone.trim();
+    if (!trimmed) {
+      setResolvingCustomer(false);
+      setResolvedCustomerId(undefined);
+      return;
+    }
+
+    let cancelled = false;
+    setResolvingCustomer(true);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const customerId = await resolveCustomerIdByPhoneRemote(trimmed);
+          if (cancelled) return;
+          setResolvedCustomerId(customerId);
+        } catch {
+          if (cancelled) return;
+          setResolvedCustomerId(undefined);
+        } finally {
+          if (!cancelled) setResolvingCustomer(false);
+        }
+      })();
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [phone, visible]);
 
   const fieldStyle = [
     styles.input,
@@ -97,19 +138,25 @@ export function WalkInBookingModal({
         branchId,
         carType: carType.trim(),
         customerPhone: phone.trim() || undefined,
+        customerId: resolvedCustomerId,
+        skipPhoneLookup: true,
         serviceId: selectedService.id,
         serviceName: selectedService.name,
         serviceNameAr: selectedService.nameAr,
         servicePriceEgp: selectedService.priceEgp,
         serviceDurationMinutes: selectedService.durationMinutes,
         customerNotes: notes.trim() || undefined,
+        initialStatus: 'done',
       });
+      userAlert(t('walk_in_submit_success_title'), t('walk_in_submit_success_body'));
       setCreatedBooking(booking);
       setStep('invoice');
       onCreated(booking);
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('walk_in_submit_fail_body');
-      Alert.alert(t('walk_in_submit_fail_title'), message);
+      Alert.alert(
+        t('walk_in_submit_fail_title'),
+        logAndGetSafeErrorMessage(error, t, 'walkin.createBooking'),
+      );
     } finally {
       setBusy(false);
     }
@@ -155,6 +202,14 @@ export function WalkInBookingModal({
               <Text style={[styles.fieldHint, { color: theme.textDim }, isRTL && styles.textRtl]}>
                 {t('walk_in_phone_hint')}
               </Text>
+              {resolvingCustomer ? (
+                <View style={styles.lookupRow}>
+                  <ActivityIndicator size="small" color={theme.textDim} />
+                  <Text style={[styles.lookupText, { color: theme.textDim }, isRTL && styles.textRtl]}>
+                    {t('walk_in_phone_lookup_pending')}
+                  </Text>
+                </View>
+              ) : null}
 
               <Text style={[styles.sectionLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
                 {t('walk_in_service_label')}
@@ -163,28 +218,48 @@ export function WalkInBookingModal({
                 <Text style={[styles.emptyHint, { color: theme.textDim }]}>{t('walk_in_no_services')}</Text>
               ) : (
                 <View style={styles.serviceList}>
-                  {activeServices.map((service) => {
-                    const label = locale === 'ar' ? service.nameAr || service.name : service.name;
-                    const selected = service.id === (selectedServiceId ?? activeServices[0]?.id);
-                    return (
-                      <Pressable
-                        key={service.id}
-                        onPress={() => setSelectedServiceId(service.id)}
-                        style={[
-                          styles.serviceChip,
-                          {
-                            borderColor: selected ? theme.accent : theme.border,
-                            backgroundColor: selected ? theme.accentSoft : theme.bgElevated,
-                          },
-                        ]}>
-                        <Text style={[styles.serviceChipTitle, { color: theme.text }]}>{label}</Text>
+                  <Pressable
+                    onPress={() => setServicePickerOpen((open) => !open)}
+                    style={[styles.serviceSelectBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.serviceChipTitle, { color: theme.text }]}>
+                        {selectedService ? (locale === 'ar' ? selectedService.nameAr || selectedService.name : selectedService.name) : '—'}
+                      </Text>
+                      {selectedService ? (
                         <Text style={[styles.serviceChipMeta, { color: theme.textMuted }]}>
-                          {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
+                          {formatEgp(selectedService.priceEgp, locale)} · {selectedService.durationMinutes}{' '}
                           {locale === 'ar' ? 'د' : 'min'}
                         </Text>
-                      </Pressable>
-                    );
-                  })}
+                      ) : null}
+                    </View>
+                    <FontAwesome name={servicePickerOpen ? 'chevron-up' : 'chevron-down'} size={12} color={theme.textDim} />
+                  </Pressable>
+                  {servicePickerOpen ? (
+                    <View style={[styles.dropdownList, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                      {activeServices.map((service) => {
+                        const label = locale === 'ar' ? service.nameAr || service.name : service.name;
+                        const selected = service.id === (selectedServiceId ?? activeServices[0]?.id);
+                        return (
+                          <Pressable
+                            key={service.id}
+                            onPress={() => {
+                              setSelectedServiceId(service.id);
+                              setServicePickerOpen(false);
+                            }}
+                            style={[
+                              styles.dropdownItem,
+                              selected && { backgroundColor: theme.accentSoft },
+                            ]}>
+                            <Text style={[styles.serviceChipTitle, { color: theme.text }]}>{label}</Text>
+                            <Text style={[styles.serviceChipMeta, { color: theme.textMuted }]}>
+                              {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
+                              {locale === 'ar' ? 'د' : 'min'}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
                 </View>
               )}
 
@@ -319,6 +394,16 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: -4,
   },
+  lookupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: -2,
+  },
+  lookupText: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
   textRtl: {
     writingDirection: 'rtl',
     textAlign: 'right',
@@ -334,6 +419,26 @@ const styles = StyleSheet.create({
   },
   serviceList: {
     gap: 8,
+  },
+  serviceSelectBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dropdownList: {
+    borderWidth: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148, 163, 184, 0.25)',
   },
   serviceChip: {
     borderWidth: 1,

@@ -22,9 +22,15 @@ type Props = {
   customerId: string;
   showManageLink?: boolean;
   embedded?: boolean;
+  onVehicleChange?: (vehicle: CustomerVehicle | null) => void;
 };
 
-export function ActiveVehiclePicker({ customerId, showManageLink = false, embedded = false }: Props) {
+export function ActiveVehiclePicker({
+  customerId,
+  showManageLink = false,
+  embedded = false,
+  onVehicleChange,
+}: Props) {
   const theme = useAppTheme();
   const { t, isRTL } = useI18n();
   const [vehicles, setVehicles] = useState<CustomerVehicle[]>([]);
@@ -36,7 +42,8 @@ export function ActiveVehiclePicker({ customerId, showManageLink = false, embedd
     const active = await getPrimaryVehicle(customerId);
     setVehicles(rows);
     setActiveVehicleState(active);
-  }, [customerId]);
+    onVehicleChange?.(active);
+  }, [customerId, onVehicleChange]);
 
   useFocusEffect(
     useCallback(() => {
@@ -48,6 +55,7 @@ export function ActiveVehiclePicker({ customerId, showManageLink = false, embedd
     const next = await setActiveVehicle(customerId, vehicleId);
     setActiveVehicleState(next);
     setPickerOpen(false);
+    onVehicleChange?.(next);
     await loadVehicles();
   }
 

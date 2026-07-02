@@ -20,11 +20,12 @@ import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
+import { applyOfferDiscount, isOfferLive, pickBestLiveOffer } from '@/lib/booking/offerPricing';
 import { getCustomerShopReview, listShopReviews, seedDemoReviews } from '@/lib/booking/reviewsStorage';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { getActiveServices, getWeeklyHoursDisplayRows } from '@/lib/booking/shopSchedule';
-import type { ShopExtras, ShopReview } from '@/lib/booking/types';
-import { fetchDefaultBranchCoordinates, fetchDefaultBranchProfile } from '@/lib/booking/wash/branchRepository';
+import type { ShopExtras, ShopOffer, ShopReview } from '@/lib/booking/types';
+import { fetchBranchProfile, fetchDefaultBranchCoordinates, fetchDefaultBranchProfile } from '@/lib/booking/wash/branchRepository';
 import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
 import { resolveShopMedia } from '@/lib/media/shopImages';
 import { WashStatusBadge, type WashCustomerStatus } from '@/components/ui/WashBusyBadge';
@@ -56,16 +57,24 @@ export default function ShopProfileScreen() {
 
   const refreshExtras = useCallback(async () => {
     if (!shop) return;
+    let syncedBranchCoords: { latitude: number; longitude: number } | null = null;
     if (shop.type === 'wash') {
-      const branch = await fetchDefaultBranchProfile(shop.id);
+      const currentExtras = await getShopExtras(shop.id);
+      const activeBranchId = currentExtras.activeBranchId?.trim();
+      const branch = activeBranchId
+        ? await fetchBranchProfile(shop.id, activeBranchId)
+        : await fetchDefaultBranchProfile(shop.id);
       if (branch) {
         await syncWashBranchToShopExtras(shop.id, branch);
+        if (branch.latitude != null && branch.longitude != null) {
+          syncedBranchCoords = { latitude: branch.latitude, longitude: branch.longitude };
+        }
       }
     }
     const [row, reviewRows, coords, customerReview] = await Promise.all([
       getShopExtras(shop.id),
       listShopReviews(shop.id),
-      fetchDefaultBranchCoordinates(shop.id),
+      syncedBranchCoords ? Promise.resolve(syncedBranchCoords) : fetchDefaultBranchCoordinates(shop.id),
       customer?.id ? getCustomerShopReview(shop.id, customer.id) : Promise.resolve(null),
     ]);
     setExtras(row);
@@ -111,7 +120,10 @@ export default function ShopProfileScreen() {
   const winchPhone = extras?.winchPhone || phone;
   const email = extras?.profileEmail;
   const { profileImage, coverImage, galleryImages } = resolveShopMedia(extras);
-  const offers = (extras?.offers ?? []).filter((offer) => offer.active);
+  const offers = (extras?.offers ?? []).filter((offer) => isOfferLive(offer));
+  const pricingOffer = offerId
+    ? offers.find((offer) => offer.id === offerId && isOfferLive(offer))
+    : pickBestLiveOffer(offers);
   const services = getActiveServices(extras);
   const hoursRows = getWeeklyHoursDisplayRows(extras, locale);
   const visibleReviews = reviews;
@@ -129,14 +141,14 @@ export default function ShopProfileScreen() {
     setViewerOpen(true);
   }
 
-  function goToBook(serviceId?: string, fromOfferId?: string) {
+  function goToBook(serviceId?: string) {
     const id = String(shopId);
     if (isGuest || !customer) {
       router.push({
         pathname: '/auth-required',
         params: {
           intent: 'booking',
-          returnTo: buildBookReturnTo(id, serviceId ? [serviceId] : undefined, fromOfferId),
+          returnTo: buildBookReturnTo(id, serviceId ? [serviceId] : undefined),
         },
       });
       return;
@@ -146,9 +158,30 @@ export default function ShopProfileScreen() {
       params: {
         shopId: id,
         ...(serviceId ? { serviceIds: serviceId } : {}),
-        ...(fromOfferId ? { offerId: fromOfferId } : {}),
       },
     });
+  }
+
+  function renderOfferPrice(basePrice: number) {
+    const discountPct = pricingOffer?.discountPercentage ?? 0;
+    if (!pricingOffer || discountPct <= 0) {
+      return (
+        <Text style={[styles.serviceMeta, { color: theme.textMuted }]}>
+          {formatEgp(basePrice, locale)}
+        </Text>
+      );
+    }
+    const discounted = applyOfferDiscount(basePrice, discountPct);
+    return (
+      <View style={styles.offerPriceRow}>
+        <Text style={[styles.serviceMeta, styles.strikePrice, { color: theme.textDim }]}>
+          {formatEgp(basePrice, locale)}
+        </Text>
+        <Text style={[styles.serviceMeta, { color: theme.danger, fontWeight: '900' }]}>
+          {formatEgp(discounted, locale)}
+        </Text>
+      </View>
+    );
   }
 
   async function onShare() {
@@ -227,12 +260,14 @@ export default function ShopProfileScreen() {
             <View key={service.id} style={[styles.serviceRow, { borderColor: theme.border }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.serviceName, { color: theme.text }]}>{label}</Text>
+                {renderOfferPrice(service.priceEgp)}
                 <Text style={[styles.serviceMeta, { color: theme.textMuted }]}>
-                  {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
-                  {locale === 'ar' ? 'دقيقة' : 'min'}
+                  {service.durationMinutes} {locale === 'ar' ? 'دقيقة' : 'min'}
                 </Text>
               </View>
-              <Pressable onPress={() => goToBook(service.id)} style={[styles.serviceBookBtn, { backgroundColor: theme.accentSoft }]}>
+              <Pressable
+                onPress={() => goToBook(service.id)}
+                style={[styles.serviceBookBtn, { backgroundColor: theme.accentSoft }]}>
                 <Text style={[styles.serviceBookText, { color: theme.accent }]}>{t('shop_profile_book_service')}</Text>
               </Pressable>
             </View>
@@ -353,11 +388,16 @@ export default function ShopProfileScreen() {
                   <Text style={[styles.infoLine, { color: theme.textMuted, marginTop: 4 }]}>
                     {t('shop_offer_valid_until').replace(
                       '{date}',
-                      new Date(offer.validUntil).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
+                      new Date(offer.endDate || offer.validUntil).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
                     )}
                   </Text>
+                  {offer.discountPercentage > 0 ? (
+                    <Text style={[styles.infoLine, { color: theme.danger, fontWeight: '800', marginTop: 4 }]}>
+                      {t('book_offer_discount_applied').replace('{pct}', String(offer.discountPercentage))}
+                    </Text>
+                  ) : null}
                   <Pressable
-                    onPress={() => goToBook(services[0]?.id, offer.id)}
+                    onPress={() => goToBook(services[0]?.id)}
                     style={[styles.serviceBookBtn, { backgroundColor: theme.accent, marginTop: 8, alignSelf: 'flex-start' }]}>
                     <Text style={[styles.serviceBookText, { color: theme.onAccent }]}>{t('shop_offer_book')}</Text>
                   </Pressable>
@@ -427,6 +467,8 @@ const styles = StyleSheet.create({
   offerChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
   offerCard: { borderWidth: 1, borderRadius: 12, padding: 12 },
   offerText: { fontSize: 12, fontWeight: '700' },
+  offerPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
+  strikePrice: { textDecorationLine: 'line-through' },
   viewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.86)', alignItems: 'center', justifyContent: 'center' },
   viewerImage: { width: '92%', height: '78%' },
 });

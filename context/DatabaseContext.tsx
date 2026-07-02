@@ -26,7 +26,8 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         await getDb();
         if (!cancelled) setReady(true);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e : new Error(String(e)));
+        console.error('[database.init]', e);
+        if (!cancelled) setError(e instanceof Error ? e : new Error('database_init_failed'));
       }
     })();
     return () => {
@@ -40,7 +41,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorTitle}>{t('db_error_title')}</Text>
-        <Text style={styles.errorBody}>{error.message}</Text>
+        <Text style={styles.errorBody}>{t('error_general_fallback')}</Text>
       </View>
     );
   }

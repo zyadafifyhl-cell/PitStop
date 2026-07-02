@@ -27,6 +27,7 @@ import {
   toggleCommunityCommentLike,
   toggleCommunityPostLike,
 } from '@/lib/community/postRepository';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import type { CommunityComment, CommunityPost } from '@/lib/community/types';
 import { shareDriverNetworkPost } from '@/lib/linking/share';
 
@@ -119,8 +120,10 @@ export default function DriverNetworkPostScreen() {
       setReplyTo(undefined);
       await refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('feed_comment_fail_body');
-      Alert.alert(t('feed_comment_fail_title'), message);
+      Alert.alert(
+        t('feed_comment_fail_title'),
+        logAndGetSafeErrorMessage(error, t, 'driverNetwork.addComment'),
+      );
     } finally {
       setBusy(false);
     }

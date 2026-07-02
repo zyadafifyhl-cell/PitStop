@@ -15,6 +15,7 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import {
   buildPartsInvoiceEmailBody,
   markCustomerInvoiceEmailed,
@@ -100,7 +101,10 @@ export default function PartsShopScreen() {
         items: lines,
       });
       if (result.error) {
-        Alert.alert(t('parts_order_fail_title'), result.error);
+        Alert.alert(
+          t('parts_order_fail_title'),
+          logAndGetSafeErrorMessage(new Error(result.error), t, 'parts.createOrderResult'),
+        );
         return;
       }
       setQtyMap({});

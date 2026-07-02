@@ -37,6 +37,10 @@ function escapeHtml(input: string): string {
     .replaceAll("'", '&#39;');
 }
 
+function safeJsonForHtml(value: unknown): string {
+  return JSON.stringify(value).replaceAll('<', '\\u003c');
+}
+
 export function estimateDefaultPriceEgp(type: Booking['shopType']): number {
   if (type === 'maintenance') return 650;
   if (type === 'wash') return 220;
@@ -121,65 +125,92 @@ export function buildOwnerReportHtml(params: {
   const { shop, bookings, rangeLabel, generatedAt, locale } = params;
   const isAr = locale === 'ar';
 
-  const statusCount = {
-    pending: bookings.filter((b) => b.status === 'pending').length,
-    confirmed: bookings.filter((b) => b.status === 'confirmed').length,
-    done: bookings.filter((b) => b.status === 'done').length,
-    cancelled: bookings.filter((b) => b.status === 'cancelled').length,
-  };
-
-  const typeCount = {
-    maintenance: bookings.filter((b) => b.shopType === 'maintenance').length,
-    wash: bookings.filter((b) => b.shopType === 'wash').length,
-    parts: bookings.filter((b) => b.shopType === 'parts').length,
-    winch: bookings.filter((b) => b.shopType === 'winch').length,
-  };
-
-  const walkInCount = bookings.filter((b) => b.bookingType === 'walk_in').length;
-  const appCount = bookings.length - walkInCount;
-
-  const totals = bookings.reduce(
-    (acc, booking) => {
-      const money = normalizeBookingMoney(booking);
-      acc.gross += money.servicePriceEgp;
-      acc.fee += money.platformFeeEgp;
-      acc.net += money.ownerNetEgp;
-      return acc;
-    },
-    { gross: 0, fee: 0, net: 0 },
-  );
-
-  const rows = bookings
+  const sortedBookings = bookings
     .slice()
-    .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt))
-    .map((b, idx) => {
-      const when = new Date(b.scheduledAt).toLocaleString(isAr ? 'ar-EG' : 'en-EG');
-      const money = normalizeBookingMoney(b);
-      const sourceLabel =
-        b.bookingType === 'walk_in'
-          ? isAr
-            ? 'زيارة مباشرة'
-            : 'Walk-in'
-          : isAr
-            ? 'تطبيق'
-            : 'App';
-      return `
-      <tr>
+    .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+
+  const statusCount = { pending: 0, confirmed: 0, done: 0, cancelled: 0 };
+  const typeCount = { maintenance: 0, wash: 0, parts: 0, winch: 0 };
+  let walkInCount = 0;
+  const totals = { gross: 0, fee: 0, net: 0 };
+  const htmlRows: string[] = [];
+  const payloadRows: Array<{
+    bookingId: string;
+    dateText: string;
+    serviceType: string;
+    amountEgp: number;
+    platformFeeEgp: number;
+    netEgp: number;
+  }> = [];
+
+  for (let idx = 0; idx < sortedBookings.length; idx += 1) {
+    const booking = sortedBookings[idx];
+    const money = normalizeBookingMoney(booking);
+    totals.gross += money.servicePriceEgp;
+    totals.fee += money.platformFeeEgp;
+    totals.net += money.ownerNetEgp;
+
+    if (booking.status === 'pending') statusCount.pending += 1;
+    else if (booking.status === 'confirmed') statusCount.confirmed += 1;
+    else if (booking.status === 'done') statusCount.done += 1;
+    else if (booking.status === 'cancelled') statusCount.cancelled += 1;
+
+    if (booking.shopType === 'maintenance') typeCount.maintenance += 1;
+    else if (booking.shopType === 'wash') typeCount.wash += 1;
+    else if (booking.shopType === 'parts') typeCount.parts += 1;
+    else if (booking.shopType === 'winch') typeCount.winch += 1;
+
+    const isWalkIn = booking.bookingType === 'walk_in';
+    if (isWalkIn) walkInCount += 1;
+    const when = new Date(booking.scheduledAt).toLocaleString(isAr ? 'ar-EG' : 'en-EG');
+    const sourceLabel = isWalkIn
+      ? isAr
+        ? 'زيارة مباشرة'
+        : 'Walk-in'
+      : isAr
+        ? 'تطبيق'
+        : 'App';
+
+    htmlRows.push(`
+      <tr data-booking-id="${escapeHtml(booking.id)}">
         <td>${idx + 1}</td>
         <td>${escapeHtml(when)}</td>
         <td>${escapeHtml(sourceLabel)}</td>
-        <td>${escapeHtml(b.customerPhone || (isAr ? '—' : '-'))}</td>
-        <td>${escapeHtml(b.carType)}</td>
-        <td>${escapeHtml(b.carColor || (isAr ? '—' : '-'))}</td>
-        <td>${escapeHtml(b.status)}</td>
+        <td>${escapeHtml(booking.customerPhone || (isAr ? '—' : '-'))}</td>
+        <td>${escapeHtml(booking.carType)}</td>
+        <td>${escapeHtml(booking.carColor || (isAr ? '—' : '-'))}</td>
+        <td>${escapeHtml(booking.status)}</td>
         <td>${escapeHtml(formatEgp(money.servicePriceEgp, locale))}</td>
         <td>${escapeHtml(formatEgp(money.platformFeeEgp, locale))}</td>
         <td>${escapeHtml(formatEgp(money.ownerNetEgp, locale))}</td>
-      </tr>`;
-    })
-    .join('');
+      </tr>`);
+
+    payloadRows.push({
+      bookingId: booking.id,
+      dateText: when,
+      serviceType: isWalkIn ? 'Walk-In' : 'App',
+      amountEgp: money.servicePriceEgp,
+      platformFeeEgp: money.platformFeeEgp,
+      netEgp: money.ownerNetEgp,
+    });
+  }
+
+  const rows = htmlRows.join('');
+  const appCount = bookings.length - walkInCount;
 
   const generatedLabel = generatedAt.toLocaleString(isAr ? 'ar-EG' : 'en-EG');
+  const reportPayload = safeJsonForHtml({
+    shopName: isAr ? shop.nameAr : shop.name,
+    reportTitle: isAr ? 'فاتورة/تقرير الحجوزات' : 'Bookings Invoice/Report',
+    rangeLabel,
+    generatedAt: generatedLabel,
+    totals: {
+      gross: totals.gross,
+      fee: totals.fee,
+      net: totals.net,
+    },
+    rows: payloadRows,
+  });
 
   return `<!doctype html>
 <html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
@@ -214,14 +245,16 @@ export function buildOwnerReportHtml(params: {
     }
     .label { color: #6b7280 !important; font-size: 12px; font-weight: 600; }
     .value { font-weight: 800; margin-top: 4px; font-size: 18px; color: #111827 !important; }
-    .table-wrap { width: 100%; overflow-x: auto; margin-top: 10px; border: 1px solid #d1d5db; border-radius: 10px; }
-    table { width: 100%; min-width: 760px; border-collapse: collapse; background: #ffffff !important; }
+    .table-wrap { width: 100%; margin-top: 10px; border: 1px solid #d1d5db; border-radius: 10px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; background: #ffffff !important; table-layout: fixed; }
     th, td {
       border: 1px solid #e5e7eb;
-      padding: 10px 8px;
-      font-size: 12px;
+      padding: 8px 6px;
+      font-size: 11px;
       text-align: ${isAr ? 'right' : 'left'};
-      white-space: nowrap;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
       color: #111827 !important;
     }
     th {
@@ -240,6 +273,7 @@ export function buildOwnerReportHtml(params: {
   </style>
 </head>
 <body>
+  <script id="pitstop-report-payload" type="application/json">${reportPayload}</script>
   <h1>${isAr ? 'فاتورة/تقرير الحجوزات' : 'Bookings Invoice/Report'}</h1>
   <div class="muted">
     ${isAr ? 'المحل' : 'Shop'}: ${escapeHtml(isAr ? shop.nameAr : shop.name)}<br/>
@@ -265,16 +299,16 @@ export function buildOwnerReportHtml(params: {
   <table>
     <thead>
       <tr>
-        <th>#</th>
-        <th>${isAr ? 'الموعد' : 'Scheduled at'}</th>
-        <th>${isAr ? 'المصدر' : 'Source'}</th>
-        <th>${isAr ? 'رقم العميل' : 'Customer phone'}</th>
-        <th>${isAr ? 'نوع السيارة' : 'Car type'}</th>
-        <th>${isAr ? 'اللون' : 'Color'}</th>
-        <th>${isAr ? 'الحالة' : 'Status'}</th>
-        <th>${isAr ? 'سعر الخدمة' : 'Service price'}</th>
-        <th>${isAr ? 'عمولة المنصة' : 'Platform fee'}</th>
-        <th>${isAr ? 'صافي المحل' : 'Owner net'}</th>
+        <th style="width:5%">#</th>
+        <th style="width:14%">${isAr ? 'الموعد' : 'Scheduled at'}</th>
+        <th style="width:8%">${isAr ? 'المصدر' : 'Source'}</th>
+        <th style="width:12%">${isAr ? 'رقم العميل' : 'Customer phone'}</th>
+        <th style="width:11%">${isAr ? 'نوع السيارة' : 'Car type'}</th>
+        <th style="width:8%">${isAr ? 'اللون' : 'Color'}</th>
+        <th style="width:8%">${isAr ? 'الحالة' : 'Status'}</th>
+        <th style="width:11%">${isAr ? 'سعر الخدمة' : 'Service price'}</th>
+        <th style="width:11%">${isAr ? 'عمولة المنصة' : 'Platform fee'}</th>
+        <th style="width:12%">${isAr ? 'صافي المحل' : 'Owner net'}</th>
       </tr>
     </thead>
     <tbody>
@@ -284,4 +318,29 @@ export function buildOwnerReportHtml(params: {
 </div>
 </body>
 </html>`;
+}
+
+function deferReportWork(): Promise<void> {
+  return new Promise((resolve) => {
+    const maybeGlobal = globalThis as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    if (typeof maybeGlobal.requestIdleCallback === 'function') {
+      maybeGlobal.requestIdleCallback(() => resolve(), { timeout: 120 });
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
+}
+
+export async function buildOwnerReportHtmlDeferred(params: {
+  shop: Shop;
+  bookings: Booking[];
+  range: DateRange;
+  rangeLabel: string;
+  generatedAt: Date;
+  locale: 'en' | 'ar';
+}): Promise<string> {
+  await deferReportWork();
+  return buildOwnerReportHtml(params);
 }

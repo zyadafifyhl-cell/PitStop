@@ -5,6 +5,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { applyOfferDiscount, normalizeOfferDiscount } from '@/lib/booking/offerPricing';
 import type { ShopService } from '@/lib/booking/types';
 
 type Props = {
@@ -12,9 +13,10 @@ type Props = {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
+  discountPercentage?: number;
 };
 
-export function ServiceMultiPicker({ services, selectedIds, onChange, disabled }: Props) {
+export function ServiceMultiPicker({ services, selectedIds, onChange, disabled, discountPercentage = 0 }: Props) {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
   const [openPickerIndex, setOpenPickerIndex] = useState<number | null>(null);
@@ -55,10 +57,20 @@ export function ServiceMultiPicker({ services, selectedIds, onChange, disabled }
     onChange(rows.filter((_, i) => i !== index));
   }
 
+  const discountPct = normalizeOfferDiscount(discountPercentage);
+
+  function priceLabel(priceEgp: number): string {
+    if (discountPct <= 0) return formatEgp(priceEgp, locale);
+    const discounted = applyOfferDiscount(priceEgp, discountPct);
+    return `${formatEgp(discounted, locale)} (${formatEgp(priceEgp, locale)})`;
+  }
+
   const totalPrice = rows.reduce((sum, id) => {
     const svc = activeServices.find((s) => s.id === id);
     return sum + (svc?.priceEgp ?? 0);
   }, 0);
+
+  const discountedTotalPrice = discountPct > 0 ? applyOfferDiscount(totalPrice, discountPct) : totalPrice;
 
   const totalMinutes = rows.reduce((sum, id) => {
     const svc = activeServices.find((s) => s.id === id);
@@ -90,7 +102,7 @@ export function ServiceMultiPicker({ services, selectedIds, onChange, disabled }
               </Text>
               {service ? (
                 <Text style={[styles.selectorMeta, { color: theme.accent }]}>
-                  {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
+                  {priceLabel(service.priceEgp)} · {service.durationMinutes}{' '}
                   {locale === 'ar' ? 'د' : 'min'}
                 </Text>
               ) : null}
@@ -121,9 +133,19 @@ export function ServiceMultiPicker({ services, selectedIds, onChange, disabled }
 
       <View style={[styles.totals, { borderColor: theme.border, backgroundColor: theme.card }]}>
         <Text style={[styles.totalsLabel, { color: theme.textMuted }]}>{t('book_services_total')}</Text>
-        <Text style={[styles.totalsValue, { color: theme.text }]}>
-          {formatEgp(totalPrice, locale)} · {totalMinutes} {locale === 'ar' ? 'دقيقة' : 'min'}
-        </Text>
+        <View style={styles.totalsValueWrap}>
+          {discountPct > 0 ? (
+            <View style={styles.totalsPriceRow}>
+              <Text style={[styles.totalsStrike, { color: theme.textDim }]}>{formatEgp(totalPrice, locale)}</Text>
+              <Text style={[styles.totalsValue, { color: theme.danger }]}>{formatEgp(discountedTotalPrice, locale)}</Text>
+            </View>
+          ) : (
+            <Text style={[styles.totalsValue, { color: theme.text }]}>{formatEgp(totalPrice, locale)}</Text>
+          )}
+          <Text style={[styles.totalsMinutes, { color: theme.textMuted }]}>
+            · {totalMinutes} {locale === 'ar' ? 'دقيقة' : 'min'}
+          </Text>
+        </View>
       </View>
 
       <Modal visible={openPickerIndex != null} transparent animationType="fade" onRequestClose={() => setOpenPickerIndex(null)}>
@@ -199,7 +221,7 @@ const styles = StyleSheet.create({
   empty: { fontSize: 13, marginBottom: 12 },
   row: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'stretch',
     overflow: 'hidden',
@@ -214,9 +236,9 @@ const styles = StyleSheet.create({
   addLabel: { fontSize: 12, fontWeight: '700' },
   dropdown: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -224,14 +246,18 @@ const styles = StyleSheet.create({
   dropdownPlaceholder: { fontSize: 14, fontWeight: '600', flex: 1 },
   totals: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 20,
+    padding: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   totalsLabel: { fontSize: 13, fontWeight: '600' },
+  totalsValueWrap: { alignItems: 'flex-end', gap: 2 },
+  totalsPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  totalsStrike: { fontSize: 13, fontWeight: '700', textDecorationLine: 'line-through' },
   totalsValue: { fontSize: 15, fontWeight: '900' },
+  totalsMinutes: { fontSize: 12, fontWeight: '700' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',

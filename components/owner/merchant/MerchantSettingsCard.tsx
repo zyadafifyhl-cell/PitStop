@@ -23,8 +23,8 @@ export function MerchantSettingsCard({ theme, title, subtitle, children }: Props
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 24,
+    padding: 18,
     marginBottom: 14,
     shadowColor: '#000',
     shadowOpacity: 0.06,

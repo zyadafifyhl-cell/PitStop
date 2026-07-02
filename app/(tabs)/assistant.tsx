@@ -19,6 +19,7 @@ import { PostCard } from '@/components/community/PostCard';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { listCommunityPosts, toggleCommunityPostLike } from '@/lib/community/postRepository';
 import type { CommunityPost, FeedSortMode } from '@/lib/community/types';
 
@@ -84,8 +85,7 @@ export default function AssistantScreen() {
       await toggleCommunityPostLike({ postId, userId: customer.id });
       await loadPosts();
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('feed_like_fail_body');
-      Alert.alert(t('feed_like_fail_title'), message);
+      Alert.alert(t('feed_like_fail_title'), logAndGetSafeErrorMessage(error, t, 'driverNetwork.likePost'));
     } finally {
       setLikeBusy(false);
     }

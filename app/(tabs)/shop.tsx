@@ -43,6 +43,7 @@ import {
   updatePartsOrderStatus,
 } from '@/lib/booking/partsStorage';
 import { isStoreShopType, storeCategoryForShopType } from '@/lib/booking/storeCatalog';
+import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import {
   addShopImage,
   addShopOffer,
@@ -115,6 +116,7 @@ export default function ShopScreen() {
   const [newServicePrice, setNewServicePrice] = useState('');
   const [newOfferTitle, setNewOfferTitle] = useState('');
   const [newOfferTitleAr, setNewOfferTitleAr] = useState('');
+  const [newOfferDiscount, setNewOfferDiscount] = useState('10');
   const [newOfferDays, setNewOfferDays] = useState('7');
   const [workOpenTime, setWorkOpenTime] = useState(DEFAULT_WORK_OPEN);
   const [workCloseTime, setWorkCloseTime] = useState(DEFAULT_WORK_CLOSE);
@@ -498,22 +500,31 @@ export default function ShopScreen() {
 
   async function onSetCoverImage() {
     if (!shop) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(t('shop_image_permission_title'), t('shop_image_permission_body'));
-      return;
+    if (Platform.OS !== 'web') {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t('shop_image_permission_title'), t('shop_image_permission_body'));
+        return;
+      }
     }
     setPickingImage(true);
     try {
       const picked = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: Platform.OS !== 'web',
         quality: 0.8,
       });
       if (picked.canceled || !picked.assets?.length) return;
-      const uri = picked.assets[0].uri;
+      const asset = picked.assets[0];
+      const uri = asset.uri;
       if (!uri) return;
-      await setShopCoverImage(shop.id, uri);
+      const uploadedUrl = await uploadImageToBucket({
+        localUri: uri,
+        mimeType: asset.mimeType,
+        bucket: 'shop-assets',
+        folderPath: `${shop.id}/cover`,
+      });
+      await setShopCoverImage(shop.id, uploadedUrl);
       await refreshShopExtras();
     } finally {
       setPickingImage(false);
@@ -531,13 +542,22 @@ export default function ShopScreen() {
     try {
       const picked = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit: 5,
         quality: 0.8,
       });
       if (picked.canceled || !picked.assets?.length) return;
-      const uri = picked.assets[0].uri;
-      if (!uri) return;
-      await addShopImage(shop.id, uri);
+      for (const asset of picked.assets) {
+        if (!asset.uri) continue;
+        const uploadedUrl = await uploadImageToBucket({
+          localUri: asset.uri,
+          mimeType: asset.mimeType,
+          bucket: 'shop-gallery',
+          folderPath: `${shop.id}/gallery`,
+        });
+        await addShopImage(shop.id, uploadedUrl);
+      }
       await refreshShopExtras();
     } finally {
       setPickingImage(false);
@@ -559,9 +579,16 @@ export default function ShopScreen() {
         quality: 0.8,
       });
       if (picked.canceled || !picked.assets?.length) return;
-      const uri = picked.assets[0].uri;
+      const asset = picked.assets[0];
+      const uri = asset.uri;
       if (!uri) return;
-      await setShopProfileImage(shop.id, uri);
+      const uploadedUrl = await uploadImageToBucket({
+        localUri: uri,
+        mimeType: asset.mimeType,
+        bucket: 'shop-assets',
+        folderPath: `${shop.id}/profile`,
+      });
+      await setShopProfileImage(shop.id, uploadedUrl);
       await refreshShopExtras();
     } finally {
       setPickingImage(false);
@@ -661,7 +688,8 @@ export default function ShopScreen() {
       return;
     }
     const days = Number(newOfferDays);
-    if (Number.isNaN(days) || days < 1) {
+    const discount = Number(newOfferDiscount);
+    if (Number.isNaN(days) || days < 1 || Number.isNaN(discount) || discount <= 0 || discount > 100) {
       Alert.alert(t('shop_offer_invalid_title'), t('shop_offer_invalid_body'));
       return;
     }
@@ -669,10 +697,12 @@ export default function ShopScreen() {
       shopId: shop.id,
       title: newOfferTitle,
       titleAr: newOfferTitleAr,
+      discountPercentage: discount,
       validDays: days,
     });
     setNewOfferTitle('');
     setNewOfferTitleAr('');
+    setNewOfferDiscount('10');
     setNewOfferDays('7');
     await refreshShopExtras();
   }
@@ -731,7 +761,7 @@ export default function ShopScreen() {
   const fieldStyle = [styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }];
 
   if (isWashShopType(shop.type)) {
-    return <WashOwnerPanel shop={shop} onLogout={onLogout} />;
+    return <WashOwnerPanel shop={shop} />;
   }
 
   const shopName =
@@ -752,16 +782,11 @@ export default function ShopScreen() {
       profileImage={profileImage}
       pickingImage={pickingImage}
       coverEditLabel={t('shop_manage_add_image')}
-      profileEditLabel={t('shop_manage_set_profile_image')}
-      logoutLabel={t('shop_logout')}
       onEditCover={onSetCoverImage}
       onEditProfile={onSetProfileImage}
-      onLogout={onLogout}
       notificationsLabel={t('shop_notifications_button')}
       notificationCount={pendingNotificationCount}
       onOpenNotifications={() => setNotificationsModalVisible(true)}
-      onOpenSettings={() => router.push('/shop/merchant-settings')}
-      settingsLabel={t('merchant_settings_open')}
     />
   );
 
@@ -890,6 +915,7 @@ export default function ShopScreen() {
       <OwnerSectionCard theme={theme} title={t('shop_manage_offer_title')}>
         <TextInput placeholder={t('shop_manage_offer_title_placeholder')} placeholderTextColor={theme.textDim} value={newOfferTitle} onChangeText={setNewOfferTitle} style={fieldStyle} />
         <TextInput placeholder={t('shop_manage_offer_title_ar_placeholder')} placeholderTextColor={theme.textDim} value={newOfferTitleAr} onChangeText={setNewOfferTitleAr} style={fieldStyle} />
+        <TextInput placeholder={t('shop_manage_offer_discount_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newOfferDiscount} onChangeText={setNewOfferDiscount} style={fieldStyle} />
         <TextInput placeholder={t('shop_manage_offer_days_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newOfferDays} onChangeText={setNewOfferDays} style={fieldStyle} />
         <Pressable onPress={onAddOffer} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
           <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_add_offer')}</Text>
@@ -898,7 +924,10 @@ export default function ShopScreen() {
           <View style={styles.actions}>
             {activeOffers.map((offer) => (
               <Pressable key={offer.id} onPress={() => onCancelOffer(offer.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                <Text style={styles.actionText}>{locale === 'ar' ? offer.titleAr || offer.title : offer.title}</Text>
+                <Text style={styles.actionText}>
+                  {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
+                  {offer.discountPercentage > 0 ? ` · -${offer.discountPercentage}%` : ''}
+                </Text>
               </Pressable>
             ))}
           </View>

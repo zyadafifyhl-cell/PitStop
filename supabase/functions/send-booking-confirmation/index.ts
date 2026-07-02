@@ -29,6 +29,12 @@ serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    return new Response(JSON.stringify({ error: String(error) }), { status: 500 });
+    console.error('[send-booking-confirmation]', error);
+    return new Response(
+      JSON.stringify({
+        error: 'Something went wrong. Please try again later.',
+      }),
+      { status: 500 },
+    );
   }
 });

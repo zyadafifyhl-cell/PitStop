@@ -15,6 +15,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/I18nContext';
 import type { TranslationKey } from '@/lib/i18n/strings';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import * as garageSync from '@/lib/garageSync';
 import {
   areLocalNotificationsSupported,
@@ -246,7 +247,7 @@ export default function AlertsScreen() {
                   await garageSync.uploadGarageSnapshot(session.user.id);
                   Alert.alert(t('cloud_done_upload'));
                 } catch (e) {
-                  Alert.alert(t('cloud_error'), e instanceof Error ? e.message : String(e));
+                  Alert.alert(t('cloud_error'), logAndGetSafeErrorMessage(e, t, 'cloud.uploadGarageSnapshot'));
                 } finally {
                   setCloudBusy(false);
                 }
@@ -262,7 +263,7 @@ export default function AlertsScreen() {
                   await garageSync.downloadGarageSnapshot(session.user.id);
                   Alert.alert(t('cloud_done_download'));
                 } catch (e) {
-                  Alert.alert(t('cloud_error'), e instanceof Error ? e.message : String(e));
+                  Alert.alert(t('cloud_error'), logAndGetSafeErrorMessage(e, t, 'cloud.downloadGarageSnapshot'));
                 } finally {
                   setCloudBusy(false);
                 }
