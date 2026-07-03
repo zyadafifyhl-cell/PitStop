@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 
+import { APP_BRAND_NAME } from '@/constants/Brand';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { formatBookingDateTime } from '@/lib/booking/format';
@@ -86,7 +87,7 @@ async function scheduleNativeReminder(input: {
   await Notifications.scheduleNotificationAsync({
     identifier: reminderNotificationId(input.bookingId, input.minutesBefore),
     content: {
-      title: locale === 'ar' ? 'تذكير الحجز · PitStop' : 'Booking reminder · PitStop',
+      title: locale === 'ar' ? `تذكير الحجز · ${APP_BRAND_NAME}` : `Booking reminder · ${APP_BRAND_NAME}`,
       body: reminderBody(shopName, whenLabel, input.minutesBefore, locale),
     },
     trigger: {

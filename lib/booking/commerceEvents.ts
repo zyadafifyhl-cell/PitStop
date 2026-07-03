@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { APP_BRAND_NAME } from '@/constants/Brand';
 import type {
   CustomerInvoice,
   CustomerNotification,
@@ -333,7 +334,7 @@ export function buildPartsInvoiceEmailBody(input: {
         `الإجمالي قبل العمولة: ${input.subtotalText}\n` +
         `العمولة: ${input.feeText}\n` +
         `الإجمالي النهائي: ${input.totalText}\n\n` +
-        `شكرًا لاستخدام PitStop.`,
+        `شكرًا لاستخدام ${APP_BRAND_NAME}.`,
     };
   }
 
@@ -351,6 +352,6 @@ export function buildPartsInvoiceEmailBody(input: {
       `Subtotal: ${input.subtotalText}\n` +
       `Platform fee: ${input.feeText}\n` +
       `Total: ${input.totalText}\n\n` +
-      `Thanks for using PitStop.`,
+      `Thanks for using ${APP_BRAND_NAME}.`,
   };
 }

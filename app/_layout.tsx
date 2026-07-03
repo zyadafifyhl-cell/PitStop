@@ -7,8 +7,6 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import 'react-native-reanimated';
 
 import { AppBootstrap } from '@/components/AppBootstrap';
-import { AuthGate } from '@/components/AuthGate';
-import { AuthProvider } from '@/context/AuthContext';
 import { I18nProvider, useI18n } from '@/context/I18nContext';
 import { ShopAuthProvider } from '@/context/ShopAuthContext';
 import { ShopCatalogProvider } from '@/context/ShopCatalogContext';
@@ -58,6 +56,7 @@ function RootStack() {
       <Stack.Screen name="service/[type]/index" options={{ title: t('area_pick_title') }} />
       <Stack.Screen name="service/[type]/[areaId]" options={{ title: t('shops_screen_title') }} />
       <Stack.Screen name="book/[shopId]" options={{ title: t('book_screen_title') }} />
+      <Stack.Screen name="booking/[id]" options={{ title: t('order_details_title') }} />
       <Stack.Screen name="shop-profile/[shopId]" options={{ title: t('shop_profile_screen_title') }} />
       <Stack.Screen name="driver-network/[postId]" options={{ title: t('feed_post_screen_title') }} />
       <Stack.Screen name="parts-shop/[shopId]" options={{ title: t('parts_shop_screen_title') }} />
@@ -66,9 +65,6 @@ function RootStack() {
       <Stack.Screen name="points-marketplace" options={{ title: t('loyalty_marketplace_screen_title') }} />
       <Stack.Screen name="auth-required" options={{ title: t('guest_gate_header') }} />
       <Stack.Screen name="reset-password" options={{ title: t('customer_reset_password_title') }} />
-      <Stack.Screen name="login" options={{ title: t('auth_login_title') }} />
-      <Stack.Screen name="verify" options={{ title: t('auth_verify_title') }} />
-      <Stack.Screen name="shop/wash-notifications" options={{ headerShown: false }} />
       <Stack.Screen name="shop/wash-owner-hub" options={{ headerShown: false }} />
       <Stack.Screen name="shop/wash-reports" options={{ title: t('wash_report_title') }} />
       <Stack.Screen name="shop/wash-history" options={{ title: t('wash_hub_tab_history') }} />
@@ -113,14 +109,11 @@ function RootLayoutWithTheme() {
         <AppDialogProvider>
           <ShopCatalogProvider>
             <CustomerAuthProvider>
-              <AuthProvider>
-                <ShopAuthProvider>
-                  <AppBootstrap>
-                    <AuthGate />
-                    <RootStack />
-                  </AppBootstrap>
-                </ShopAuthProvider>
-              </AuthProvider>
+              <ShopAuthProvider>
+                <AppBootstrap>
+                  <RootStack />
+                </AppBootstrap>
+              </ShopAuthProvider>
             </CustomerAuthProvider>
           </ShopCatalogProvider>
         </AppDialogProvider>

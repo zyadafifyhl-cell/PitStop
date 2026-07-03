@@ -248,8 +248,8 @@ export default function SettingsScreen() {
             <ScrollView style={styles.termsScroll}>
               <Text style={[styles.termsBody, { color: theme.textMuted }]}>
                 {locale === 'ar'
-                  ? 'باستخدام PitStop، فإنك توافق على استخدام التطبيق لحجز الخدمات والتواصل مع المحلات. البيانات التجريبية محفوظة محلياً على جهازك. قد تتغير الشروط مع التحديثات المستقبلية.'
-                  : 'By using PitStop, you agree to use the app for booking services and communicating with shops. Demo data is stored locally on your device. Terms may change with future updates.'}
+                  ? 'باستخدام PitStop EG، فإنك توافق على استخدام التطبيق لحجز الخدمات والتواصل مع المحلات. البيانات التجريبية محفوظة محلياً على جهازك. قد تتغير الشروط مع التحديثات المستقبلية.'
+                  : 'By using PitStop EG, you agree to use the app for booking services and communicating with shops. Demo data is stored locally on your device. Terms may change with future updates.'}
               </Text>
             </ScrollView>
             <Pressable onPress={() => setTermsVisible(false)} style={[styles.modalCloseBtn, { borderColor: theme.border }]}>

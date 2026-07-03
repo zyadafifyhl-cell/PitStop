@@ -41,11 +41,17 @@ export function AutomotiveBackground({ theme, variant = 'home' }: Props) {
           </RadialGradient>
         </Defs>
         <Rect x="0" y="0" width="400" height="800" fill="url(#bgGrad)" />
-        <Rect x="-20" y="0" width="440" height="800" fill="url(#blueSweep)" />
-        <Ellipse cx="48" cy="86" rx="78" ry="56" fill="rgba(255,255,255,0.08)" />
-        <Ellipse cx="360" cy="740" rx="96" ry="66" fill="rgba(255,255,255,0.06)" />
-        <Circle cx="310" cy="120" r="220" fill="url(#topHalo)" />
-        <Circle cx="80" cy="660" r="210" fill="url(#bottomHalo)" />
+        {variant === 'welcome' ? (
+          <>
+            <Rect x="-20" y="0" width="440" height="800" fill="url(#blueSweep)" />
+            <Ellipse cx="48" cy="86" rx="78" ry="56" fill="rgba(255,255,255,0.08)" />
+            <Ellipse cx="360" cy="740" rx="96" ry="66" fill="rgba(255,255,255,0.06)" />
+            <Circle cx="310" cy="120" r="220" fill="url(#topHalo)" />
+            <Circle cx="80" cy="660" r="210" fill="url(#bottomHalo)" />
+          </>
+        ) : (
+          <Circle cx="80" cy="660" r="210" fill="url(#bottomHalo)" />
+        )}
         <Path
           d="M-20 120 Q 120 80 260 140 T 420 100"
           stroke={lineColor}

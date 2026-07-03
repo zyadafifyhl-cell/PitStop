@@ -117,16 +117,16 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
               setIsGuest(false);
               await tabAuthStorage.removeItem(GUEST_KEY);
             } else {
-              const guestSession = await tabAuthStorage.getItem(GUEST_KEY);
-              setIsGuest(guestSession === '1');
+              setIsGuest(false);
+              await tabAuthStorage.removeItem(GUEST_KEY);
             }
           }
         } else {
           setHasSession(false);
           await tabAuthStorage.removeItem(SESSION_KEY);
           if (!cancelled) {
-            const guestSession = await tabAuthStorage.getItem(GUEST_KEY);
-            setIsGuest(guestSession === '1');
+            setIsGuest(false);
+            await tabAuthStorage.removeItem(GUEST_KEY);
           }
         }
       } catch {
@@ -166,7 +166,6 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
     setCustomer(null);
     setHasSession(false);
     setIsGuest(true);
-    await tabAuthStorage.setItem(GUEST_KEY, '1');
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

@@ -1,3 +1,4 @@
+import { APP_BRAND_NAME } from '@/constants/Brand';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
 import type { Booking, Shop } from '@/lib/booking/types';
@@ -95,7 +96,7 @@ export function buildBookingConfirmationHtml(input: BookingConfirmationEmailInpu
         </tr>
         <tr>
           <td style="padding:16px 24px;background:#f9fafb;text-align:center;color:#9ca3af;font-size:11px;">
-            PitStop · ${escapeHtml(shop.type)} · ${escapeHtml(booking.id.slice(0, 8))}
+            ${APP_BRAND_NAME} · ${escapeHtml(shop.type)} · ${escapeHtml(booking.id.slice(0, 8))}
           </td>
         </tr>
       </table>
@@ -127,7 +128,7 @@ export function buildBookingConfirmationPlainText(input: BookingConfirmationEmai
         `السيارة: ${booking.carType}${booking.carColor ? ` · ${booking.carColor}` : ''}\n` +
         `الخدمات:\n${services.map((s) => `- ${s}`).join('\n')}\n` +
         `الإجمالي: ${formatEgp(money.servicePriceEgp, locale)}\n\n` +
-        `PitStop`,
+        APP_BRAND_NAME,
     };
   }
 
@@ -140,6 +141,6 @@ export function buildBookingConfirmationPlainText(input: BookingConfirmationEmai
       `Vehicle: ${booking.carType}${booking.carColor ? ` · ${booking.carColor}` : ''}\n` +
       `Services:\n${services.map((s) => `- ${s}`).join('\n')}\n` +
       `Total: ${formatEgp(money.servicePriceEgp, locale)}\n\n` +
-      `PitStop`,
+      APP_BRAND_NAME,
   };
 }

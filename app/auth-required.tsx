@@ -1,29 +1,25 @@
-import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { PitStopEgWordmark } from '@/components/ui/PitStopEgWordmark';
 import { useI18n } from '@/context/I18nContext';
-import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 export default function AuthRequiredScreen() {
   const { intent, returnTo } = useLocalSearchParams<{ intent?: string; returnTo?: string }>();
   const { t } = useI18n();
   const theme = useAppTheme();
-  const { effectivePreference } = useThemePreference();
 
   const actionLabel = intent === 'purchase' ? t('guest_gate_action_purchase') : t('guest_gate_action_book');
-  const logoSource =
-    effectivePreference === 'light'
-      ? require('../assets/images/pitstop-logo-light.png')
-      : require('../assets/images/pitstop-logo-dark.png');
   const returnParams = returnTo ? { returnTo } : {};
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
-      <Image source={logoSource} style={styles.watermark} contentFit="contain" />
+      <PitStopEgWordmark size="watermark" style={styles.watermark} />
 
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <PitStopEgWordmark size="compact" style={styles.cardBrand} />
         <Text style={[styles.title, { color: theme.text }]}>{t('guest_gate_title')}</Text>
         <Text style={[styles.lead, { color: theme.textMuted }]}>
           {t('guest_gate_body').replace('{action}', actionLabel)}
@@ -53,9 +49,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   watermark: {
     position: 'absolute',
-    width: 360,
-    height: 360,
-    opacity: 0.06,
+    top: '18%',
+    alignSelf: 'center',
   },
   card: {
     width: '100%',
@@ -63,7 +58,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 18,
   },
-  title: { fontSize: 24, fontWeight: '900', marginBottom: 8 },
+  cardBrand: { marginBottom: 14, alignSelf: 'center' },
+  title: { fontSize: 24, fontWeight: '900', marginBottom: 8, textAlign: 'center' },
   lead: { fontSize: 14, lineHeight: 22, marginBottom: 16 },
   primaryBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   primaryBtnText: { fontSize: 15, fontWeight: '800' },

@@ -1,3 +1,5 @@
+import { APP_BRAND_NAME } from '@/constants/Brand';
+
 export type ReportExportRow = {
   bookingId: string;
   dateText: string;
@@ -84,7 +86,7 @@ export function buildReportExportModelFromSavedHtml(html: string): ReportExportM
         revenueEgp: money(row.amountEgp ?? 0),
       }));
       return {
-        shopName: payload.shopName || 'PitStop',
+        shopName: payload.shopName || APP_BRAND_NAME,
         reportTitle: payload.reportTitle || 'Bookings Report',
         rangeLabel: payload.rangeLabel || '-',
         generatedAtText: payload.generatedAt || new Date().toLocaleString(),
@@ -116,7 +118,7 @@ export function buildReportExportModelFromSavedHtml(html: string): ReportExportM
   const netEarnings = parseMoney(parsed.querySelector('.card:nth-child(11) .value')?.textContent ?? '');
   const title = parsed.querySelector('h1')?.textContent?.trim() || 'Bookings Report';
   return {
-    shopName: 'PitStop',
+    shopName: APP_BRAND_NAME,
     reportTitle: title,
     rangeLabel: '-',
     generatedAtText: new Date().toLocaleString(),

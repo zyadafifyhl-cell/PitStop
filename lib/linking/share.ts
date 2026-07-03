@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import { Share } from 'react-native';
 
 import type { Locale } from '@/lib/i18n/strings';
+import { APP_BRAND_NAME } from '@/constants/Brand';
 
 export const WEB_ORIGIN = 'https://car-care-eg.com';
 export const APP_SCHEME = 'pitstop';
@@ -70,8 +71,8 @@ export async function shareShopProfile(input: {
   const deepLink = shopProfileDeepLink(input.shopId);
   const message =
     input.locale === 'ar'
-      ? `تصفح ${input.shopName} على PitStop:\n${webUrl}\n${deepLink}`
-      : `Check out ${input.shopName} on PitStop:\n${webUrl}\n${deepLink}`;
+      ? `تصفح ${input.shopName} على ${APP_BRAND_NAME}:\n${webUrl}\n${deepLink}`
+      : `Check out ${input.shopName} on ${APP_BRAND_NAME}:\n${webUrl}\n${deepLink}`;
 
   await Share.share({
     message,
@@ -89,8 +90,8 @@ export async function shareDriverNetworkPost(input: {
   const deepLink = driverNetworkDeepLink(input.postId);
   const message =
     input.locale === 'ar'
-      ? `${input.title}\n\nشوف المنشور على PitStop:\n${webUrl}\n${deepLink}`
-      : `${input.title}\n\nView this post on PitStop:\n${webUrl}\n${deepLink}`;
+      ? `${input.title}\n\nشوف المنشور على ${APP_BRAND_NAME}:\n${webUrl}\n${deepLink}`
+      : `${input.title}\n\nView this post on ${APP_BRAND_NAME}:\n${webUrl}\n${deepLink}`;
 
   await Share.share({
     message,

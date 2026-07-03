@@ -1,17 +1,16 @@
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ServiceOptionCard } from '@/components/ui/ServiceOptionCard';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
-import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
-import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { getAreaById } from '@/lib/booking/areas';
@@ -41,8 +40,6 @@ function CurvyCard({
 }) {
   return (
     <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }, style]}>
-      <View style={[styles.curveBubbleLg, { backgroundColor: theme.accentSoft }]} />
-      <View style={[styles.curveBubbleSm, { backgroundColor: theme.warmSoft }]} />
       {children}
     </View>
   );
@@ -51,7 +48,6 @@ function CurvyCard({
 export default function HomeScreen() {
   const { t, tp, locale } = useI18n();
   const theme = useAppTheme();
-  const { effectivePreference } = useThemePreference();
   const { customer, isGuest } = useCustomerAuth();
   const { signOut, busy: signingOut } = useAppSignOut();
   const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
@@ -61,8 +57,6 @@ export default function HomeScreen() {
   >([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
-  const floatAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(0)).current;
 
   const serviceCards = useMemo(
     () =>
@@ -158,91 +152,10 @@ export default function HomeScreen() {
       : nextBookingShop.name
     : nextBooking?.shopId;
   const nextStatusTone = nextBooking ? bookingStatusTone(nextBooking.status) : null;
-  const backgroundLogo =
-    effectivePreference === 'light'
-      ? require('../../assets/images/pitstop-logo-light.png')
-      : require('../../assets/images/pitstop-logo-dark.png');
-  const floatingY = floatAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -10],
-  });
-  const pulseScale = pulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.04],
-  });
-
-  useEffect(() => {
-    const floatLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(floatAnim, {
-          toValue: 1,
-          duration: 2300,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(floatAnim, {
-          toValue: 0,
-          duration: 2300,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1300,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0,
-          duration: 1300,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    floatLoop.start();
-    pulseLoop.start();
-    return () => {
-      floatLoop.stop();
-      pulseLoop.stop();
-    };
-  }, [floatAnim, pulseAnim]);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <AutomotiveBackground theme={theme} />
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.floatBlobA,
-          {
-            backgroundColor: theme.accentSoft,
-            transform: [{ translateY: floatingY }],
-          },
-        ]}
-      />
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.floatBlobB,
-          {
-            backgroundColor: theme.warmSoft,
-            transform: [{ translateY: Animated.multiply(floatingY, -0.7) }],
-          },
-        ]}
-      />
-      <View pointerEvents="none" style={styles.backgroundLogoWrap}>
-        <Image
-          source={backgroundLogo}
-          style={[styles.backgroundLogo, { opacity: effectivePreference === 'light' ? 0.045 : 0.06 }]}
-          resizeMode="contain"
-          accessibilityIgnoresInvertColors
-        />
-      </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
         <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
@@ -251,7 +164,23 @@ export default function HomeScreen() {
       <CurvyCard theme={theme}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Vehicle</Text>
         <Text style={[styles.sectionSub, { color: theme.textMuted }]}>Pick your active car before booking services.</Text>
-        {customer && !isGuest ? <ActiveVehiclePicker customerId={customer.id} showManageLink /> : null}
+        <View style={[styles.vehicleSlot, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+          <Text style={[styles.vehicleSlotTitle, { color: theme.text }]}>Active vehicle</Text>
+          <Text style={[styles.vehicleSlotSub, { color: theme.textMuted }]}>
+            {customer && !isGuest
+              ? 'No vehicle selected yet — add one to pre-fill bookings.'
+              : 'Sign in to link your saved vehicle and speed up booking.'}
+          </Text>
+        </View>
+        <Pressable onPress={() => router.push('/settings/vehicles')} style={styles.manageVehicleWrap}>
+          <LinearGradient
+            colors={[theme.warm, theme.accent]}
+            start={{ x: 0, y: 0.2 }}
+            end={{ x: 1, y: 0.8 }}
+            style={styles.manageVehicleBtn}>
+            <Text style={styles.manageVehicleText}>+ {t('home_manage_vehicles')}</Text>
+          </LinearGradient>
+        </Pressable>
       </CurvyCard>
 
       {nextBooking ? (
@@ -269,17 +198,15 @@ export default function HomeScreen() {
           <Text style={[styles.cardTitle, { color: theme.text }]}>{nextBookingShopName}</Text>
           <Text style={[styles.cardMeta, { color: theme.textMuted }]}>{formatBookingDateTime(nextBooking.scheduledAt, locale)}</Text>
           <Text style={[styles.cardMeta, { color: theme.textMuted }]}>{shopTypeLabel(nextBooking.shopType, locale)}</Text>
-          <Animated.View style={{ transform: [{ scale: pulseScale }] }}>
-            <Pressable onPress={() => router.push('/bookings')} style={styles.primaryActionWrap}>
-              <LinearGradient
-                colors={[theme.accent, theme.warm]}
-                start={{ x: 0, y: 0.2 }}
-                end={{ x: 1, y: 0.8 }}
-                style={styles.primaryActionBtn}>
-                <Text style={styles.primaryActionText}>{t('book_success_view_bookings')}</Text>
-              </LinearGradient>
-            </Pressable>
-          </Animated.View>
+          <Pressable onPress={() => router.push('/bookings')} style={styles.primaryActionWrap}>
+            <LinearGradient
+              colors={[theme.accent, theme.warm]}
+              start={{ x: 0, y: 0.2 }}
+              end={{ x: 1, y: 0.8 }}
+              style={styles.primaryActionBtn}>
+              <Text style={styles.primaryActionText}>{t('book_success_view_bookings')}</Text>
+            </LinearGradient>
+          </Pressable>
         </View>
       ) : null}
 
@@ -323,13 +250,18 @@ export default function HomeScreen() {
         </ScrollView>
 
         {serviceCards.map((card) => (
-          <ServiceOptionCard
+          <Pressable
             key={card.type}
-            type={card.type}
-            title={card.title}
-            subtitle={card.subtitle}
             onPress={() => router.push(card.href)}
-          />
+            style={[styles.serviceRow, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+            <View style={[styles.serviceIcon, { backgroundColor: theme.accentSoft }]}>
+              <FontAwesome name={card.type === 'wash' ? 'tint' : card.type === 'maintenance' ? 'wrench' : 'cogs'} size={18} color={theme.warm} />
+            </View>
+            <View style={styles.serviceMeta}>
+              <Text style={[styles.serviceTitle, { color: theme.text }]}>{card.title}</Text>
+            </View>
+            <FontAwesome name="chevron-right" size={14} color={theme.textDim} />
+          </Pressable>
         ))}
       </CurvyCard>
 
@@ -383,30 +315,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
-  floatBlobA: {
-    position: 'absolute',
-    top: 86,
-    right: -44,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-  },
-  floatBlobB: {
-    position: 'absolute',
-    bottom: 120,
-    left: -52,
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-  },
-  backgroundLogoWrap: {
-    position: 'absolute',
-    top: 56,
-    alignSelf: 'center',
-    width: 820,
-    height: 820,
-  },
-  backgroundLogo: { width: '100%', height: '100%' },
   content: { padding: 20, paddingBottom: 52, gap: 2 },
   greeting: { fontSize: 13, marginBottom: 8, fontWeight: '600', letterSpacing: 0.3 },
   title: { fontSize: 32, fontWeight: '900', marginBottom: 8, letterSpacing: -0.5, lineHeight: 38 },
@@ -418,24 +326,16 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     overflow: 'hidden',
   },
-  curveBubbleLg: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    right: -42,
-    top: -48,
-    opacity: 0.5,
+  vehicleSlot: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
   },
-  curveBubbleSm: {
-    position: 'absolute',
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    left: -28,
-    bottom: -34,
-    opacity: 0.42,
-  },
+  vehicleSlotTitle: { fontSize: 15, fontWeight: '900', marginBottom: 4 },
+  vehicleSlotSub: { fontSize: 14, lineHeight: 20 },
+  manageVehicleWrap: { marginTop: 12, borderRadius: 999, overflow: 'hidden' },
+  manageVehicleBtn: { borderRadius: 999, paddingVertical: 13, alignItems: 'center' },
+  manageVehicleText: { fontSize: 15, fontWeight: '900', color: '#000000' },
   sectionEyebrow: {
     color: AppTheme.accent,
     fontSize: 12,
@@ -479,6 +379,26 @@ const styles = StyleSheet.create({
   filterChipActive: { borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11 },
   filterChipText: { fontSize: 15, fontWeight: '900' },
   filterChipTextActive: { fontSize: 15, fontWeight: '900', color: '#000000' },
+  serviceRow: {
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    minHeight: 64,
+  },
+  serviceIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  serviceMeta: { flex: 1 },
+  serviceTitle: { fontSize: 19, fontWeight: '900', lineHeight: 24 },
   offersCarousel: { gap: 12, paddingBottom: 4 },
   offerCard: {
     width: 230,

@@ -1,6 +1,8 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { APP_BRAND_NAME } from '@/constants/Brand';
+
 const WEEKLY_CHANNEL_ID = 'weekly-maintenance';
 
 /** Stable id so scheduling weekly reminders does not cancel urgent SMS-interval alerts. */
@@ -55,7 +57,7 @@ export async function scheduleWeeklyReminder(
   await Notifications.scheduleNotificationAsync({
     identifier: WEEKLY_NOTIFICATION_ID,
     content: {
-      title: content?.title ?? 'PitStop',
+      title: content?.title ?? APP_BRAND_NAME,
       body:
         content?.body ??
         'Update your kilometer reading in the app and review what is due soon.',
@@ -86,7 +88,7 @@ export async function scheduleRepeatingReminder(
   await Notifications.cancelScheduledNotificationAsync(WEEKLY_NOTIFICATION_ID).catch(() => {});
 
   const notificationContent = {
-    title: content?.title ?? 'PitStop',
+    title: content?.title ?? APP_BRAND_NAME,
     body:
       content?.body ??
       'Update your kilometer reading in the app and review what is due soon.',

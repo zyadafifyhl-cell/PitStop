@@ -110,14 +110,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: t('tab_settings'),
-          tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
+          title: shop ? t('tab_settings') : t('tab_account'),
+          tabBarIcon: ({ color }) => (
+            <TabBarIcon name={shop ? 'cog' : 'user'} color={color} />
+          ),
           headerRight: customerHeaderRight,
           href: shop ? '/shop/merchant-settings' : hasCustomerArea ? undefined : null,
         }}
       />
-      <Tabs.Screen name="catalog" options={{ href: null }} />
-      <Tabs.Screen name="alerts" options={{ href: null }} />
     </Tabs>
   );
 }

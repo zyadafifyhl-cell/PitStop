@@ -304,6 +304,11 @@ export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
   return localRows.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
 }
 
+export async function getBookingForCustomer(bookingId: string, phone: string): Promise<Booking | null> {
+  const rows = await listBookingsForPhone(phone);
+  return rows.find((row) => row.id === bookingId) ?? null;
+}
+
 export async function createBooking(
   input: Omit<Booking, 'id' | 'status' | 'createdAt'>,
   options?: CreateBookingOptions,

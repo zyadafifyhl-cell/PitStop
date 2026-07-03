@@ -5,7 +5,6 @@ import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,7 +20,8 @@ import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
-import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
+import { PitStopEgWordmark } from '@/components/ui/PitStopEgWordmark';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { isStrongPassword } from '@/lib/authValidation';
 import { isValidEgyptMobile } from '@/lib/phone';
 import { addCustomerVehicle } from '@/lib/booking/vehicleStorage';
@@ -51,7 +51,6 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const { t, locale, setLocale } = useI18n();
   const theme = useAppTheme();
-  const { effectivePreference } = useThemePreference();
   const { login: loginCustomer, register, resetPassword, continueAsGuest, busy: customerBusy } = useCustomerAuth();
   const {
     login: loginShop,
@@ -311,17 +310,13 @@ export default function WelcomeScreen() {
   }
 
   const ownerAccent = theme.accent;
-  const logoSource =
-    effectivePreference === 'light'
-      ? require('../assets/images/pitstop-logo-light.png')
-      : require('../assets/images/pitstop-logo-dark.png');
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <AutomotiveBackground theme={theme} variant="welcome" />
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(46,168,255,0.22)', 'rgba(9,18,38,0.10)', theme.bg]}
+        colors={['rgba(46,168,255,0.12)', 'rgba(9,18,38,0.04)', theme.bg]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -331,13 +326,8 @@ export default function WelcomeScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <View style={[styles.logoWrap, { backgroundColor: theme.card, borderColor: theme.accentSoft }]}>
-              <Image
-                source={logoSource}
-                style={styles.logoImage}
-                resizeMode="cover"
-                accessibilityLabel="PitStop logo"
-              />
+            <View style={[styles.logoWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <PitStopEgWordmark size="hero" />
             </View>
             <Text style={[styles.heroHeadline, { color: theme.text }]}>{t('welcome_hero_title')}</Text>
             <Text style={[styles.tagline, { color: theme.textMuted }]}>{t('welcome_tagline')}</Text>
@@ -386,6 +376,7 @@ export default function WelcomeScreen() {
             <Pressable
               onPress={async () => {
                 await continueAsGuest();
+                router.replace(resolveReturnTo(returnTo) ?? '/');
               }}
               style={[styles.guestBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
               <Text style={[styles.guestBtnText, { color: theme.text }]}>{t('welcome_guest_btn')}</Text>
@@ -470,7 +461,7 @@ export default function WelcomeScreen() {
                     <Pressable
                       onPress={() => setRegisterVehicles((rows) => [...rows, newVehicleDraft()])}
                       style={styles.addVehicleBtn}>
-                      <Text style={[styles.addVehicleText, { color: theme.accent }]}>{t('auth_register_add_vehicle')}</Text>
+                      <Text style={[styles.addVehicleText, { color: theme.warm }]}>{t('auth_register_add_vehicle')}</Text>
                     </Pressable>
                   </View>
                 ) : null}
@@ -496,7 +487,7 @@ export default function WelcomeScreen() {
                   <Text style={[styles.formMessage, { color: theme.warm }]}>{formMessage}</Text>
                 ) : null}
                 <Pressable onPress={toggleCustomerRegister} hitSlop={10} style={styles.switchLink}>
-                  <Text style={[styles.switchText, { color: theme.accent }]}>
+                  <Text style={[styles.switchText, { color: theme.warm }]}>
                     {isRegister ? t('customer_have_account') : t('customer_create_account')}
                   </Text>
                 </Pressable>
@@ -617,7 +608,7 @@ export default function WelcomeScreen() {
                   <Text style={[styles.formMessage, { color: theme.warm }]}>{formMessage}</Text>
                 ) : null}
                 <Pressable onPress={toggleOwnerRegister} hitSlop={10} style={styles.switchLink}>
-                  <Text style={[styles.switchText, { color: ownerAccent }]}>
+                  <Text style={[styles.switchText, { color: theme.warm }]}>
                     {isOwnerRegister ? t('owner_have_account') : t('owner_register_link')}
                   </Text>
                 </Pressable>
@@ -663,38 +654,29 @@ const styles = StyleSheet.create({
   },
   hero: { alignItems: 'center', marginBottom: 28 },
   logoWrap: {
-    width: 140,
-    height: 140,
-    borderRadius: 36,
+    width: 132,
+    height: 132,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
-    borderWidth: 2,
-    overflow: 'hidden',
+    borderWidth: 1,
   },
-  logoImage: { width: '100%', height: '100%' },
   heroHeadline: {
     fontSize: 24,
     fontWeight: '900',
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
     textAlign: 'center',
     lineHeight: 32,
-    marginBottom: 10,
+    marginBottom: 8,
     maxWidth: 320,
   },
-  appName: {
-    color: AppTheme.text,
-    fontSize: 32,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
   tagline: {
-    color: AppTheme.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '600',
     textAlign: 'center',
-    maxWidth: 300,
+    maxWidth: 320,
   },
   modeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   guestBtn: {
@@ -704,7 +686,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     marginBottom: 12,
   },
-  guestBtnText: { fontSize: 14, fontWeight: '700' },
+  guestBtnText: { fontSize: 15, fontWeight: '700' },
   modeBtn: {
     flex: 1,
     flexDirection: 'row',
@@ -722,19 +704,18 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
   },
-  modeText: { color: AppTheme.textMuted, fontSize: 14, fontWeight: '700' },
+  modeText: { fontSize: 15, fontWeight: '700' },
   formBox: {
     borderWidth: 1,
     borderRadius: 28,
     padding: 22,
   },
-  formLead: { color: AppTheme.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 14 },
+  formLead: { fontSize: 15, lineHeight: 22, fontWeight: '600', marginBottom: 14 },
   input: {
     borderWidth: 1,
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: AppTheme.text,
     fontSize: 16,
     marginBottom: 12,
   },
@@ -751,9 +732,9 @@ const styles = StyleSheet.create({
   submitGradient: { paddingVertical: 16, alignItems: 'center', borderRadius: 999 },
   submitText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   switchLink: { marginTop: 14, alignItems: 'center' },
-  switchText: { color: AppTheme.accent, fontSize: 14, fontWeight: '600' },
-  resetText: { color: AppTheme.textMuted, fontSize: 13, fontWeight: '700' },
-  passwordHint: { color: AppTheme.textDim, fontSize: 11, lineHeight: 16, marginTop: -6, marginBottom: 10 },
+  switchText: { fontSize: 15, fontWeight: '700' },
+  resetText: { fontSize: 14, fontWeight: '700' },
+  passwordHint: { fontSize: 12, lineHeight: 18, marginTop: -6, marginBottom: 10, fontWeight: '600' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   formMessage: { fontSize: 12, lineHeight: 18, marginTop: 10, textAlign: 'center', fontWeight: '700' },
@@ -772,9 +753,9 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   languageBtnActive: { backgroundColor: AppTheme.accent, borderColor: AppTheme.accent },
-  languageText: { color: AppTheme.textMuted, fontSize: 12, fontWeight: '800' },
+  languageText: { fontSize: 13, fontWeight: '800' },
   languageTextActive: { color: '#fff' },
-  demoHint: { color: AppTheme.textDim, fontSize: 11, lineHeight: 16, marginTop: 14 },
+  demoHint: { fontSize: 12, lineHeight: 18, marginTop: 14, fontWeight: '600' },
   vehiclesBox: {
     borderWidth: 1,
     borderRadius: 14,
@@ -782,7 +763,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   vehiclesTitle: { fontSize: 14, fontWeight: '900', marginBottom: 4 },
-  vehiclesLead: { fontSize: 12, lineHeight: 18, marginBottom: 10 },
+  vehiclesLead: { fontSize: 13, lineHeight: 20, marginBottom: 10, fontWeight: '600' },
   vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   vehicleInput: {
     flex: 1,

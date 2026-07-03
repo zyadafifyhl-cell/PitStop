@@ -1,14 +1,14 @@
 import * as Linking from 'expo-linking';
 import { useGlobalSearchParams, usePathname, useRouter, type Href } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { resolveReturnTo } from '@/lib/auth/returnTo';
 import { parsePitstopDeepLink } from '@/lib/linking/share';
 
-const PUBLIC_PATHS = ['/welcome', '/reset-password', '/auth-required', '/login', '/verify'];
+const PUBLIC_PATHS = ['/welcome', '/reset-password', '/auth-required'];
 
 function readRouteParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -22,7 +22,7 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-/** Wait for auth, hide splash once, then route to the correct entry screen (no home↔welcome flash). */
+/** Wait for auth, route to the correct entry screen, then mount navigation (no guest/home flash). */
 export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -30,6 +30,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const { ready: customerReady, customer, isGuest, hasSession, busy: customerBusy } = useCustomerAuth();
   const { ready: shopReady, shop, staff, isAdmin, isPendingOwner, busy: shopBusy } = useShopAuth();
   const splashHidden = useRef(false);
+  const [entryReady, setEntryReady] = useState(false);
 
   const authReady = customerReady && shopReady;
 
@@ -57,8 +58,11 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     }
   }, [authReady]);
 
-  useEffect(() => {
-    if (!authReady) return;
+  useLayoutEffect(() => {
+    if (!authReady) {
+      setEntryReady(false);
+      return;
+    }
 
     const isPublic = isPublicPath(pathname);
     const isLoggedIn = !!customer || !!shop || isGuest || !!staff;
@@ -70,6 +74,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       if (!onAdminArea) {
         router.replace('/admin' as Href);
       }
+      setEntryReady(true);
       return;
     }
 
@@ -77,6 +82,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       if (pathname !== '/welcome' && !isPublic) {
         router.replace('/welcome?focus=owner&pending=1');
       }
+      setEntryReady(true);
       return;
     }
 
@@ -85,21 +91,33 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       if (!onShopArea) {
         router.replace('/shop');
       }
+      setEntryReady(true);
+      return;
+    }
+
+    if (authPending && !isLoggedIn) {
+      setEntryReady(false);
       return;
     }
 
     if (!isLoggedIn && !isPublic && !authPending) {
-      router.replace('/welcome');
+      router.replace('/welcome?focus=login');
+      setEntryReady(true);
       return;
     }
 
     if ((customer || isGuest) && pathname === '/welcome') {
       const focus = readRouteParam(params.focus);
-      if (isGuest && isWelcomeAuthIntent(focus)) return;
+      if (isGuest && isWelcomeAuthIntent(focus)) {
+        setEntryReady(true);
+        return;
+      }
 
       const destination = resolveReturnTo(params.returnTo) ?? '/';
       router.replace(destination);
     }
+
+    setEntryReady(true);
   }, [
     authReady,
     customer,
@@ -116,6 +134,8 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     params.returnTo,
     params.focus,
   ]);
+
+  if (!authReady || !entryReady) return null;
 
   return <>{children}</>;
 }
