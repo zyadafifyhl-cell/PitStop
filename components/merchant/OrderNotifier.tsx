@@ -8,6 +8,7 @@ import {
   loadScopedShopBookings,
   mergeBookingList,
   resolvePendingBookingsForStaff,
+  upsertPendingBookingSorted,
   subscribeMerchantBookingRealtime,
   triggerMerchantOrderAlert,
 } from '@/lib/notifications/notificationService';
@@ -81,7 +82,11 @@ export function useMerchantOrderNotifier({
   }, []);
 
   const patchBookingLocally = useCallback((bookingId: string, status: BookingStatus) => {
-    setAllBookings((prev) => prev.map((row) => (row.id === bookingId ? { ...row, status } : row)));
+    setAllBookings((prev) =>
+      prev.map((row) =>
+        row.id === bookingId ? { ...row, status, lifecycleAutoCompleted: undefined } : row,
+      ),
+    );
     if (!isPendingBookingStatus(status)) {
       setPendingBookings((prev) => prev.filter((row) => row.id !== bookingId));
     }
@@ -103,10 +108,7 @@ export function useMerchantOrderNotifier({
           if (alertedIdsRef.current.has(booking.id)) return;
           alertedIdsRef.current.add(booking.id);
           setAllBookings((prev) => mergeBookingList(prev, booking));
-          setPendingBookings((prev) => {
-            if (prev.some((row) => row.id === booking.id)) return prev;
-            return [...prev, booking].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
-          });
+          setPendingBookings((prev) => upsertPendingBookingSorted(prev, booking));
           if (!alertOnFocus) {
             void triggerMerchantOrderAlert(booking, localeRef.current);
           }
@@ -119,10 +121,7 @@ export function useMerchantOrderNotifier({
                 setPendingBookings((prev) => prev.filter((row) => row.id !== booking.id));
                 return;
               }
-              setPendingBookings((prev) => {
-                if (prev.some((row) => row.id === booking.id)) return prev;
-                return [...prev, booking].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
-              });
+              setPendingBookings((prev) => upsertPendingBookingSorted(prev, booking));
               if (
                 previousStatus &&
                 !isPendingBookingStatus(previousStatus) &&

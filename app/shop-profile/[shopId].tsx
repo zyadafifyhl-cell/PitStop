@@ -20,7 +20,7 @@ import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
-import { applyOfferDiscount, isOfferLive, pickBestLiveOffer } from '@/lib/booking/offerPricing';
+import { applyCampaignPrice, formatOfferBadge, isOfferLive, pickBestLiveOffer, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 import { getCustomerShopReview, listShopReviews } from '@/lib/booking/reviewsStorage';
 import { isOrderHistoryReview } from '@/lib/booking/reviewConstants';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
@@ -103,6 +103,8 @@ export default function ShopProfileScreen() {
     }, [refreshExtras]),
   );
 
+  const offerBadgeMessages = useMemo(() => buildOfferBadgeMessages(t), [t]);
+
   if (!shop) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
@@ -168,15 +170,21 @@ export default function ShopProfileScreen() {
   }
 
   function renderOfferPrice(basePrice: number) {
-    const discountPct = pricingOffer?.discountPercentage ?? 0;
-    if (!pricingOffer || discountPct <= 0) {
+    if (!pricingOffer) {
       return (
         <Text style={[styles.serviceMeta, { color: theme.textMuted }]}>
           {formatEgp(basePrice, locale)}
         </Text>
       );
     }
-    const discounted = applyOfferDiscount(basePrice, discountPct);
+    const discounted = applyCampaignPrice(basePrice, pricingOffer, 0);
+    if (discounted >= basePrice) {
+      return (
+        <Text style={[styles.serviceMeta, { color: theme.textMuted }]}>
+          {formatEgp(basePrice, locale)}
+        </Text>
+      );
+    }
     return (
       <View style={styles.offerPriceRow}>
         <Text style={[styles.serviceMeta, styles.strikePrice, { color: theme.textDim }]}>
@@ -242,6 +250,20 @@ export default function ShopProfileScreen() {
 
         {washStatusBadge ? (
           <WashStatusBadge status={washStatusBadge} vacationReturnDate={extras?.vacationReturnDate} />
+        ) : null}
+
+        {pricingOffer ? (
+          <View style={[styles.promoBanner, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
+            <Text style={[styles.promoBannerBadge, { color: theme.warm }]}>
+              {formatOfferBadge(pricingOffer, offerBadgeMessages)}
+            </Text>
+            <Text style={[styles.promoBannerTitle, { color: theme.text }]}>
+              {locale === 'ar' ? pricingOffer.titleAr || pricingOffer.title : pricingOffer.title}
+            </Text>
+            {pricingOffer.description ? (
+              <Text style={[styles.promoBannerBody, { color: theme.textMuted }]}>{pricingOffer.description}</Text>
+            ) : null}
+          </View>
         ) : null}
 
         <View style={styles.actionRow}>
@@ -397,18 +419,16 @@ export default function ShopProfileScreen() {
                       borderColor: focused ? theme.accent : theme.border,
                     },
                   ]}>
-                  <Text style={[styles.offerText, { color: theme.accent }]}>{label}</Text>
+                  <Text style={[styles.offerBadgeLine, { color: theme.warm }]}>
+                    {formatOfferBadge(offer, offerBadgeMessages)}
+                  </Text>
+                  <Text style={[styles.offerText, { color: theme.text }]}>{label}</Text>
                   <Text style={[styles.infoLine, { color: theme.textMuted, marginTop: 4 }]}>
                     {t('shop_offer_valid_until').replace(
                       '{date}',
                       new Date(offer.endDate || offer.validUntil).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
                     )}
                   </Text>
-                  {offer.discountPercentage > 0 ? (
-                    <Text style={[styles.infoLine, { color: theme.danger, fontWeight: '800', marginTop: 4 }]}>
-                      {t('book_offer_discount_applied').replace('{pct}', String(offer.discountPercentage))}
-                    </Text>
-                  ) : null}
                   <Pressable
                     onPress={() => goToBook(services[0]?.id)}
                     style={[styles.serviceBookBtn, { backgroundColor: theme.accent, marginTop: 8, alignSelf: 'flex-start' }]}>
@@ -441,6 +461,17 @@ const styles = StyleSheet.create({
   profileImage: { width: 90, height: 90, borderRadius: 45, borderWidth: 3 },
   title: { fontSize: 22, fontWeight: '800' },
   meta: { marginTop: 4, fontSize: 13, lineHeight: 18 },
+  promoBanner: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 6,
+  },
+  promoBannerBadge: { fontSize: 13, fontWeight: '900' },
+  promoBannerTitle: { fontSize: 16, fontWeight: '800' },
+  promoBannerBody: { fontSize: 13, lineHeight: 19 },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingBottom: 12 },
   primaryBtn: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   primaryBtnText: { fontSize: 14, fontWeight: '800' },
@@ -479,6 +510,7 @@ const styles = StyleSheet.create({
   infoLine: { fontSize: 14, lineHeight: 20 },
   offerChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
   offerCard: { borderWidth: 1, borderRadius: 12, padding: 12 },
+  offerBadgeLine: { fontSize: 12, fontWeight: '900', marginBottom: 4 },
   offerText: { fontSize: 12, fontWeight: '700' },
   offerPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   strikePrice: { textDecorationLine: 'line-through' },

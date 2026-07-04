@@ -20,6 +20,7 @@ import {
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
+import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
@@ -58,6 +59,7 @@ import {
   setReviewOwnerReply,
   setReviewReported,
 } from '@/lib/booking/reviewsStorage';
+import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { openPhone } from '@/lib/linking/contact';
@@ -1246,7 +1248,11 @@ export function WashOwnerPanel({ shop }: Props) {
     await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
     orderNotifier.patchBookingLocally(booking.id, status);
     orderNotifier.removePendingLocally(booking.id);
-    setBookings((prev) => prev.map((row) => (row.id === booking.id ? { ...row, status } : row)));
+    setBookings((prev) =>
+      prev.map((row) =>
+        row.id === booking.id ? { ...row, status, lifecycleAutoCompleted: undefined } : row,
+      ),
+    );
     if (status === 'confirmed') {
       await scheduleBookingReminders({
         bookingId: booking.id,
@@ -1272,7 +1278,20 @@ export function WashOwnerPanel({ shop }: Props) {
     if (status === 'done') {
       await cancelBookingReminders(booking.id);
     }
+    if (status === 'no_show') {
+      await cancelBookingReminders(booking.id);
+    }
     await refreshAll();
+  }
+
+  function onMerchantNoShowOverride(booking: Booking) {
+    promptMerchantNoShowOverride({
+      title: t('merchant_noshow_override_title'),
+      message: t('merchant_noshow_override_body'),
+      confirmLabel: t('merchant_noshow_override_btn'),
+      cancelLabel: t('alert_cancel'),
+      onConfirm: () => onBookingStatusChange(booking, 'no_show'),
+    });
   }
 
   async function submitReject() {
@@ -1415,7 +1434,7 @@ export function WashOwnerPanel({ shop }: Props) {
                   <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_complete')}</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => onBookingStatusChange(booking, 'no_show')}
+                  onPress={() => onMerchantNoShowOverride(booking)}
                   style={[styles.chipBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
                   <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_action_no_show')}</Text>
                 </Pressable>
@@ -1845,6 +1864,10 @@ export function WashOwnerPanel({ shop }: Props) {
                 )}
               </OwnerSectionCard>
             </PremiumFeatureGate>
+
+            <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+              <MerchantCampaignsPanel shopId={shop.id} />
+            </OwnerSectionCard>
 
             {/* Weekly hours */}
             <OwnerSectionCard theme={theme} title={t('wash_hours_title')} subtitle={t('wash_hours_lead')}>

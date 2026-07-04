@@ -17,10 +17,13 @@ import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listArchivedBookingsForStaff } from '@/lib/booking/bookingHistoryRepository';
+import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
+import { isAutoCompletedBooking, updateBookingStatus } from '@/lib/booking/storage';
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
 import {
   buildOwnerReportHtmlDeferred,
   filterBookingsByRange,
+  filterRevenueBookings,
   formatEgp,
   formatRangeLabel,
   normalizeBookingMoney,
@@ -32,6 +35,8 @@ import type { Booking, Shop } from '@/lib/booking/types';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
 import { openReportPrintFrameWeb } from '@/lib/pdf/reportPrintWeb';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
+
+type HistoryFilter = 'all' | 'done' | 'cancelled';
 
 type Props = {
   shop: Shop;
@@ -68,6 +73,7 @@ export function OwnerHistoryPanel({
   const [lastDaysInput, setLastDaysInput] = useState('30');
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
   const deferredRows = useDeferredValue(rows);
 
   const branchId =
@@ -85,6 +91,7 @@ export function OwnerHistoryPanel({
   const loadHistory = useCallback(async () => {
     setLoading(true);
     try {
+      // Finalized archive only — pending/confirmed stay on the operational dashboard.
       const archived = await listArchivedBookingsForStaff(shop.id, branchId);
       setRows(archived);
     } finally {
@@ -111,7 +118,8 @@ export function OwnerHistoryPanel({
 
   const reportBookings = useMemo(() => {
     const normalized = deferredRows.map((row) => ({ ...row, ...normalizeBookingMoney(row) }));
-    return reportRange ? filterBookingsByRange(normalized, reportRange) : [];
+    const inRange = reportRange ? filterBookingsByRange(normalized, reportRange) : [];
+    return filterRevenueBookings(inRange);
   }, [deferredRows, reportRange]);
 
   const financialTotals = useMemo(() => {
@@ -126,6 +134,27 @@ export function OwnerHistoryPanel({
     );
   }, [reportBookings]);
 
+  const historyRows = useMemo(() => {
+    if (mode !== 'history') return deferredRows;
+    if (historyFilter === 'done') {
+      return deferredRows.filter((row) => row.status === 'done' && !isAutoCompletedBooking(row));
+    }
+    if (historyFilter === 'cancelled') {
+      return deferredRows.filter((row) => row.status === 'cancelled' || row.status === 'no_show');
+    }
+    return deferredRows;
+  }, [deferredRows, mode, historyFilter]);
+
+  const historyFilterOptions = useMemo(
+    () =>
+      [
+        { id: 'all' as const, label: t('owner_history_filter_all') },
+        { id: 'done' as const, label: t('owner_history_filter_completed') },
+        { id: 'cancelled' as const, label: t('owner_history_filter_cancelled') },
+      ] as const,
+    [t],
+  );
+
   function applyLastDaysRange() {
     const days = Number(lastDaysInput);
     const range = resolveLastNDaysRange(days);
@@ -135,6 +164,25 @@ export function OwnerHistoryPanel({
     }
     setReportStartYmd(toYmdLocal(range.start));
     setReportEndYmd(toYmdLocal(range.end));
+  }
+
+  function onMerchantNoShowOverride(booking: Booking) {
+    promptMerchantNoShowOverride({
+      title: t('merchant_noshow_override_title'),
+      message: t('merchant_noshow_override_body'),
+      confirmLabel: t('merchant_noshow_override_btn'),
+      cancelLabel: t('alert_cancel'),
+      onConfirm: async () => {
+        await updateBookingStatus(booking.id, 'no_show', booking);
+        setRows((prev) =>
+          prev.map((row) =>
+            row.id === booking.id
+              ? { ...row, status: 'no_show', lifecycleAutoCompleted: undefined }
+              : row,
+          ),
+        );
+      },
+    });
   }
 
   async function onGeneratePdf(scope: 'selected' | 'all' = 'selected') {
@@ -158,9 +206,11 @@ export function OwnerHistoryPanel({
       scopedBranchId === branchId
         ? rows
         : await listArchivedBookingsForStaff(shop.id, scopedBranchId);
-    const scopedReportBookings = filterBookingsByRange(
-      sourceRows.map((row) => ({ ...row, ...normalizeBookingMoney(row) })),
-      reportRange,
+    const scopedReportBookings = filterRevenueBookings(
+      filterBookingsByRange(
+        sourceRows.map((row) => ({ ...row, ...normalizeBookingMoney(row) })),
+        reportRange,
+      ),
     );
     const scopedFinancialTotals = scopedReportBookings.reduce(
       (acc, row) => {
@@ -243,7 +293,33 @@ export function OwnerHistoryPanel({
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.lead, { color: theme.textMuted }]}>{t('owner_history_lead')}</Text>
+      <Text style={[styles.lead, { color: theme.textMuted }]}>
+        {mode === 'history' ? t('owner_history_scope_note') : t('owner_history_lead')}
+      </Text>
+
+      {mode === 'history' ? (
+        <View style={styles.historyFilterRow}>
+          {historyFilterOptions.map((option) => {
+            const active = historyFilter === option.id;
+            return (
+              <Pressable
+                key={option.id}
+                onPress={() => setHistoryFilter(option.id)}
+                style={[
+                  styles.historyFilterChip,
+                  {
+                    backgroundColor: active ? theme.accent : theme.bgElevated,
+                    borderColor: active ? theme.accent : theme.border,
+                  },
+                ]}>
+                <Text style={[styles.historyFilterText, { color: active ? theme.onAccent : theme.text }]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       {mode !== 'history' ? (
         <View style={[styles.reportCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
@@ -392,12 +468,16 @@ export function OwnerHistoryPanel({
 
       {mode === 'reports' ? null : loading ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
-      ) : rows.length === 0 ? (
+      ) : historyRows.length === 0 ? (
         <Text style={[styles.empty, { color: theme.textMuted }]}>
-          {variant === 'shop' ? t('shop_booking_history_empty') : t('wash_booking_history_empty')}
+          {rows.length === 0
+            ? variant === 'shop'
+              ? t('shop_booking_history_empty')
+              : t('wash_booking_history_empty')
+            : t('owner_history_filter_empty')}
         </Text>
       ) : (
-        rows.map((booking) => (
+        historyRows.map((booking) => (
           <View
             key={booking.id}
             style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
@@ -407,9 +487,34 @@ export function OwnerHistoryPanel({
             <Text style={[styles.meta, { color: theme.textMuted }]}>
               {booking.customerName || booking.customerPhone} · {booking.carType}
             </Text>
-            <Text style={[styles.status, { color: theme.accent }]}>
+            <Text
+              style={[
+                styles.status,
+                {
+                  color:
+                    booking.status === 'done'
+                      ? theme.green
+                      : booking.status === 'cancelled' || booking.status === 'no_show'
+                        ? theme.danger
+                        : theme.accent,
+                },
+              ]}>
               {bookingStatusLabel(booking.status, locale)}
             </Text>
+            {isAutoCompletedBooking(booking) ? (
+              <>
+                <Text style={[styles.autoHint, { color: theme.textMuted }]}>
+                  {t('merchant_noshow_override_auto_hint')}
+                </Text>
+                <Pressable
+                  onPress={() => onMerchantNoShowOverride(booking)}
+                  style={[styles.overrideBtn, { borderColor: theme.danger, backgroundColor: theme.bgElevated }]}>
+                  <Text style={[styles.overrideBtnText, { color: theme.danger }]}>
+                    {t('merchant_noshow_override_btn')}
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
           </View>
         ))
       )}
@@ -421,6 +526,14 @@ export function OwnerHistoryPanel({
 const styles = StyleSheet.create({
   wrap: { gap: 12 },
   lead: { fontSize: 14, lineHeight: 20, marginBottom: 4 },
+  historyFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  historyFilterChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  historyFilterText: { fontSize: 13, fontWeight: '800' },
   reportCard: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 },
   sectionTitle: { fontSize: 17, fontWeight: '800' },
   dateRow: { gap: 8 },
@@ -455,5 +568,15 @@ const styles = StyleSheet.create({
   when: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   meta: { fontSize: 14, lineHeight: 20 },
   status: { fontSize: 13, fontWeight: '800', marginTop: 6 },
+  autoHint: { fontSize: 12, lineHeight: 18, marginTop: 6 },
+  overrideBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  overrideBtnText: { fontSize: 13, fontWeight: '800' },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 24 },
 });

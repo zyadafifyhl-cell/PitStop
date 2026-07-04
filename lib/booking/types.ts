@@ -59,6 +59,8 @@ export type Booking = {
   scheduledAt: string;
   status: BookingStatus;
   createdAt: string;
+  /** Read-time flag when confirmed slot aged past auto-done window (not persisted). */
+  lifecycleAutoCompleted?: boolean;
 };
 
 export type Area = {
@@ -108,12 +110,19 @@ export type PartsOrder = {
   createdAt: string;
 };
 
+export type OfferType = 'percentage' | 'flat_amount' | 'buy_x_get_y';
+
 export type ShopOffer = {
   id: string;
   shopId?: string;
   title: string;
   titleAr?: string;
   description?: string;
+  offerType: OfferType;
+  discountValue: number;
+  requiredWashCount: number;
+  expiresAt?: string | null;
+  /** Legacy percentage field — kept for backward compatibility. */
   discountPercentage: number;
   startDate: string;
   endDate: string;

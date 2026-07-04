@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
@@ -47,8 +48,6 @@ import { isStoreShopType, storeCategoryForShopType } from '@/lib/booking/storeCa
 import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import {
   addShopImage,
-  addShopOffer,
-  cancelShopOffer,
   getShopExtras,
   removeShopImage,
   setShopCoverImage,
@@ -60,7 +59,7 @@ import {
   shopHasSavedSchedule,
 } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
-import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
+import { listBookingsForShop, sortBookingsByScheduledAtDesc, updateBookingStatus } from '@/lib/booking/storage';
 import { registerOwnerPushToken } from '@/lib/push/shopPush';
 import type {
   Booking,
@@ -114,10 +113,6 @@ export default function ShopScreen() {
   const [winchEnabled, setWinchEnabled] = useState(false);
   const [winchPhone, setWinchPhone] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
-  const [newOfferTitle, setNewOfferTitle] = useState('');
-  const [newOfferTitleAr, setNewOfferTitleAr] = useState('');
-  const [newOfferDiscount, setNewOfferDiscount] = useState('10');
-  const [newOfferDays, setNewOfferDays] = useState('7');
   const [workOpenTime, setWorkOpenTime] = useState(DEFAULT_WORK_OPEN);
   const [workCloseTime, setWorkCloseTime] = useState(DEFAULT_WORK_CLOSE);
   const [serviceDurationMinutes, setServiceDurationMinutes] = useState(String(DEFAULT_SERVICE_DURATION_MINUTES));
@@ -215,9 +210,7 @@ export default function ShopScreen() {
 
   const activeBookings = useMemo(
     () =>
-      bookings
-        .filter((booking) => booking.status === 'pending')
-        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)),
+      sortBookingsByScheduledAtDesc(bookings.filter((booking) => booking.status === 'pending')),
     [bookings],
   );
 
@@ -701,37 +694,6 @@ export default function ShopScreen() {
     await refreshShopExtras();
   }
 
-  async function onAddOffer() {
-    if (!shop || !newOfferTitle.trim()) {
-      Alert.alert(t('shop_offer_invalid_title'), t('shop_offer_invalid_body'));
-      return;
-    }
-    const days = Number(newOfferDays);
-    const discount = Number(newOfferDiscount);
-    if (Number.isNaN(days) || days < 1 || Number.isNaN(discount) || discount <= 0 || discount > 100) {
-      Alert.alert(t('shop_offer_invalid_title'), t('shop_offer_invalid_body'));
-      return;
-    }
-    await addShopOffer({
-      shopId: shop.id,
-      title: newOfferTitle,
-      titleAr: newOfferTitleAr,
-      discountPercentage: discount,
-      validDays: days,
-    });
-    setNewOfferTitle('');
-    setNewOfferTitleAr('');
-    setNewOfferDiscount('10');
-    setNewOfferDays('7');
-    await refreshShopExtras();
-  }
-
-  async function onCancelOffer(offerId: string) {
-    if (!shop) return;
-    await cancelShopOffer(shop.id, offerId);
-    await refreshShopExtras();
-  }
-
   if (!ready) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
@@ -787,7 +749,6 @@ export default function ShopScreen() {
     locale === 'ar'
       ? shopExtras?.profileNameAr || shopExtras?.profileName || shop.nameAr
       : shopExtras?.profileName || shop.name;
-  const activeOffers = (shopExtras?.offers ?? []).filter((offer) => offer.active);
   const coverImage = shopExtras?.imageUrls?.[0];
   const profileImage = shopExtras?.profileImageUrl;
 
@@ -924,26 +885,8 @@ export default function ShopScreen() {
         </OwnerSectionCard>
       ) : null}
 
-      <OwnerSectionCard theme={theme} title={t('shop_manage_offer_title')}>
-        <TextInput placeholder={t('shop_manage_offer_title_placeholder')} placeholderTextColor={theme.textDim} value={newOfferTitle} onChangeText={setNewOfferTitle} style={fieldStyle} />
-        <TextInput placeholder={t('shop_manage_offer_title_ar_placeholder')} placeholderTextColor={theme.textDim} value={newOfferTitleAr} onChangeText={setNewOfferTitleAr} style={fieldStyle} />
-        <TextInput placeholder={t('shop_manage_offer_discount_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newOfferDiscount} onChangeText={setNewOfferDiscount} style={fieldStyle} />
-        <TextInput placeholder={t('shop_manage_offer_days_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newOfferDays} onChangeText={setNewOfferDays} style={fieldStyle} />
-        <Pressable onPress={onAddOffer} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-          <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_add_offer')}</Text>
-        </Pressable>
-        {activeOffers.length ? (
-          <View style={styles.actions}>
-            {activeOffers.map((offer) => (
-              <Pressable key={offer.id} onPress={() => onCancelOffer(offer.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                <Text style={styles.actionText}>
-                  {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
-                  {offer.discountPercentage > 0 ? ` · -${offer.discountPercentage}%` : ''}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
+      <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+        <MerchantCampaignsPanel shopId={shop.id} />
       </OwnerSectionCard>
     </>
   );

@@ -151,3 +151,5 @@ export function orderTotalLabel(booking: Booking, locale: Locale): string {
   const { servicePriceEgp } = normalizeBookingMoney(booking);
   return formatEgp(servicePriceEgp, locale);
 }
+
+export { sortBookingsByScheduledAtDesc } from '@/lib/booking/storage';

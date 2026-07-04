@@ -1,87 +1,39 @@
 import type { Booking, BookingStatus } from '@/lib/booking/types';
-import { getSupabase } from '@/lib/supabase/client';
+import {
+  isFinalizedHistoryBooking,
+  listBookingsForShop,
+  sortBookingsByScheduledAtDesc,
+} from '@/lib/booking/storage';
 
-import { listBookingsForShop } from '@/lib/booking/storage';
+/**
+ * Finalized merchant history archive.
+ * Pending and confirmed (still within the slot window) belong on the operational dashboard;
+ * stale confirmed rows are auto-completed at read time and appear here for owner review.
+ */
+const ARCHIVED_DB_STATUSES: BookingStatus[] = ['done', 'cancelled', 'no_show'];
 
-const ARCHIVED_STATUSES: BookingStatus[] = ['done', 'cancelled', 'no_show'];
-
-type BookingRow = {
-  id: string;
-  shop_id: string;
-  branch_id?: string | null;
-  shop_type: Booking['shopType'];
-  customer_id?: string | null;
-  customer_phone?: string | null;
-  customer_name?: string | null;
-  car_type: string;
-  car_color: string | null;
-  service_id?: string | null;
-  service_name?: string | null;
-  service_name_ar?: string | null;
-  service_price_egp: number | string | null;
-  platform_fee_egp: number | string | null;
-  offer_id?: string | null;
-  customer_notes?: string | null;
-  owner_rejection_note?: string | null;
-  booking_type?: Booking['bookingType'];
-  scheduled_at: string;
-  status: BookingStatus;
-  created_at: string;
-};
-
-function mapBookingRow(row: BookingRow): Booking {
-  return {
-    id: row.id,
-    shopId: row.shop_id,
-    branchId: row.branch_id ?? undefined,
-    shopType: row.shop_type,
-    customerId: row.customer_id ?? undefined,
-    customerPhone: row.customer_phone ?? '',
-    customerName: row.customer_name ?? undefined,
-    carType: row.car_type,
-    carColor: row.car_color ?? '',
-    serviceId: row.service_id ?? undefined,
-    serviceName: row.service_name ?? undefined,
-    serviceNameAr: row.service_name_ar ?? undefined,
-    servicePriceEgp: row.service_price_egp != null ? Number(row.service_price_egp) : undefined,
-    platformFeeEgp: row.platform_fee_egp != null ? Number(row.platform_fee_egp) : undefined,
-    offerId: row.offer_id ?? undefined,
-    customerNotes: row.customer_notes ?? undefined,
-    ownerRejectionNote: row.owner_rejection_note ?? undefined,
-    bookingType: row.booking_type ?? undefined,
-    scheduledAt: row.scheduled_at,
-    status: row.status,
-    createdAt: row.created_at,
-  };
+/** History timeline: newest past slots first; future-dated test rows sink to the bottom. */
+export function sortArchivedBookingsForDisplay(bookings: Booking[]): Booking[] {
+  const now = Date.now();
+  const tierSorted = sortBookingsByScheduledAtDesc(bookings);
+  return [...tierSorted].sort((a, b) => {
+    const aFuture = new Date(a.scheduledAt).getTime() > now;
+    const bFuture = new Date(b.scheduledAt).getTime() > now;
+    if (aFuture !== bFuture) return aFuture ? 1 : -1;
+    return new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime();
+  });
 }
 
-/** Archived bookings from Supabase (done / cancelled / no_show), scoped by shop and optional branch. */
+/** Finalized + auto-completed bookings for merchant history, scoped by shop/branch. */
 export async function listArchivedBookingsForStaff(
   shopId: string,
   branchId?: string | null,
 ): Promise<Booking[]> {
-  const supabase = getSupabase();
-  if (supabase) {
-    let query = supabase
-      .from('bookings')
-      .select('*')
-      .eq('shop_id', shopId)
-      .in('status', ARCHIVED_STATUSES)
-      .order('scheduled_at', { ascending: false });
+  const all = await listBookingsForShop(shopId);
+  const scoped = branchId ? all.filter((row) => row.branchId === branchId) : all;
+  return sortArchivedBookingsForDisplay(scoped.filter(isFinalizedHistoryBooking));
+}
 
-    if (branchId) {
-      query = query.eq('branch_id', branchId);
-    }
-
-    const { data, error } = await query;
-    if (!error && data?.length) {
-      return (data as BookingRow[]).map(mapBookingRow);
-    }
-  }
-
-  const local = await listBookingsForShop(shopId);
-  return local
-    .filter((row) => ARCHIVED_STATUSES.includes(row.status))
-    .filter((row) => !branchId || row.branchId === branchId)
-    .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
+export function isArchivedBookingStatus(status: BookingStatus): boolean {
+  return ARCHIVED_DB_STATUSES.includes(status);
 }

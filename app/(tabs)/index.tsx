@@ -2,7 +2,7 @@ import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
@@ -19,8 +19,8 @@ import { getAreaById } from '@/lib/booking/areas';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import { listBookingsForPhone } from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
-import { listAllActiveOffers } from '@/lib/booking/offerRepository';
-import { isOfferLive } from '@/lib/booking/offerPricing';
+import { listAllActiveOffers, subscribeOffersRealtime } from '@/lib/booking/offerRepository';
+import { formatOfferBadge, isOfferLive, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 
 function bookingStatusTone(status: Booking['status']) {
   if (status === 'pending') return { bg: 'rgba(0, 212, 255, 0.18)', color: '#A5F3FC' };
@@ -59,6 +59,11 @@ export default function HomeScreen() {
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
   const [vehicleRefreshKey, setVehicleRefreshKey] = useState(0);
+
+  const offerBadgeMessages = useMemo(
+    () => buildOfferBadgeMessages(t),
+    [t],
+  );
 
   const serviceCards = useMemo(
     () =>
@@ -143,6 +148,13 @@ export default function HomeScreen() {
       setVehicleRefreshKey((key) => key + 1);
     }, [refreshHomeData, loadLiveOffers]),
   );
+
+  useEffect(() => {
+    const unsubscribe = subscribeOffersRealtime(() => {
+      void loadLiveOffers();
+    });
+    return unsubscribe;
+  }, [loadLiveOffers]);
 
   const greeting = customer
     ? tp('home_greeting_named', { name: customer.name.split(' ')[0] ?? customer.name })
@@ -301,11 +313,11 @@ export default function HomeScreen() {
                 <Text style={[styles.offerTitle, { color: theme.text }]} numberOfLines={2}>
                   {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
                 </Text>
-                {offer.discountPercentage > 0 ? (
-                  <Text style={[styles.offerMeta, { color: theme.danger, fontWeight: '800' }]}>
-                    {t('offer_active_badge_pct').replace('{pct}', String(Math.round(offer.discountPercentage)))}
+                <View style={[styles.offerBadgeCapsule, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
+                  <Text style={[styles.offerBadgeCapsuleText, { color: theme.warm }]}>
+                    {formatOfferBadge(offer, offerBadgeMessages)}
                   </Text>
-                ) : null}
+                </View>
                 <Text style={[styles.offerMeta, { color: theme.text }]} numberOfLines={1}>
                   {shopName} — {shopArea}
                 </Text>
@@ -443,6 +455,15 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   offerTitle: { color: AppTheme.text, fontSize: 16, fontWeight: '900', marginBottom: 7, lineHeight: 22 },
+  offerBadgeCapsule: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 6,
+  },
+  offerBadgeCapsuleText: { fontSize: 12, fontWeight: '800' },
   offerEyebrow: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },
   offerMeta: { color: AppTheme.textMuted, fontSize: 14, lineHeight: 20 },
   signOut: { marginTop: 20, alignItems: 'center', paddingVertical: 12 },

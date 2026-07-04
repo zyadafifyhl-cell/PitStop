@@ -104,6 +104,11 @@ export function filterBookingsByRange(bookings: Booking[], range: DateRange): Bo
   });
 }
 
+/** PDF / revenue totals — completed bookings only (excludes cancelled, no-show, pending, auto-completed). */
+export function filterRevenueBookings(bookings: Booking[]): Booking[] {
+  return bookings.filter((b) => b.status === 'done' && !b.lifecycleAutoCompleted);
+}
+
 export function formatRangeLabel(range: DateRange, locale: 'en' | 'ar'): string {
   const fmt = (d: Date) =>
     d.toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG', {
@@ -146,9 +151,13 @@ export function buildOwnerReportHtml(params: {
   for (let idx = 0; idx < sortedBookings.length; idx += 1) {
     const booking = sortedBookings[idx];
     const money = normalizeBookingMoney(booking);
-    totals.gross += money.servicePriceEgp;
-    totals.fee += money.platformFeeEgp;
-    totals.net += money.ownerNetEgp;
+    const isRevenue = booking.status === 'done' && !booking.lifecycleAutoCompleted;
+
+    if (isRevenue) {
+      totals.gross += money.servicePriceEgp;
+      totals.fee += money.platformFeeEgp;
+      totals.net += money.ownerNetEgp;
+    }
 
     if (booking.status === 'pending') statusCount.pending += 1;
     else if (booking.status === 'confirmed') statusCount.confirmed += 1;

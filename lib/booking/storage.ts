@@ -10,11 +10,15 @@ import {
 import { recordWashBookingDone } from '@/lib/booking/loyaltyStampsStorage';
 import { handleBookingConfirmed } from '@/lib/booking/bookingLifecycle';
 import {
-  applyOfferDiscount,
+  applyCampaignPrice,
   computePlatformFee,
   PLATFORM_FEE_RATE,
 } from '@/lib/booking/offerPricing';
-import { OfferValidationError, validateOfferForBooking } from '@/lib/booking/offerRepository';
+import {
+  OfferValidationError,
+  countDoneBookingsForCustomerAtShop,
+  validateOfferForBooking,
+} from '@/lib/booking/offerRepository';
 import type { Booking, BookingStatus, BookingType } from '@/lib/booking/types';
 import { resolveRemoteBranchId } from '@/lib/booking/wash/branchRepository';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
@@ -57,6 +61,79 @@ async function fetchBookingsForPhoneRemote(phone: string): Promise<Booking[] | n
 
 const BOOKINGS_KEY = '@pitstop/bookings/v1';
 const CUSTOMER_PHONE_KEY = '@pitstop/bookings/customer-phone';
+
+/** Grace period after scheduled_at before a confirmed booking is treated as done. */
+export const AUTO_DONE_AFTER_MS = 60 * 60 * 1000;
+
+export function isConfirmedPastAutoDoneWindow(scheduledAt: string, now = Date.now()): boolean {
+  const scheduledMs = new Date(scheduledAt).getTime();
+  if (Number.isNaN(scheduledMs)) return false;
+  return now - scheduledMs > AUTO_DONE_AFTER_MS;
+}
+
+/** Virtual lifecycle: stale confirmed/in_progress slots become done at read time. */
+export function resolveEffectiveBookingStatus(booking: Booking, now = Date.now()): BookingStatus {
+  if (
+    (booking.status === 'confirmed' || booking.status === 'in_progress') &&
+    isConfirmedPastAutoDoneWindow(booking.scheduledAt, now)
+  ) {
+    return 'done';
+  }
+  return booking.status;
+}
+
+export function applyVirtualBookingLifecycle(booking: Booking, now = Date.now()): Booking {
+  const effectiveStatus = resolveEffectiveBookingStatus(booking, now);
+  if (effectiveStatus === booking.status) {
+    return booking.lifecycleAutoCompleted ? { ...booking, lifecycleAutoCompleted: undefined } : booking;
+  }
+  return {
+    ...booking,
+    status: effectiveStatus,
+    lifecycleAutoCompleted: true,
+  };
+}
+
+export function applyVirtualBookingLifecycleBatch(bookings: Booking[], now = Date.now()): Booking[] {
+  return bookings.map((row) => applyVirtualBookingLifecycle(row, now));
+}
+
+export function isAutoCompletedBooking(booking: Booking): boolean {
+  return !!booking.lifecycleAutoCompleted;
+}
+
+/** Revenue reports count only persisted completed washes — never cancelled/no-show or auto-completed placeholders. */
+export function countsAsRevenueBooking(booking: Booking): boolean {
+  return booking.status === 'done' && !booking.lifecycleAutoCompleted;
+}
+
+export function isFinalizedHistoryBooking(booking: Booking): boolean {
+  return (
+    booking.status === 'done' ||
+    booking.status === 'cancelled' ||
+    booking.status === 'no_show' ||
+    isAutoCompletedBooking(booking)
+  );
+}
+
+/** Active bookings surface first; finalized history sinks below. */
+function bookingDisplayTier(status: BookingStatus): 0 | 1 {
+  if (status === 'pending' || status === 'confirmed' || status === 'in_progress') return 0;
+  return 1;
+}
+
+/**
+ * Two-tier display sort:
+ * 1) Active (pending/confirmed) above finalized (done/cancelled/no_show)
+ * 2) Newest scheduled_at first within each tier
+ */
+export function sortBookingsByScheduledAtDesc(bookings: Booking[]): Booking[] {
+  return [...bookings].sort((a, b) => {
+    const tierDiff = bookingDisplayTier(a.status) - bookingDisplayTier(b.status);
+    if (tierDiff !== 0) return tierDiff;
+    return new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime();
+  });
+}
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -307,7 +384,7 @@ export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
       .from('bookings')
       .select('*')
       .eq('shop_id', shopId)
-      .order('scheduled_at', { ascending: true });
+      .order('scheduled_at', { ascending: false });
 
     if (!error && data) rows = (data as BookingRow[]).map(mapBookingRow);
   }
@@ -322,16 +399,16 @@ export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
 
   const dedup = new Map<string, Booking>();
   for (const row of rows) dedup.set(row.id, row);
-  return [...dedup.values()].sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
+  return sortBookingsByScheduledAtDesc(applyVirtualBookingLifecycleBatch([...dedup.values()]));
 }
 
 export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
   const localRows = (await readAll()).filter((b) => phonesEqual(b.customerPhone, phone));
   const remoteRows = await fetchBookingsForPhoneRemote(phone);
   if (remoteRows) {
-    return mergeBookings(remoteRows, localRows).sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
+    return sortBookingsByScheduledAtDesc(mergeBookings(remoteRows, localRows));
   }
-  return localRows.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
+  return sortBookingsByScheduledAtDesc(localRows);
 }
 
 export async function getBookingForCustomer(bookingId: string, phone: string): Promise<Booking | null> {
@@ -356,7 +433,15 @@ export async function createBooking(
   if (input.offerId) {
     try {
       const offer = await validateOfferForBooking(input.shopId, input.offerId);
-      servicePriceEgp = applyOfferDiscount(baseServicePriceEgp, offer.discountPercentage);
+      const doneCount =
+        offer.offerType === 'buy_x_get_y'
+          ? await countDoneBookingsForCustomerAtShop({
+              shopId: input.shopId,
+              customerId: input.customerId,
+              customerPhone: input.customerPhone,
+            })
+          : 0;
+      servicePriceEgp = applyCampaignPrice(baseServicePriceEgp, offer, doneCount);
       resolvedOfferId = offer.id;
     } catch (error) {
       if (error instanceof OfferValidationError) {

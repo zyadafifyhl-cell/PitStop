@@ -18,7 +18,11 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { addShopReview, getCustomerShopReview } from '@/lib/booking/reviewsStorage';
 import { orderHistoryReviewBody } from '@/lib/booking/reviewConstants';
-import { clearCustomerBookingHistory, listBookingsForPhone } from '@/lib/booking/storage';
+import {
+  clearCustomerBookingHistory,
+  listBookingsForPhone,
+  sortBookingsByScheduledAtDesc,
+} from '@/lib/booking/storage';
 import type { Booking } from '@/lib/booking/types';
 
 function formatDisplayPhone(phone: string): string {
@@ -46,7 +50,7 @@ export default function MyBookingsScreen() {
       setBusy(false);
       return;
     }
-    const rows = await listBookingsForPhone(customer.phone);
+    const rows = sortBookingsByScheduledAtDesc(await listBookingsForPhone(customer.phone));
     setBookings(rows);
     if (customer.id) {
       const shopIds = [...new Set(rows.map((row) => row.shopId))];

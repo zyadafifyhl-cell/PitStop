@@ -2,7 +2,12 @@ import { Platform, Vibration } from 'react-native';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 import { formatBookingDateTime } from '@/lib/booking/format';
-import { listBookingsForShop } from '@/lib/booking/storage';
+import {
+  applyVirtualBookingLifecycle,
+  applyVirtualBookingLifecycleBatch,
+  listBookingsForShop,
+  sortBookingsByScheduledAtDesc,
+} from '@/lib/booking/storage';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
 import { filterPendingQueueBookingsForStaff } from '@/lib/booking/wash/bookingDispatch';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
@@ -87,7 +92,7 @@ export async function resolvePendingBookingsForStaff(
   if (activeBranchId) {
     pending = pending.filter((row) => !row.branchId || row.branchId === activeBranchId);
   }
-  return pending.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+  return sortBookingsByScheduledAtDesc(pending);
 }
 
 export async function countPendingBookingsForStaff(
@@ -114,7 +119,19 @@ export function mergeBookingList(existing: Booking[], incoming: Booking): Bookin
   const next = existing.some((row) => row.id === incoming.id)
     ? existing.map((row) => (row.id === incoming.id ? incoming : row))
     : [incoming, ...existing];
-  return next.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
+  return sortBookingsByScheduledAtDesc(applyVirtualBookingLifecycleBatch(next));
+}
+
+export function upsertPendingBookingSorted(existing: Booking[], incoming: Booking): Booking[] {
+  const normalized = applyVirtualBookingLifecycle(incoming);
+  if (existing.some((row) => row.id === normalized.id)) {
+    return sortBookingsByScheduledAtDesc(
+      applyVirtualBookingLifecycleBatch(
+        existing.map((row) => (row.id === normalized.id ? normalized : row)),
+      ),
+    );
+  }
+  return sortBookingsByScheduledAtDesc(applyVirtualBookingLifecycleBatch([normalized, ...existing]));
 }
 
 export function removePendingBookingLocally(bookings: Booking[], bookingId: string): Booking[] {
@@ -123,7 +140,7 @@ export function removePendingBookingLocally(bookings: Booking[], bookingId: stri
 
 export async function loadScopedShopBookings(shopId: string, staff: ShopStaffUser | null): Promise<Booking[]> {
   const rows = await listBookingsForShop(shopId);
-  return scopeBookingsForStaffView(rows, staff);
+  return sortBookingsByScheduledAtDesc(scopeBookingsForStaffView(rows, staff));
 }
 
 export async function triggerMerchantOrderAlert(booking: Booking, locale: 'en' | 'ar'): Promise<void> {

@@ -2,7 +2,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -10,6 +10,7 @@ import { useI18n } from '@/context/I18nContext';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras } from '@/lib/booking/types';
 import { formatEgp } from '@/lib/booking/reporting';
+import { formatOfferBadge, pickBestLiveOffer, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
 import { formatPhoneDisplay, openMapsAtCoordinates, openPhone } from '@/lib/linking/contact';
 import { WashStatusBadge, type WashCustomerStatus } from '@/components/ui/WashBusyBadge';
@@ -77,7 +78,12 @@ export function ShopListCard({
   );
 
   const activeOffers = (extras?.offers ?? []).filter((offer) => offer.active);
-  const topOffer = activeOffers[0];
+  const topOffer = pickBestLiveOffer(activeOffers);
+  const offerBadgeMessages = useMemo(
+    () => buildOfferBadgeMessages(t),
+    [t],
+  );
+  const offerBadgeText = topOffer ? formatOfferBadge(topOffer, offerBadgeMessages) : null;
   const profileImage = extras?.profileImageUrl;
   const coverImage = extras?.imageUrls?.[0];
   const offerLabel = topOffer ? (locale === 'ar' ? (topOffer.titleAr || topOffer.title) : topOffer.title) : null;
@@ -120,7 +126,11 @@ export function ShopListCard({
             <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
               <Text style={[styles.badgeText, { color: accent }]}>{typeLabel}</Text>
             </View>
-            {hasActiveOffer ? (
+            {hasActiveOffer && offerBadgeText ? (
+              <View style={[styles.offerBadge, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
+                <Text style={[styles.offerBadgeText, { color: theme.warm }]}>{offerBadgeText}</Text>
+              </View>
+            ) : hasActiveOffer ? (
               <View style={[styles.offerBadge, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
                 <Text style={[styles.offerBadgeText, { color: theme.danger }]}>
                   {offerDiscountPercent > 0
@@ -197,7 +207,11 @@ export function ShopListCard({
             </Text>
           </Pressable>
         ) : null}
-        {offerLabel ? (
+        {offerBadgeText ? (
+          <View style={[styles.offerChip, { backgroundColor: theme.warmSoft, borderColor: theme.warm, borderWidth: 1 }]}>
+            <Text style={[styles.offerChipText, { color: theme.warm }]}>{offerBadgeText}</Text>
+          </View>
+        ) : offerLabel ? (
           <View style={[styles.offerChip, { backgroundColor: theme.accentSoft }]}>
             <Text style={[styles.offerChipText, { color: theme.accent }]}>{offerLabel}</Text>
           </View>

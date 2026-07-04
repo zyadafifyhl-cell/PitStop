@@ -26,7 +26,16 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { validateCouponForCheckout } from '@/lib/booking/couponRepository';
 import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
-import { computePlatformFee } from '@/lib/booking/offerPricing';
+import {
+  applyCampaignPrice,
+  computePlatformFee,
+  formatOfferBadge,
+  isBuyXGetYFreeNext,
+  pickBestLiveOffer,
+  resolveOfferType,
+  buildOfferBadgeMessages,
+} from '@/lib/booking/offerPricing';
+import { countDoneBookingsForCustomerAtShop } from '@/lib/booking/offerRepository';
 import {
   buildScheduledIso,
   defaultBookingDateYmd,
@@ -86,6 +95,7 @@ export default function BookShopScreen() {
   }, [serviceIdsParam, legacyServiceId]);
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
+  const offerBadgeMessages = useMemo(() => buildOfferBadgeMessages(t), [t]);
   const { customer, isGuest } = useCustomerAuth();
   const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
 
@@ -130,6 +140,7 @@ export default function BookShopScreen() {
   const [pointsToRedeemInput, setPointsToRedeemInput] = useState('');
   const [loyaltyValidation, setLoyaltyValidation] = useState<PointsRedemptionValidation | null>(null);
   const [validatingPoints, setValidatingPoints] = useState(false);
+  const [doneBookingCount, setDoneBookingCount] = useState(0);
 
   const CHECKOUT_CYAN = '#00D4FF';
   const CHECKOUT_CARD = '#121826';
@@ -245,19 +256,56 @@ export default function BookShopScreen() {
     }, [refreshLoyaltyBalance]),
   );
 
-  const checkoutOriginalPriceEgp = useMemo(() => {
+  const activeCampaignOffer = useMemo(
+    () => pickBestLiveOffer(shopExtras?.offers ?? []),
+    [shopExtras?.offers],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!shop?.id || !activeCampaignOffer) {
+        if (!cancelled) setDoneBookingCount(0);
+        return;
+      }
+      if (resolveOfferType(activeCampaignOffer) !== 'buy_x_get_y') {
+        if (!cancelled) setDoneBookingCount(0);
+        return;
+      }
+      const count = await countDoneBookingsForCustomerAtShop({
+        shopId: shop.id,
+        customerId: customer?.id,
+        customerPhone: resolvedPhone || customer?.phone,
+      });
+      if (!cancelled) setDoneBookingCount(count);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shop?.id, activeCampaignOffer, customer?.id, customer?.phone, resolvedPhone]);
+
+  const rawServiceTotal = useMemo(() => {
     if (!shop) return 0;
     const servicesTotal = selectedServices.reduce((sum, s) => sum + s.priceEgp, 0);
-    const baseTotal =
+    return (
       servicesTotal ||
-      (shop.type === 'wash' ? activeServices[0]?.priceEgp ?? 0 : shopExtras?.servicePriceEgp ?? 0);
+      (shop.type === 'wash' ? activeServices[0]?.priceEgp ?? 0 : shopExtras?.servicePriceEgp ?? 0)
+    );
+  }, [shop, selectedServices, activeServices, shopExtras?.servicePriceEgp]);
+
+  const campaignAdjustedTotal = useMemo(() => {
+    if (!activeCampaignOffer) return rawServiceTotal;
+    return applyCampaignPrice(rawServiceTotal, activeCampaignOffer, doneBookingCount);
+  }, [rawServiceTotal, activeCampaignOffer, doneBookingCount]);
+
+  const checkoutOriginalPriceEgp = useMemo(() => {
     if (showCoupons && appliedCoupon) {
       return appliedCoupon.discountType === 'percent'
-        ? Math.max(0, Math.round(baseTotal * (1 - appliedCoupon.discountValue / 100) * 100) / 100)
-        : Math.max(0, Math.round((baseTotal - appliedCoupon.discountValue) * 100) / 100);
+        ? Math.max(0, Math.round(campaignAdjustedTotal * (1 - appliedCoupon.discountValue / 100) * 100) / 100)
+        : Math.max(0, Math.round((campaignAdjustedTotal - appliedCoupon.discountValue) * 100) / 100);
     }
-    return baseTotal;
-  }, [shop, selectedServices, activeServices, shopExtras, showCoupons, appliedCoupon]);
+    return campaignAdjustedTotal;
+  }, [campaignAdjustedTotal, showCoupons, appliedCoupon]);
 
   useEffect(() => {
     if (!useLoyaltyPoints || !customer?.id || !shop?.id || checkoutOriginalPriceEgp <= 0) {
@@ -388,7 +436,7 @@ export default function BookShopScreen() {
       selectedServices.map((s) => s.nameAr || s.name).join(' + ') || undefined;
     const serviceDurationMinutes =
       selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0) || undefined;
-    const baseServicePriceEgp = checkoutOriginalPriceEgp;
+    const baseServicePriceEgp = campaignAdjustedTotal;
     let loyaltyCheckout:
       | {
           originalPriceEgp: number;
@@ -445,6 +493,7 @@ export default function BookShopScreen() {
         serviceNameAr,
         serviceDurationMinutes,
         servicePriceEgp: discountedServicePriceEgp,
+        offerId: activeCampaignOffer?.id,
         customerNotes: notesCombined,
         vehicleId,
       }, {
@@ -505,17 +554,13 @@ export default function BookShopScreen() {
   const serviceLabels = selectedServices.map((s) =>
     locale === 'ar' ? s.nameAr || s.name : s.name,
   );
-  const totalPrice = selectedServices.reduce((sum, s) => sum + s.priceEgp, 0);
+  const baseTotalPrice = rawServiceTotal;
+  const discountedTotalPrice = checkoutOriginalPriceEgp;
   const totalMinutes = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
-  const baseTotalPrice =
-    totalPrice ||
-    (shop.type === 'wash' ? activeServices[0]?.priceEgp ?? 0 : shopExtras?.servicePriceEgp ?? 0);
-  const discountedTotalPrice = showCoupons && appliedCoupon
-    ? appliedCoupon.discountType === 'percent'
-      ? Math.max(0, Math.round(baseTotalPrice * (1 - appliedCoupon.discountValue / 100) * 100) / 100)
-      : Math.max(0, Math.round((baseTotalPrice - appliedCoupon.discountValue) * 100) / 100)
-    : baseTotalPrice;
-  const estimatedPlatformFee = computePlatformFee(discountedTotalPrice);
+  const campaignSavingsEgp = Math.max(0, Math.round((rawServiceTotal - campaignAdjustedTotal) * 100) / 100);
+  const qualifiesForFreeWash =
+    !!activeCampaignOffer && isBuyXGetYFreeNext(activeCampaignOffer, doneBookingCount);
+  const estimatedPlatformFee = computePlatformFee(checkoutFinalAmountEgp);
 
   const selectedSlot = timeSlots.find((s) => s.time === timeSlot);
 
@@ -579,6 +624,25 @@ export default function BookShopScreen() {
         <Text style={[styles.meta, { color: theme.textMuted }]}>
           {shopTypeLabel(shop.type, locale)} · {shopAddress}
         </Text>
+
+        {activeCampaignOffer ? (
+          <View style={[styles.offerBanner, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
+            <Text style={[styles.offerBannerTitle, { color: theme.warm }]}>{t('book_offer_banner_title')}</Text>
+            <Text style={[styles.offerBannerBody, { color: theme.text }]}>
+              {formatOfferBadge(activeCampaignOffer, offerBadgeMessages)} ·{' '}
+              {locale === 'ar'
+                ? activeCampaignOffer.titleAr || activeCampaignOffer.title
+                : activeCampaignOffer.title}
+            </Text>
+            {qualifiesForFreeWash ? (
+              <Text style={[styles.offerBannerMeta, { color: theme.green }]}>{t('book_offer_free_wash')}</Text>
+            ) : campaignSavingsEgp > 0 ? (
+              <Text style={[styles.offerBannerMeta, { color: theme.danger }]}>
+                {t('book_offer_savings').replace('{amount}', formatEgp(campaignSavingsEgp, locale))}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         {shop.type === 'wash' && activeServices.length > 0 ? (
           <ServiceMultiPicker
@@ -990,7 +1054,7 @@ export default function BookShopScreen() {
               <View style={styles.receiptSection}>
                 <Text style={[styles.receiptLabel, { color: theme.textMuted }]}>{t('book_receipt_total')}</Text>
                 <Text style={[styles.receiptValue, { color: theme.text }]}>
-                  {formatEgp(receiptSummary?.totalPrice ?? totalPrice, locale)}
+                  {formatEgp(receiptSummary?.totalPrice ?? baseTotalPrice, locale)}
                   {(receiptSummary?.totalMinutes ?? totalMinutes) > 0
                     ? ` · ${receiptSummary?.totalMinutes ?? totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}`
                     : ''}

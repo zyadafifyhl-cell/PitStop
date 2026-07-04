@@ -56,6 +56,10 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     offers: (row?.offers ?? [])
       .map((offer) => ({
         ...offer,
+        offerType: offer.offerType ?? 'percentage',
+        discountValue: offer.discountValue ?? offer.discountPercentage ?? 0,
+        requiredWashCount: offer.requiredWashCount ?? 0,
+        expiresAt: offer.expiresAt ?? offer.endDate ?? offer.validUntil,
         discountPercentage: offer.discountPercentage ?? 0,
         startDate: offer.startDate || offer.createdAt || offer.validUntil,
         endDate: offer.endDate || offer.validUntil,

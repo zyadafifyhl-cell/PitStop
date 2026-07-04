@@ -23,6 +23,7 @@ import {
   scheduleBookingReminders,
 } from '@/lib/booking/bookingReminders';
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
+import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { formatEgp } from '@/lib/booking/reporting';
 import { listShopReviews, setReviewOwnerReply } from '@/lib/booking/reviewsStorage';
 import { updateBookingStatus } from '@/lib/booking/storage';
@@ -226,6 +227,16 @@ export default function WashOwnerHubScreen() {
     }
   }
 
+  function onMerchantNoShowOverride(booking: Booking) {
+    promptMerchantNoShowOverride({
+      title: t('merchant_noshow_override_title'),
+      message: t('merchant_noshow_override_body'),
+      confirmLabel: t('merchant_noshow_override_btn'),
+      cancelLabel: t('alert_cancel'),
+      onConfirm: () => onBookingStatusChange(booking, 'no_show'),
+    });
+  }
+
   function renderReviewNotificationCard(row: WashCenterNotification) {
     const unread = !row.read;
     const review = reviewForNotification(row);
@@ -358,7 +369,7 @@ export default function WashOwnerHubScreen() {
                 <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_complete')}</Text>
               </Pressable>
               <Pressable
-                onPress={() => onBookingStatusChange(booking, 'no_show')}
+                onPress={() => onMerchantNoShowOverride(booking)}
                 style={[styles.chipBtn, { borderColor: theme.border }]}>
                 <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_no_show')}</Text>
               </Pressable>

@@ -14,6 +14,7 @@ import { ShopCatalogProvider } from '@/context/ShopCatalogContext';
 import { CustomerAuthProvider } from '@/context/CustomerAuthContext';
 import { ThemePreferenceProvider, useThemePreference } from '@/context/ThemePreferenceContext';
 import { AppDialogProvider } from '@/lib/ui/AppDialogProvider';
+import { CustomConfirmProvider } from '@/lib/ui/CustomConfirmProvider';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -121,6 +122,7 @@ function RootLayoutWithTheme() {
     <ThemeProvider value={navTheme}>
       <I18nProvider>
         <AppDialogProvider>
+          <CustomConfirmProvider>
           <ShopCatalogProvider>
             <CustomerAuthProvider>
               <ShopAuthProvider>
@@ -130,6 +132,7 @@ function RootLayoutWithTheme() {
               </ShopAuthProvider>
             </CustomerAuthProvider>
           </ShopCatalogProvider>
+          </CustomConfirmProvider>
         </AppDialogProvider>
       </I18nProvider>
     </ThemeProvider>
