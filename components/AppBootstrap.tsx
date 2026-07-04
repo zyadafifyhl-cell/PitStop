@@ -1,7 +1,6 @@
 import * as Linking from 'expo-linking';
 import { useGlobalSearchParams, usePathname, useRouter, type Href } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -29,7 +28,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const params = useGlobalSearchParams();
   const { ready: customerReady, customer, isGuest, hasSession, busy: customerBusy } = useCustomerAuth();
   const { ready: shopReady, shop, staff, isAdmin, isPendingOwner, busy: shopBusy } = useShopAuth();
-  const splashHidden = useRef(false);
   const [entryReady, setEntryReady] = useState(false);
 
   const authReady = customerReady && shopReady;
@@ -49,14 +47,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     const subscription = Linking.addEventListener('url', ({ url }) => openDeepLink(url));
     return () => subscription.remove();
   }, [router]);
-
-  useEffect(() => {
-    if (!authReady) return;
-    if (!splashHidden.current) {
-      splashHidden.current = true;
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [authReady]);
 
   useLayoutEffect(() => {
     if (!authReady) {

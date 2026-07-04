@@ -23,6 +23,7 @@ import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
+import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
 import { OsmLocationPicker } from '@/components/maps/OsmLocationPicker';
 import { useI18n } from '@/context/I18nContext';
@@ -88,10 +89,7 @@ import {
   linkBranchManagerByEmail,
   removeBranchManagerRemote,
 } from '@/lib/booking/wash/branchManagerRepository';
-import {
-  clearBranchManagerCache,
-  filterPendingQueueBookingsForStaff,
-} from '@/lib/booking/wash/bookingDispatch';
+import { clearBranchManagerCache } from '@/lib/booking/wash/bookingDispatch';
 import {
   WASH_DAY_LABELS,
   type WashAnalyticsSnapshot,
@@ -266,7 +264,6 @@ export function WashOwnerPanel({ shop }: Props) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [analytics, setAnalytics] = useState<WashAnalyticsSnapshot | null>(null);
   const [reviews, setReviews] = useState<ShopReview[]>([]);
-  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pickingImage, setPickingImage] = useState(false);
 
@@ -331,6 +328,13 @@ export function WashOwnerPanel({ shop }: Props) {
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
   const [adminTab, setAdminTab] = useState<'dashboard' | 'profile' | 'operations' | 'management'>('dashboard');
 
+  const orderNotifier = useMerchantOrderNotifier({
+    shopId: shop.id,
+    staff: shopStaff,
+    activeBranchId: activeBranch?.id,
+    locale,
+  });
+
   const formSetters = useMemo(
     () => ({
       setProfileName,
@@ -372,7 +376,6 @@ export function WashOwnerPanel({ shop }: Props) {
         listActiveCouponsForShop(shop.id),
       ]);
       const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
-      const pendingQueue = await filterPendingQueueBookingsForStaff(shopStaff, scopedBookings);
       const branchWithCoupons = { ...branch, coupons: couponRows };
       const stateWithCoupons = {
         ...state,
@@ -384,9 +387,7 @@ export function WashOwnerPanel({ shop }: Props) {
       syncBranchForms(branchWithCoupons);
       setBookings(scopedBookings);
       setReviews(reviewRows);
-      setUnreadNotifCount(
-        branch?.id ? pendingQueue.filter((booking) => booking.branchId === branch.id).length : pendingQueue.length,
-      );
+      await orderNotifier.refresh();
       const stats = await computeWashAnalytics(shop.id, scopedBookings, {
         branchId: branch?.id,
         branchServices: branch?.services ?? [],
@@ -397,7 +398,7 @@ export function WashOwnerPanel({ shop }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [shop, branchCtx, shopStaff, syncBranchForms, locale, t]);
+  }, [shop, branchCtx, shopStaff, syncBranchForms, locale, t, orderNotifier.refresh]);
 
   useEffect(() => {
     if (!activeBranch) {
@@ -1243,6 +1244,9 @@ export function WashOwnerPanel({ shop }: Props) {
 
   async function onBookingStatusChange(booking: Booking, status: BookingStatus, note?: string) {
     await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
+    orderNotifier.patchBookingLocally(booking.id, status);
+    orderNotifier.removePendingLocally(booking.id);
+    setBookings((prev) => prev.map((row) => (row.id === booking.id ? { ...row, status } : row)));
     if (status === 'confirmed') {
       await scheduleBookingReminders({
         bookingId: booking.id,
@@ -1454,7 +1458,7 @@ export function WashOwnerPanel({ shop }: Props) {
               pickingImage={pickingImage}
               coverEditLabel={t('wash_manage_set_cover_image')}
               notificationsLabel={t('wash_notifications_button')}
-              notificationCount={unreadNotifCount}
+              notificationCount={orderNotifier.pendingCount}
               accountRoleLabel={accountRoleLabel}
               accountEmail={accountEmail}
               onEditCover={onSetCoverImage}

@@ -85,6 +85,68 @@ export function orderStatusLabel(status: Booking['status'], locale: Locale): str
   return bookingStatusLabel(status, locale);
 }
 
+/** Customer order cards treat legacy in_progress as confirmed in the wash lifecycle. */
+export function normalizeCustomerOrderStatus(status: Booking['status']): Booking['status'] {
+  if (status === 'in_progress') return 'confirmed';
+  return status;
+}
+
+export function canBookAgainFromOrder(status: Booking['status']): boolean {
+  return status === 'done' || status === 'cancelled';
+}
+
+export function canRateCompletedOrder(status: Booking['status']): boolean {
+  return status === 'done';
+}
+
+export type OrderStatusBadgeTone = {
+  backgroundColor: string;
+  color: string;
+  borderColor: string;
+};
+
+export function orderStatusBadgeTone(status: Booking['status']): OrderStatusBadgeTone {
+  const normalized = normalizeCustomerOrderStatus(status);
+  switch (normalized) {
+    case 'pending':
+      return {
+        backgroundColor: 'rgba(245, 158, 11, 0.18)',
+        color: '#FCD34D',
+        borderColor: 'rgba(245, 158, 11, 0.35)',
+      };
+    case 'confirmed':
+      return {
+        backgroundColor: 'rgba(0, 212, 255, 0.16)',
+        color: '#67E8F9',
+        borderColor: 'rgba(0, 212, 255, 0.35)',
+      };
+    case 'done':
+      return {
+        backgroundColor: 'rgba(34, 197, 94, 0.18)',
+        color: '#86EFAC',
+        borderColor: 'rgba(34, 197, 94, 0.35)',
+      };
+    case 'cancelled':
+      return {
+        backgroundColor: 'rgba(239, 68, 68, 0.16)',
+        color: '#FCA5A5',
+        borderColor: 'rgba(239, 68, 68, 0.35)',
+      };
+    case 'no_show':
+      return {
+        backgroundColor: 'rgba(234, 179, 8, 0.18)',
+        color: '#FDE047',
+        borderColor: 'rgba(234, 179, 8, 0.35)',
+      };
+    default:
+      return {
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        color: '#C5D1E3',
+        borderColor: 'rgba(255,255,255,0.12)',
+      };
+  }
+}
+
 export function orderTotalLabel(booking: Booking, locale: Locale): string {
   const { servicePriceEgp } = normalizeBookingMoney(booking);
   return formatEgp(servicePriceEgp, locale);

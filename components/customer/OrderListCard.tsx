@@ -6,8 +6,12 @@ import { StarRatingSelector } from '@/components/reviews/StarRatingSelector';
 import type { AppThemeTokens } from '@/constants/Theme';
 import type { Locale, TranslationKey } from '@/lib/i18n/strings';
 import {
+  canBookAgainFromOrder,
+  canRateCompletedOrder,
   formatBookingIdLabel,
   formatOrderCardDateTime,
+  normalizeCustomerOrderStatus,
+  orderStatusBadgeTone,
   orderStatusLabel,
   orderTotalLabel,
   resolveShopDisplayName,
@@ -45,7 +49,10 @@ export function OrderListCard({
 }: Props) {
   const shop = getShopById(booking.shopId);
   const shopName = resolveShopDisplayName(shop, booking.shopId, locale);
-  const showRatingFooter = booking.status === 'done';
+  const displayStatus = normalizeCustomerOrderStatus(booking.status);
+  const statusTone = orderStatusBadgeTone(booking.status);
+  const showBookAgain = canBookAgainFromOrder(booking.status);
+  const showRatingFooter = canRateCompletedOrder(booking.status);
   const [selectedRating, setSelectedRating] = useState(savedRating);
 
   useEffect(() => {
@@ -64,9 +71,15 @@ export function OrderListCard({
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.cardBody}>
         <View style={styles.topRow}>
-          <Text style={[styles.statusText, { color: theme.textMuted }]}>
-            {orderStatusLabel(booking.status, locale)}
-          </Text>
+          <View
+            style={[
+              styles.statusBadge,
+              { backgroundColor: statusTone.backgroundColor, borderColor: statusTone.borderColor },
+            ]}>
+            <Text style={[styles.statusBadgeText, { color: statusTone.color }]}>
+              {orderStatusLabel(displayStatus, locale)}
+            </Text>
+          </View>
           <Text style={[styles.dateText, { color: theme.textMuted }]}>
             {formatOrderCardDateTime(booking.scheduledAt, locale)}
           </Text>
@@ -86,19 +99,21 @@ export function OrderListCard({
           </View>
         </View>
 
-        <View style={styles.actionRow}>
+        <View style={[styles.actionRow, !showBookAgain && styles.actionRowSingle]}>
           <View style={styles.priceBlock}>
             <Text style={[styles.totalPrice, { color: theme.text }]}>{orderTotalLabel(booking, locale)}</Text>
             <Pressable onPress={onViewDetails} accessibilityRole="link">
               <Text style={[styles.viewDetails, { color: theme.accent }]}>{t('orders_view_details')}</Text>
             </Pressable>
           </View>
-          <Pressable
-            onPress={onBookAgain}
-            style={[styles.bookAgainBtn, { borderColor: theme.text }]}
-            accessibilityRole="button">
-            <Text style={[styles.bookAgainText, { color: theme.text }]}>{t('orders_book_again')}</Text>
-          </Pressable>
+          {showBookAgain ? (
+            <Pressable
+              onPress={onBookAgain}
+              style={[styles.bookAgainBtn, { borderColor: theme.text }]}
+              accessibilityRole="button">
+              <Text style={[styles.bookAgainText, { color: theme.text }]}>{t('orders_book_again')}</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -141,8 +156,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-  statusText: { fontSize: 15, fontWeight: '700' },
-  dateText: { fontSize: 15, fontWeight: '600' },
+  statusBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  dateText: { fontSize: 15, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
   contentRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   serviceIcon: {
     width: 52,
@@ -159,6 +185,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  actionRowSingle: {
+    justifyContent: 'flex-start',
   },
   priceBlock: { flex: 1, gap: 6 },
   totalPrice: { fontSize: 20, fontWeight: '900', lineHeight: 26 },

@@ -1,12 +1,13 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import 'react-native-reanimated';
 
 import { AppBootstrap } from '@/components/AppBootstrap';
+import { PremiumAnimatedSplash } from '@/components/PremiumAnimatedSplash';
 import { I18nProvider, useI18n } from '@/context/I18nContext';
 import { ShopAuthProvider } from '@/context/ShopAuthContext';
 import { ShopCatalogProvider } from '@/context/ShopCatalogContext';
@@ -27,14 +28,27 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
+  const [showAnimatedSplash, setShowAnimatedSplash] = useState(true);
 
   useEffect(() => {
     if (error) throw error;
   }, [error]);
 
+  useEffect(() => {
+    if (!loaded) return;
+    SplashScreen.hideAsync().catch(() => {});
+  }, [loaded]);
+
   if (!loaded) return null;
 
-  return <RootLayoutNav />;
+  return (
+    <>
+      <RootLayoutNav />
+      {showAnimatedSplash ? (
+        <PremiumAnimatedSplash onFinish={() => setShowAnimatedSplash(false)} />
+      ) : null}
+    </>
+  );
 }
 
 function RootStack() {

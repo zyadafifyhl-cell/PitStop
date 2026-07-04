@@ -17,6 +17,7 @@ import {
 
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
+import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
 import { useI18n } from '@/context/I18nContext';
@@ -130,6 +131,13 @@ export default function ShopScreen() {
   const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
   const [scheduleInlineOk, setScheduleInlineOk] = useState(false);
 
+  const orderNotifier = useMerchantOrderNotifier({
+    shopId: shop?.id,
+    staff: shopStaff,
+    locale,
+    enabled: Boolean(shop && ready && !isWashShopType(shop.type)),
+  });
+
   const refreshOwnerNotifications = useCallback(async () => {
     if (!shop) return;
     const rows = await listOwnerNotificationsForShop(shop.id);
@@ -187,8 +195,11 @@ export default function ShopScreen() {
       refreshOwnerNotifications();
       refreshShopExtras();
       if (isStoreShopType(shop.type)) refreshPartsData();
-      else refreshBookings();
-    }, [shop, refreshBookings, refreshPartsData, refreshOwnerNotifications, refreshShopExtras]),
+      else {
+        refreshBookings();
+        void orderNotifier.refresh();
+      }
+    }, [shop, refreshBookings, refreshPartsData, refreshOwnerNotifications, refreshShopExtras, orderNotifier.refresh]),
   );
 
   useFocusEffect(
@@ -324,13 +335,7 @@ export default function ShopScreen() {
     return 'pending';
   }
 
-  const pendingNotificationCount = useMemo(
-    () =>
-      ownerNotifications.filter(
-        (row) => row.kind === 'service_booking' && notificationStatus(row) === 'pending',
-      ).length,
-    [ownerNotifications, bookings],
-  );
+  const pendingNotificationCount = orderNotifier.pendingCount;
 
   function notificationForBooking(booking: Booking): OwnerNotification {
     return (
@@ -368,6 +373,9 @@ export default function ShopScreen() {
       if (!bookingId) return;
       const status = resolution === 'approved' ? 'confirmed' : 'cancelled';
       await updateBookingStatus(bookingId, status);
+      orderNotifier.patchBookingLocally(bookingId, status);
+      orderNotifier.removePendingLocally(bookingId);
+      setBookings((prev) => prev.map((row) => (row.id === bookingId ? { ...row, status } : row)));
       const storedNotification = ownerNotifications.find((row) => row.id === notification.id);
       if (storedNotification) {
         await resolveOwnerNotification({
@@ -376,6 +384,18 @@ export default function ShopScreen() {
           resolution,
           ownerNote: decisionNote.trim() || undefined,
         });
+        setOwnerNotifications((prev) =>
+          prev.map((row) =>
+            row.id === notification.id
+              ? {
+                  ...row,
+                  resolution,
+                  ownerNote: decisionNote.trim() || undefined,
+                  resolvedAt: new Date().toISOString(),
+                }
+              : row,
+          ),
+        );
       }
       const booking = bookings.find((row) => row.id === bookingId);
       if (resolution !== 'approved') {
@@ -939,10 +959,12 @@ export default function ShopScreen() {
           <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>{t('shop_notifications_button')}</Text>
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent}>
-              {ownerNotifications.length === 0 ? (
+              {ownerNotifications.filter((row) => notificationStatus(row) === 'pending').length === 0 ? (
                 <Text style={[styles.meta, { color: theme.textMuted }]}>{t('shop_notifications_empty')}</Text>
               ) : (
-                ownerNotifications.map((notification) => renderOwnerNotificationRow(notification))
+                ownerNotifications
+                  .filter((row) => notificationStatus(row) === 'pending')
+                  .map((notification) => renderOwnerNotificationRow(notification))
               )}
             </ScrollView>
             <Pressable

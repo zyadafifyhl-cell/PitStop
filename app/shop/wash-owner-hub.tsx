@@ -15,6 +15,7 @@ import {
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
@@ -24,18 +25,12 @@ import {
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { listShopReviews, setReviewOwnerReply } from '@/lib/booking/reviewsStorage';
-import {
-  listBookingsForShop,
-  updateBookingStatus,
-} from '@/lib/booking/storage';
+import { updateBookingStatus } from '@/lib/booking/storage';
 import type { Booking, BookingStatus, ShopReview } from '@/lib/booking/types';
-import {
-  filterWashNotificationsForStaff,
-} from '@/lib/booking/wash/bookingDispatch';
+import { filterWashNotificationsForStaff } from '@/lib/booking/wash/bookingDispatch';
 import { getActiveWashBranch } from '@/lib/booking/wash/washBranchStorage';
 import type { WashBranch } from '@/lib/booking/wash/types';
 import { openPhone } from '@/lib/linking/contact';
-import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { WashCenterNotification } from '@/lib/booking/wash/types';
 import {
   listWashCenterNotifications,
@@ -67,11 +62,6 @@ function UnreadPulseDot({ rtl }: { rtl?: boolean }) {
   );
 }
 
-function filterBookingsForStaff(bookings: Booking[], staff: ShopStaffUser | null) {
-  if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
-  return bookings.filter((booking) => booking.branchId === staff.branchId);
-}
-
 function resolveHubTab(rawTab?: string, rawStream?: string): HubTab {
   if (rawTab === 'reviews' || rawTab === 'orders') {
     return rawTab;
@@ -95,7 +85,6 @@ export default function WashOwnerHubScreen() {
 
   const [tab, setTab] = useState<HubTab>(initialTab);
   const [notifications, setNotifications] = useState<WashCenterNotification[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviews, setReviews] = useState<ShopReview[]>([]);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -105,36 +94,41 @@ export default function WashOwnerHubScreen() {
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [walkInBranch, setWalkInBranch] = useState<WashBranch | null>(null);
 
+  const branchId = shopStaff?.role === 'branch_manager' ? shopStaff.branchId ?? undefined : undefined;
+
+  const orderNotifier = useMerchantOrderNotifier({
+    shopId: shop?.id,
+    staff: shopStaff,
+    activeBranchId: branchId,
+    locale,
+    enabled: !!shop,
+  });
+
   useEffect(() => {
     setTab(resolveHubTab(rawTab, rawStream));
   }, [rawTab, rawStream]);
 
-  const branchId = shopStaff?.role === 'branch_manager' ? shopStaff.branchId : undefined;
-
   const refresh = useCallback(async () => {
     if (!shop) {
       setNotifications([]);
-      setBookings([]);
       setReviews([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [notifRows, bookingRows, reviewRows] = await Promise.all([
+      const [notifRows, reviewRows] = await Promise.all([
         listWashCenterNotifications(shop.id),
-        listBookingsForShop(shop.id),
         listShopReviews(shop.id),
       ]);
-      const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
       const filteredNotifs = await filterWashNotificationsForStaff(shopStaff, notifRows);
       setNotifications(filteredNotifs);
-      setBookings(scopedBookings);
       setReviews(reviewRows);
+      await orderNotifier.refresh();
     } finally {
       setLoading(false);
     }
-  }, [shop, shopStaff, branchId]);
+  }, [shop, shopStaff, orderNotifier.refresh]);
 
   useFocusEffect(
     useCallback(() => {
@@ -142,14 +136,7 @@ export default function WashOwnerHubScreen() {
     }, [refresh]),
   );
 
-  const orderBookings = useMemo(
-    () =>
-      bookings
-        // Keep owner hub "orders" tracking strictly on live pending queue only.
-        .filter((b) => b.status === 'pending')
-        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)),
-    [bookings],
-  );
+  const orderBookings = orderNotifier.pendingBookings;
 
   const reviewNotifications = useMemo(
     () => notifications.filter((row) => row.kind === 'new_review'),
@@ -194,6 +181,8 @@ export default function WashOwnerHubScreen() {
   async function onBookingStatusChange(booking: Booking, status: BookingStatus, note?: string) {
     if (!shop) return;
     await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
+    orderNotifier.patchBookingLocally(booking.id, status);
+    orderNotifier.removePendingLocally(booking.id);
     if (status === 'confirmed') {
       await scheduleBookingReminders({
         bookingId: booking.id,
@@ -420,7 +409,7 @@ export default function WashOwnerHubScreen() {
         {(
           [
             { id: 'reviews' as const, label: t('wash_hub_subtab_reviews'), badge: unreadReviewCount },
-            { id: 'orders' as const, label: t('wash_hub_tab_orders'), badge: orderBookings.length },
+            { id: 'orders' as const, label: t('wash_hub_tab_orders'), badge: orderNotifier.pendingCount },
           ] as const
         ).map((item) => (
           <Pressable

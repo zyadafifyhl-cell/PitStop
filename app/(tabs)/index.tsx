@@ -7,6 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
+import { HomeHeroCarAnimation } from '@/components/home/HomeHeroCarAnimation';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -159,7 +160,16 @@ export default function HomeScreen() {
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <AutomotiveBackground theme={theme} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
+        <View style={styles.heroSection}>
+          <View style={styles.heroTextCol}>
+            <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
+          </View>
+          {customer && !isGuest ? (
+            <View style={styles.heroCarCol}>
+              <HomeHeroCarAnimation />
+            </View>
+          ) : null}
+        </View>
         <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
         <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
 
@@ -321,7 +331,27 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 52, gap: 2 },
-  greeting: { fontSize: 13, marginBottom: 8, fontWeight: '600', letterSpacing: 0.3 },
+  heroSection: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+    minHeight: 88,
+  },
+  heroTextCol: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 88,
+    paddingTop: 8,
+  },
+  heroCarCol: {
+    flexShrink: 0,
+    width: '38%',
+    maxWidth: 220,
+    minWidth: 148,
+  },
+  greeting: { fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
   title: { fontSize: 32, fontWeight: '900', marginBottom: 8, letterSpacing: -0.5, lineHeight: 38 },
   lead: { fontSize: 17, lineHeight: 24, marginBottom: 16 },
   sectionCard: {
