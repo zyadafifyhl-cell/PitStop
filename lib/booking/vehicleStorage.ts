@@ -176,14 +176,27 @@ export async function removeCustomerVehicle(customerId: string, vehicleId: strin
   return map[key] ?? [];
 }
 
-export async function getPrimaryVehicle(customerId: string): Promise<CustomerVehicle | null> {
+export async function getActiveVehicle(customerId: string): Promise<CustomerVehicle | null> {
   const rows = await listCustomerVehicles(customerId);
   if (!rows.length) return null;
   const activeId = await getActiveVehicleId(customerId);
-  if (activeId) {
-    const match = rows.find((row) => row.id === activeId);
-    if (match) return match;
-  }
+  if (!activeId) return null;
+  return rows.find((row) => row.id === activeId) ?? null;
+}
+
+export async function loadVehiclePickerState(customerId: string): Promise<{
+  vehicles: CustomerVehicle[];
+  activeVehicle: CustomerVehicle | null;
+}> {
+  const vehicles = await listCustomerVehicles(customerId);
+  const activeVehicle = await getActiveVehicle(customerId);
+  return { vehicles, activeVehicle };
+}
+
+export async function getPrimaryVehicle(customerId: string): Promise<CustomerVehicle | null> {
+  const explicit = await getActiveVehicle(customerId);
+  if (explicit) return explicit;
+  const rows = await listCustomerVehicles(customerId);
   return rows[0] ?? null;
 }
 

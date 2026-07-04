@@ -1,6 +1,6 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
@@ -9,10 +9,23 @@ type Props = {
   onChange: (rating: number) => void;
   size?: number;
   disabled?: boolean;
+  filledColor?: string;
+  emptyColor?: string;
+  gap?: number;
 };
 
-export function StarRatingSelector({ value, onChange, size = 36, disabled }: Props) {
+export function StarRatingSelector({
+  value,
+  onChange,
+  size = 36,
+  disabled,
+  filledColor,
+  emptyColor,
+  gap = 8,
+}: Props) {
   const theme = useAppTheme();
+  const activeColor = filledColor ?? theme.warm;
+  const inactiveColor = emptyColor ?? theme.textDim;
   const scales = useRef([1, 2, 3, 4, 5].map(() => new Animated.Value(1))).current;
 
   useEffect(() => {
@@ -45,7 +58,7 @@ export function StarRatingSelector({ value, onChange, size = 36, disabled }: Pro
   }
 
   return (
-    <View style={styles.row} accessibilityRole="adjustable">
+    <View style={[styles.row, { gap }]} accessibilityRole="adjustable">
       {[1, 2, 3, 4, 5].map((star) => {
         const filled = star <= value;
         return (
@@ -54,12 +67,13 @@ export function StarRatingSelector({ value, onChange, size = 36, disabled }: Pro
             onPress={() => onPressStar(star)}
             disabled={disabled}
             accessibilityLabel={`${star} stars`}
+            hitSlop={8}
             style={styles.starBtn}>
             <Animated.View style={{ transform: [{ scale: scales[star - 1] }] }}>
               <FontAwesome
                 name={filled ? 'star' : 'star-o'}
                 size={size}
-                color={filled ? theme.accent : theme.textDim}
+                color={filled ? activeColor : inactiveColor}
               />
             </Animated.View>
           </Pressable>
@@ -73,10 +87,13 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    justifyContent: 'flex-end',
   },
   starBtn: {
-    padding: 4,
+    padding: 8,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

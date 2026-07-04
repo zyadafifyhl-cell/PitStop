@@ -6,7 +6,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import type { BookingStatus } from '@/lib/booking/types';
 
-const TRACK_STATUSES = ['pending', 'confirmed', 'in_progress', 'done'] as const;
+const TRACK_STATUSES = ['pending', 'confirmed', 'done'] as const;
 type TrackStatus = (typeof TRACK_STATUSES)[number];
 
 type Props = {
@@ -15,9 +15,8 @@ type Props = {
 
 function stepIndex(status: BookingStatus): number {
   if (status === 'pending') return 0;
-  if (status === 'confirmed') return 1;
-  if (status === 'in_progress') return 2;
-  if (status === 'done') return 3;
+  if (status === 'confirmed' || status === 'in_progress') return 1;
+  if (status === 'done') return 2;
   return 0;
 }
 
@@ -29,7 +28,6 @@ export function BookingProgressTimeline({ status }: Props) {
   const labels: Record<TrackStatus, string> = {
     pending: t('booking_progress_pending'),
     confirmed: t('booking_progress_confirmed'),
-    in_progress: t('booking_progress_in_progress'),
     done: t('booking_progress_done'),
   };
 

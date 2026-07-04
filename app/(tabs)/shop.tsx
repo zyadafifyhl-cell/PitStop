@@ -57,7 +57,6 @@ import {
   setShopServicePrice,
   setShopWeeklyHours,
   shopHasSavedSchedule,
-  ensureDefaultWashServices,
 } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
@@ -143,9 +142,9 @@ export default function ShopScreen() {
     setShopExtras(row);
     if (row.servicePriceEgp != null) setNewServicePrice(String(row.servicePriceEgp));
     setProfileName(row.profileName ?? shop.name);
-    setProfileNameAr(row.profileNameAr ?? shop.nameAr);
+    setProfileNameAr(row.profileNameAr ?? '');
     setProfileAddress(row.profileAddress ?? shop.address);
-    setProfileAddressAr(row.profileAddressAr ?? shop.addressAr);
+    setProfileAddressAr(row.profileAddressAr ?? '');
     setProfilePhone(row.profilePhone ?? shop.phone);
     setProfileEmail(row.profileEmail ?? '');
     setMoreInfo(row.moreInfo ?? '');
@@ -899,16 +898,9 @@ export default function ShopScreen() {
               {locale === 'ar' ? service.nameAr || service.name : service.name} · {service.priceEgp} EGP · {service.durationMinutes} min
             </Text>
           ))}
-          <Pressable
-            onPress={async () => {
-              if (!shop) return;
-              const row = await ensureDefaultWashServices(shop.id);
-              setShopExtras(row);
-              showSaveNotice(t('shop_services_saved_title'), t('shop_services_saved_body'));
-            }}
-            style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 8 }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_save_services')}</Text>
-          </Pressable>
+          {!shopExtras?.services?.length ? (
+            <Text style={[styles.meta, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
+          ) : null}
         </OwnerSectionCard>
       ) : null}
 

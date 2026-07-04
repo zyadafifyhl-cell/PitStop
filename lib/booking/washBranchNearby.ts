@@ -1,12 +1,35 @@
 import { getShopById, listShopsByType } from '@/lib/booking/catalogRepository';
-import { haversineKm, type ShopWithDistance } from '@/lib/booking/nearby';
-import type { Shop } from '@/lib/booking/types';
+import { haversineKm, sortShopsByDistance, type ShopWithDistance } from '@/lib/booking/nearby';
+import type { Shop, ShopType } from '@/lib/booking/types';
 import { getSupabase } from '@/lib/supabase/client';
+
+export type NearbyListingType = 'wash' | 'maintenance';
 
 export type WashBranchListing = ShopWithDistance & {
   branchId: string;
   branchSlug?: string;
   branchLabel?: string;
+};
+
+export const NEARBY_DEFAULT_RADIUS_KM = 50;
+export const NEARBY_DEFAULT_LIMIT = 100;
+
+type NearbyListingRpcRow = {
+  shop_id: string;
+  branch_id: string | null;
+  branch_slug: string | null;
+  listing_name: string;
+  listing_name_ar: string;
+  listing_address: string;
+  listing_address_ar: string;
+  listing_phone: string;
+  latitude: number;
+  longitude: number;
+  shop_type: string;
+  area_id: string;
+  owner_email: string;
+  is_premium: boolean;
+  distance_km: number | null;
 };
 
 type BranchRow = {
@@ -21,6 +44,76 @@ type BranchRow = {
   longitude: number | null;
   shop_id: string;
 };
+
+function roundDistanceKm(value: number | null): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.round(value * 1000) / 1000;
+}
+
+function mapRpcRowToListing(row: NearbyListingRpcRow): WashBranchListing | ShopWithDistance {
+  const base: ShopWithDistance = {
+    id: row.shop_id,
+    name: row.listing_name,
+    nameAr: row.listing_name_ar,
+    type: row.shop_type as ShopType,
+    areaId: row.area_id,
+    address: row.listing_address,
+    addressAr: row.listing_address_ar,
+    phone: row.listing_phone,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    ownerEmail: row.owner_email,
+    isPremium: row.is_premium === true,
+    distanceKm: roundDistanceKm(row.distance_km != null ? Number(row.distance_km) : null),
+  };
+
+  const catalogShop = getShopById(row.shop_id);
+  if (catalogShop?.rating != null && base.rating == null) {
+    base.rating = catalogShop.rating;
+  }
+
+  if (row.branch_id) {
+    return {
+      ...base,
+      branchId: row.branch_id,
+      branchSlug: row.branch_slug ?? 'main',
+      branchLabel: row.listing_name,
+    };
+  }
+
+  return {
+    ...base,
+    branchId: `${row.shop_id}-main`,
+    branchSlug: row.branch_slug ?? 'main',
+    branchLabel: row.listing_name,
+  };
+}
+
+/** PostGIS RPC — returns null when Supabase is unavailable or the RPC fails (caller should fallback). */
+export async function findNearbyListingsViaRpc(
+  type: NearbyListingType,
+  userLat: number | null,
+  userLng: number | null,
+  options?: { radiusKm?: number; limit?: number },
+): Promise<(WashBranchListing | ShopWithDistance)[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.rpc('find_nearby_listings', {
+      p_lat: userLat,
+      p_lng: userLng,
+      p_type: type,
+      p_radius_km: options?.radiusKm ?? NEARBY_DEFAULT_RADIUS_KM,
+      p_limit: options?.limit ?? NEARBY_DEFAULT_LIMIT,
+    });
+
+    if (error || !data) return null;
+    return (data as NearbyListingRpcRow[]).map(mapRpcRowToListing);
+  } catch {
+    return null;
+  }
+}
 
 function listingFromShopAndBranch(shop: Shop, branch: BranchRow | null): Omit<WashBranchListing, 'distanceKm'> {
   const lat = branch?.latitude ?? shop.latitude;
@@ -40,7 +133,7 @@ function listingFromShopAndBranch(shop: Shop, branch: BranchRow | null): Omit<Wa
   };
 }
 
-function sortListings(
+function sortWashListings(
   rows: Omit<WashBranchListing, 'distanceKm'>[],
   userLat: number | null,
   userLng: number | null,
@@ -61,8 +154,8 @@ function sortListings(
   });
 }
 
-/** Active wash branches sorted closest-first (falls back to shop catalog when offline). */
-export async function listWashBranchesSortedByDistance(
+/** Legacy client-side Haversine path — used only when PostGIS RPC is unavailable. */
+export async function listWashBranchesSortedByDistanceLegacy(
   userLat: number | null,
   userLng: number | null,
 ): Promise<WashBranchListing[]> {
@@ -97,7 +190,7 @@ export async function listWashBranchesSortedByDistance(
           }
         }
 
-        if (listings.length) return sortListings(listings, userLat, userLng);
+        if (listings.length) return sortWashListings(listings, userLat, userLng);
       }
     } catch {
       /* fall through to catalog */
@@ -106,5 +199,25 @@ export async function listWashBranchesSortedByDistance(
 
   const shops = listShopsByType('wash');
   const fallback = shops.map((shop) => listingFromShopAndBranch(shop, null));
-  return sortListings(fallback, userLat, userLng);
+  return sortWashListings(fallback, userLat, userLng);
+}
+
+/** Active wash branches sorted closest-first via PostGIS RPC (legacy fallback when offline). */
+export async function listWashBranchesSortedByDistance(
+  userLat: number | null,
+  userLng: number | null,
+): Promise<WashBranchListing[]> {
+  const rpcRows = await findNearbyListingsViaRpc('wash', userLat, userLng);
+  if (rpcRows !== null) {
+    return rpcRows as WashBranchListing[];
+  }
+  return listWashBranchesSortedByDistanceLegacy(userLat, userLng);
+}
+
+/** Legacy maintenance listing path — used only when PostGIS RPC is unavailable. */
+export function listMaintenanceShopsSortedByDistanceLegacy(
+  userLat: number | null,
+  userLng: number | null,
+): ShopWithDistance[] {
+  return sortShopsByDistance(listShopsByType('maintenance'), userLat, userLng);
 }

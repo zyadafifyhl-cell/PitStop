@@ -66,6 +66,7 @@ export default function WelcomeScreen() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [shopName, setShopName] = useState('');
@@ -194,6 +195,11 @@ export default function WelcomeScreen() {
           userAlert(t('customer_weak_password_title'), t('customer_weak_password_body'));
           return;
         }
+        if (password.trim() !== confirmPassword.trim()) {
+          setFormMessage(t('merchant_password_mismatch_body'));
+          userAlert(t('merchant_password_mismatch_title'), t('merchant_password_mismatch_body'));
+          return;
+        }
         if (!shopName.trim() || !shopAddress.trim() || !name.trim()) {
           setFormMessage(t('owner_register_invalid'));
           userAlert(t('owner_register_fail_title'), t('owner_register_invalid'));
@@ -219,9 +225,9 @@ export default function WelcomeScreen() {
           userAlert(t('owner_register_fail_title'), t('owner_register_invalid'));
           return;
         }
-        setFormMessage(t('owner_pending_approval_body'));
-        userAlert(t('owner_pending_approval_title'), t('owner_pending_approval_body'));
-        setIsOwnerRegister(false);
+        Alert.alert(t('owner_register_success_title'), t('owner_register_success_body'), [
+          { text: t('welcome_ok'), onPress: finishOwnerRegistration },
+        ]);
         return;
       }
 
@@ -268,8 +274,30 @@ export default function WelcomeScreen() {
     }
   }
 
+  function resetOwnerRegisterForm() {
+    setShopName('');
+    setShopAddress('');
+    setName('');
+    setPhone('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setShopType('wash');
+    setShopAreaId('maadi');
+  }
+
+  function finishOwnerRegistration() {
+    resetOwnerRegisterForm();
+    setIsOwnerRegister(false);
+    setFormMessage(t('owner_pending_approval_body'));
+    setSubmitPhase('redirecting');
+    router.replace('/welcome?focus=owner' as Href);
+    setTimeout(() => setSubmitPhase('idle'), 320);
+  }
+
   function toggleOwnerRegister() {
     setFormMessage('');
+    setConfirmPassword('');
     setIsOwnerRegister((value) => !value);
   }
 
@@ -587,7 +615,17 @@ export default function WelcomeScreen() {
                   style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
                 />
                 {isOwnerRegister ? (
-                  <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text>
+                  <>
+                    <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text>
+                    <TextInput
+                      placeholder={t('auth_register_confirm_password')}
+                      placeholderTextColor={theme.textDim}
+                      secureTextEntry
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                    />
+                  </>
                 ) : null}
                 <Pressable
                   onPress={onOwnerSubmit}

@@ -6,6 +6,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
+import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -22,8 +23,7 @@ import { isOfferLive } from '@/lib/booking/offerPricing';
 
 function bookingStatusTone(status: Booking['status']) {
   if (status === 'pending') return { bg: 'rgba(0, 212, 255, 0.18)', color: '#A5F3FC' };
-  if (status === 'confirmed') return { bg: 'rgba(0, 82, 255, 0.20)', color: '#BFDBFE' };
-  if (status === 'in_progress') return { bg: 'rgba(59, 130, 246, 0.22)', color: '#DBEAFE' };
+  if (status === 'confirmed' || status === 'in_progress') return { bg: 'rgba(0, 82, 255, 0.20)', color: '#BFDBFE' };
   if (status === 'done') return { bg: 'rgba(34, 197, 94, 0.22)', color: '#DCFCE7' };
   if (status === 'no_show') return { bg: 'rgba(234, 179, 8, 0.24)', color: '#FEF08A' };
   return { bg: 'rgba(239, 68, 68, 0.24)', color: '#FECACA' };
@@ -57,6 +57,7 @@ export default function HomeScreen() {
   >([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
+  const [vehicleRefreshKey, setVehicleRefreshKey] = useState(0);
 
   const serviceCards = useMemo(
     () =>
@@ -138,6 +139,7 @@ export default function HomeScreen() {
     useCallback(() => {
       refreshHomeData();
       loadLiveOffers();
+      setVehicleRefreshKey((key) => key + 1);
     }, [refreshHomeData, loadLiveOffers]),
   );
 
@@ -162,16 +164,19 @@ export default function HomeScreen() {
         <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
 
       <CurvyCard theme={theme}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Vehicle</Text>
-        <Text style={[styles.sectionSub, { color: theme.textMuted }]}>Pick your active car before booking services.</Text>
-        <View style={[styles.vehicleSlot, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-          <Text style={[styles.vehicleSlotTitle, { color: theme.text }]}>Active vehicle</Text>
-          <Text style={[styles.vehicleSlotSub, { color: theme.textMuted }]}>
-            {customer && !isGuest
-              ? 'No vehicle selected yet — add one to pre-fill bookings.'
-              : 'Sign in to link your saved vehicle and speed up booking.'}
-          </Text>
-        </View>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('screen_vehicle')}</Text>
+        <Text style={[styles.sectionSub, { color: theme.textMuted }]}>{t('settings_vehicles_manage_hint')}</Text>
+        {customer && !isGuest ? (
+          <View style={[styles.vehicleSlot, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <Text style={[styles.vehicleSlotTitle, { color: theme.text }]}>{t('home_active_vehicle_title')}</Text>
+            <ActiveVehiclePicker key={vehicleRefreshKey} customerId={customer.id} embedded />
+          </View>
+        ) : (
+          <View style={[styles.vehicleSlot, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            <Text style={[styles.vehicleSlotTitle, { color: theme.text }]}>{t('home_active_vehicle_title')}</Text>
+            <Text style={[styles.vehicleSlotSub, { color: theme.textMuted }]}>{t('shop_review_sign_in_hint')}</Text>
+          </View>
+        )}
         <Pressable onPress={() => router.push('/settings/vehicles')} style={styles.manageVehicleWrap}>
           <LinearGradient
             colors={[theme.warm, theme.accent]}
@@ -330,6 +335,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     padding: 14,
+    gap: 8,
   },
   vehicleSlotTitle: { fontSize: 15, fontWeight: '900', marginBottom: 4 },
   vehicleSlotSub: { fontSize: 14, lineHeight: 20 },

@@ -1,6 +1,6 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { router, type Href, useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { router, type Href } from 'expo-router';
+import React, { useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PrivacySettingsModal } from '@/components/settings/PrivacySettingsModal';
@@ -11,7 +11,6 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
-import { getLoyaltyPoints } from '@/lib/booking/loyaltyPointsStorage';
 import {
   openSupportEmail,
   openSupportPhone,
@@ -28,26 +27,6 @@ export default function SettingsScreen() {
   const [privacyVisible, setPrivacyVisible] = React.useState(false);
   const [languageOpen, setLanguageOpen] = React.useState(false);
   const [termsVisible, setTermsVisible] = React.useState(false);
-  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
-
-  const refreshPoints = useCallback(async () => {
-    if (!customer || isGuest) {
-      setLoyaltyPoints(0);
-      return;
-    }
-    const points = await getLoyaltyPoints({ customerId: customer.id, phone: customer.phone });
-    setLoyaltyPoints(points);
-  }, [customer, isGuest]);
-
-  useEffect(() => {
-    refreshPoints();
-  }, [refreshPoints]);
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshPoints();
-    }, [refreshPoints]),
-  );
 
   const themeLabel =
     preference === 'system'
@@ -75,16 +54,36 @@ export default function SettingsScreen() {
           <Text style={[styles.profileName, { color: theme.text }]}>{customer.name}</Text>
           <Text style={[styles.profileMeta, { color: theme.textMuted }]}>{customer.email}</Text>
           <Text style={[styles.profileMeta, { color: theme.textMuted }]}>{customer.phone.replace('+20', '0')}</Text>
-          <View style={[styles.pointsCard, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
-            <Text style={[styles.pointsLabel, { color: theme.textMuted }]}>{t('loyalty_points_settings_title')}</Text>
-            <Text style={[styles.pointsValue, { color: theme.accent }]}>{loyaltyPoints}</Text>
-            <Text style={[styles.pointsHint, { color: theme.textMuted }]}>{t('loyalty_points_settings_hint')}</Text>
+
+          <View style={[styles.loyaltyInlineRow, isRTL && styles.loyaltyInlineRowRtl]}>
+            <View style={[styles.loyaltyInlineLeft, isRTL && styles.loyaltyInlineLeftRtl]}>
+              <FontAwesome name="star" size={12} color={theme.textDim} />
+              <Text style={[styles.loyaltyInlineLabel, { color: theme.textMuted }]}>
+                {t('settings_profile_points_inline')}
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={() => router.push('/points-marketplace' as Href)}
+              style={({ pressed }) => [
+                styles.marketplacePill,
+                {
+                  borderColor: 'rgba(255,255,255,0.08)',
+                  backgroundColor: theme.bgElevated,
+                  opacity: pressed ? 0.85 : 1,
+                },
+                isRTL && styles.marketplacePillRtl,
+              ]}>
+              <Text style={[styles.marketplacePillText, { color: theme.warm }]}>
+                {t('loyalty_marketplace_link')}
+              </Text>
+              <FontAwesome
+                name={isRTL ? 'chevron-left' : 'chevron-right'}
+                size={10}
+                color={theme.warm}
+              />
+            </Pressable>
           </View>
-          <Pressable
-            onPress={() => router.push('/points-marketplace' as Href)}
-            style={[styles.marketplaceBtn, { borderColor: theme.accent, backgroundColor: theme.bgElevated }]}>
-            <Text style={[styles.marketplaceBtnText, { color: theme.accent }]}>{t('loyalty_marketplace_link')}</Text>
-          </Pressable>
         </View>
       ) : null}
 
@@ -277,30 +276,42 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   profile: {
     marginBottom: 20,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
     borderRadius: 16,
     borderWidth: 1,
   },
   profileName: { fontSize: 20, fontWeight: '800' },
-  profileMeta: { fontSize: 14, marginTop: 4 },
-  pointsCard: {
-    marginTop: 14,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
+  profileMeta: { fontSize: 14, marginTop: 4, lineHeight: 20 },
+  loyaltyInlineRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 12,
   },
-  pointsLabel: { fontSize: 13, fontWeight: '700' },
-  pointsValue: { fontSize: 34, fontWeight: '900', marginVertical: 4 },
-  pointsHint: { fontSize: 12, textAlign: 'center', lineHeight: 18 },
-  marketplaceBtn: {
-    marginTop: 10,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
+  loyaltyInlineRowRtl: { flexDirection: 'row-reverse' },
+  loyaltyInlineLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    flex: 1,
+    minWidth: 0,
   },
-  marketplaceBtnText: { fontSize: 14, fontWeight: '800' },
+  loyaltyInlineLeftRtl: { flexDirection: 'row-reverse' },
+  loyaltyInlineLabel: { fontSize: 13, fontWeight: '600', flexShrink: 1 },
+  marketplacePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  marketplacePillRtl: { flexDirection: 'row-reverse' },
+  marketplacePillText: { fontSize: 12, fontWeight: '800' },
   section: {
     fontSize: 17,
     fontWeight: '800',

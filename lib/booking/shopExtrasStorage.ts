@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ShopDayHours, ShopExtras, ShopOffer, ShopService } from '@/lib/booking/types';
 import { isOfferLive } from '@/lib/booking/offerPricing';
 import { createShopOffer, deactivateShopOffer, listActiveOffersForShop } from '@/lib/booking/offerRepository';
-import { defaultWashServices } from '@/lib/booking/shopSchedule';
 import { persistImageUri } from '@/lib/media/persistImageUri';
 
 const SHOP_EXTRAS_KEY = '@pitstop/shop-extras/v1';
@@ -244,12 +243,6 @@ export async function setShopServices(shopId: string, services: ShopService[]): 
   map[shopId] = row;
   await writeMap(map);
   return row;
-}
-
-export async function ensureDefaultWashServices(shopId: string): Promise<ShopExtras> {
-  const row = await getShopExtras(shopId);
-  if (row.services?.length) return row;
-  return setShopServices(shopId, defaultWashServices());
 }
 
 /** All saved shop extras (for home offers aggregation). */

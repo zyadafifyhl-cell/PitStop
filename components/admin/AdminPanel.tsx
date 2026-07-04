@@ -11,6 +11,7 @@ import {
 
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { useI18n } from '@/context/I18nContext';
+import type { TranslationKey } from '@/lib/i18n/strings';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -134,6 +135,13 @@ export function AdminPanel() {
   }, [tab, reload]);
 
   async function onApprove(row: PendingOwnerRequest) {
+    const confirmed = await userConfirm(
+      t('admin_approve_confirm_title'),
+      t('admin_approve_confirm_body').replace('{shop}', row.shopName),
+      { confirmLabel: t('admin_accept_btn'), cancelLabel: t('alert_cancel') },
+    );
+    if (!confirmed) return;
+
     setBusyId(row.userId);
     try {
       await approveShopOwner(row.userId, row.shopId);
@@ -147,6 +155,13 @@ export function AdminPanel() {
   }
 
   async function onReject(row: PendingOwnerRequest) {
+    const confirmed = await userConfirm(
+      t('admin_reject_confirm_title'),
+      t('admin_reject_confirm_body').replace('{shop}', row.shopName),
+      { confirmLabel: t('admin_reject_btn'), cancelLabel: t('alert_cancel') },
+    );
+    if (!confirmed) return;
+
     setBusyId(row.userId);
     try {
       await rejectShopOwner(row.userId, row.shopId);
@@ -240,18 +255,23 @@ export function AdminPanel() {
     }
   }
 
-  const tabBtn = (key: AdminTab, label: string) => (
-    <Pressable
-      key={key}
-      onPress={() => setTab(key)}
-      style={[
-        styles.tabBtn,
-        { borderColor: theme.border, backgroundColor: theme.bgElevated },
-        tab === key && { backgroundColor: theme.accent, borderColor: theme.accent },
-      ]}>
-      <Text style={[styles.tabBtnText, { color: tab === key ? theme.onAccent : theme.text }]}>{label}</Text>
-    </Pressable>
-  );
+  const tabBtn = (key: AdminTab, label: string) => {
+    const active = tab === key;
+    return (
+      <Pressable
+        key={key}
+        onPress={() => setTab(key)}
+        style={[
+          styles.tabCapsule,
+          {
+            borderColor: active ? theme.accent : 'transparent',
+            backgroundColor: active ? theme.accentSoft : 'transparent',
+          },
+        ]}>
+        <Text style={[styles.tabCapsuleText, { color: active ? theme.accent : theme.textMuted }]}>{label}</Text>
+      </Pressable>
+    );
+  };
 
   function moderationKindLabel(item: ModerationQueueItem): string {
     if (item.kind === 'post') return t('admin_moderation_kind_post');
@@ -260,8 +280,8 @@ export function AdminPanel() {
   }
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
-      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.bgElevated }]}>
+    <View style={[styles.screen, { backgroundColor: '#080D1A' }]}>
+      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: '#080D1A' }]}>
         <View style={styles.headerTop}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>{t('admin_panel_title')}</Text>
           <Pressable onPress={() => signOut().then(() => router.replace('/welcome'))} hitSlop={8}>
@@ -279,28 +299,21 @@ export function AdminPanel() {
         </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={{ backgroundColor: '#080D1A' }}
+        contentContainerStyle={[styles.content, { backgroundColor: '#080D1A' }]}
+        keyboardShouldPersistTaps="handled">
           {tab === 'dashboard' ? (
             <>
               <OwnerSectionCard theme={theme} title={t('admin_dashboard_title')} subtitle={t('admin_dashboard_lead')}>
-                {dashboardLoading && !stats ? (
-                  <AdminStatsSkeleton theme={theme} />
-                ) : stats ? (
-                  <View style={styles.statsGrid}>
-                    <StatCard theme={theme} label={t('admin_stat_total_bookings')} value={String(stats.totalBookings)} />
-                    <StatCard theme={theme} label={t('admin_stat_completed')} value={String(stats.completedBookings)} />
-                    <StatCard theme={theme} label={t('admin_stat_gross')} value={formatEgp(stats.grossRevenueEgp, locale)} />
-                    <StatCard
-                      theme={theme}
-                      label={t('admin_stat_platform_fee')}
-                      value={formatEgp(stats.platformFeeEgp, locale)}
-                    />
-                    <StatCard theme={theme} label={t('admin_stat_pending_owners')} value={String(stats.pendingOwnerCount)} />
-                    <StatCard theme={theme} label={t('admin_stat_active_merchants')} value={String(stats.activeMerchantCount)} />
-                  </View>
-                ) : (
-                  <Text style={{ color: theme.textMuted }}>{t('admin_platform_fee_note')}</Text>
-                )}
+                <DashboardStatsGrid
+                  theme={theme}
+                  locale={locale}
+                  isRTL={isRTL}
+                  t={t}
+                  stats={stats}
+                  loading={dashboardLoading}
+                />
                 <Text style={[styles.feeNote, { color: theme.textDim }, isRTL && styles.textRtl]}>
                   {t('admin_platform_fee_note')}
                 </Text>
@@ -369,42 +382,17 @@ export function AdminPanel() {
           ) : null}
 
           {tab === 'pending' ? (
-            <OwnerSectionCard theme={theme} title={t('admin_pending_title')} subtitle={t('admin_pending_lead')}>
-              {pendingLoading && pending.length === 0 ? (
-                <View style={styles.centerInline}>
-                  <ActivityIndicator color={theme.accent} />
-                </View>
-              ) : pending.length === 0 ? (
-                <Text style={{ color: theme.textMuted }}>{t('admin_pending_empty')}</Text>
-              ) : (
-                pending.map((row) => (
-                  <View key={row.userId} style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                    <Text style={[styles.rowTitle, { color: theme.text }]}>{row.shopName}</Text>
-                    <Text style={{ color: theme.textMuted }}>
-                      {shopTypeLabel(row.shopType, locale)} · {row.email}
-                    </Text>
-                    <Text style={{ color: theme.textMuted }}>
-                      {row.fullName ?? '—'} · {row.phoneShop || row.phone || '—'}
-                    </Text>
-                    <Text style={{ color: theme.textDim, marginTop: 4 }}>{row.address}</Text>
-                    <View style={styles.actionRow}>
-                      <Pressable
-                        onPress={() => onApprove(row)}
-                        disabled={busyId === row.userId}
-                        style={[styles.approveBtn, { backgroundColor: theme.accent, opacity: busyId === row.userId ? 0.6 : 1 }]}>
-                        <Text style={{ color: theme.onAccent, fontWeight: '800' }}>{t('admin_accept_btn')}</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => onReject(row)}
-                        disabled={busyId === row.userId}
-                        style={[styles.rejectBtn, { borderColor: theme.border }]}>
-                        <Text style={{ color: theme.warm, fontWeight: '800' }}>{t('admin_reject_btn')}</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ))
-              )}
-            </OwnerSectionCard>
+            <PendingRequestsTab
+              theme={theme}
+              locale={locale}
+              isRTL={isRTL}
+              t={t}
+              pending={pending}
+              pendingLoading={pendingLoading}
+              busyId={busyId}
+              onApprove={onApprove}
+              onReject={onReject}
+            />
           ) : null}
 
           {tab === 'merchants' ? (
@@ -510,19 +498,168 @@ export function AdminPanel() {
   );
 }
 
-function StatCard({
+function PendingRequestsTab({
+  theme,
+  locale,
+  isRTL,
+  t,
+  pending,
+  pendingLoading,
+  busyId,
+  onApprove,
+  onReject,
+}: {
+  theme: ReturnType<typeof useAppTheme>;
+  locale: 'en' | 'ar';
+  isRTL: boolean;
+  t: (key: TranslationKey) => string;
+  pending: PendingOwnerRequest[];
+  pendingLoading: boolean;
+  busyId: string | null;
+  onApprove: (row: PendingOwnerRequest) => void;
+  onReject: (row: PendingOwnerRequest) => void;
+}) {
+  return (
+    <OwnerSectionCard theme={theme} title={t('admin_pending_title')} subtitle={t('admin_pending_lead')}>
+      {pendingLoading && pending.length === 0 ? (
+        <View style={styles.centerInline}>
+          <ActivityIndicator color={theme.accent} />
+        </View>
+      ) : pending.length === 0 ? (
+        <Text style={{ color: theme.textMuted }}>{t('admin_pending_empty')}</Text>
+      ) : (
+        pending.map((row) => {
+          const isBusy = busyId === row.userId;
+          return (
+            <View
+              key={row.userId}
+              style={[styles.pendingCard, { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: '#121826' }]}>
+              <Text style={[styles.pendingShopName, { color: theme.text }, isRTL && styles.textRtl]}>{row.shopName}</Text>
+              <Text style={[styles.pendingMeta, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {shopTypeLabel(row.shopType, locale)} · {row.email}
+              </Text>
+              <Text style={[styles.pendingOwner, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {row.fullName ?? '—'} · {row.phoneShop || row.phone || '—'}
+              </Text>
+              <Text style={[styles.pendingAddress, { color: theme.textDim }, isRTL && styles.textRtl]}>{row.address}</Text>
+
+              <View style={[styles.pendingCardFooter, isRTL && styles.pendingCardFooterRtl]}>
+                <Pressable
+                  onPress={() => onReject(row)}
+                  disabled={isBusy}
+                  style={({ pressed }) => [
+                    styles.pendingRejectBtn,
+                    { borderColor: 'rgba(255,255,255,0.08)', opacity: isBusy ? 0.5 : pressed ? 0.75 : 1 },
+                  ]}>
+                  <Text style={[styles.pendingRejectText, { color: theme.textMuted }]}>{t('admin_reject_btn')}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onApprove(row)}
+                  disabled={isBusy}
+                  style={({ pressed }) => [
+                    styles.pendingAcceptBtn,
+                    { backgroundColor: theme.accent, opacity: isBusy ? 0.6 : pressed ? 0.88 : 1 },
+                  ]}>
+                  {isBusy ? (
+                    <ActivityIndicator color={theme.onAccent} size="small" />
+                  ) : (
+                    <Text style={[styles.pendingAcceptText, { color: theme.onAccent }]}>{t('admin_accept_btn')}</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          );
+        })
+      )}
+    </OwnerSectionCard>
+  );
+}
+
+function DashboardStatsGrid({
+  theme,
+  locale,
+  isRTL,
+  t,
+  stats,
+  loading,
+}: {
+  theme: ReturnType<typeof useAppTheme>;
+  locale: 'en' | 'ar';
+  isRTL: boolean;
+  t: (key: TranslationKey) => string;
+  stats: PlatformStats | null;
+  loading: boolean;
+}) {
+  if (loading && !stats) {
+    return <AdminStatsSkeleton theme={theme} />;
+  }
+
+  if (!stats) {
+    return <Text style={{ color: theme.textMuted }}>{t('admin_platform_fee_note')}</Text>;
+  }
+
+  return (
+    <View style={styles.statsGrid}>
+      <DashboardStatCard
+        theme={theme}
+        isRTL={isRTL}
+        label={t('admin_stat_total_revenue')}
+        value={formatEgp(stats.totalRevenueEgp, locale)}
+        accentColor="#00D4FF"
+      />
+      <DashboardStatCard
+        theme={theme}
+        isRTL={isRTL}
+        label={t('admin_stat_active_shops')}
+        value={String(stats.activeShopsCount)}
+        accentColor={theme.green}
+      />
+      <DashboardStatCard
+        theme={theme}
+        isRTL={isRTL}
+        label={t('admin_stat_completed_bookings')}
+        value={String(stats.completedBookingsCount)}
+        accentColor="#00D4FF"
+      />
+      <DashboardStatCard
+        theme={theme}
+        isRTL={isRTL}
+        label={t('admin_stat_reported_posts')}
+        value={String(stats.reportedPostsCount)}
+        accentColor={theme.textMuted}
+      />
+    </View>
+  );
+}
+
+function DashboardStatCard({
   theme,
   label,
   value,
+  accentColor,
+  isRTL,
 }: {
   theme: ReturnType<typeof useAppTheme>;
   label: string;
   value: string;
+  accentColor: string;
+  isRTL: boolean;
 }) {
   return (
-    <View style={[styles.statCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-      <Text style={[styles.statValue, { color: theme.text }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: theme.textMuted }]}>{label}</Text>
+    <View
+      style={[styles.dashboardStatCard, { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: '#121826' }]}>
+      <Text
+        style={[styles.dashboardStatValue, { color: theme.text }, isRTL && styles.textRtl]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}>
+        {value}
+      </Text>
+      <Text
+        style={[styles.dashboardStatLabel, { color: accentColor }, isRTL && styles.textRtl]}
+        numberOfLines={2}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -530,13 +667,13 @@ function StatCard({
 function AdminStatsSkeleton({ theme }: { theme: ReturnType<typeof useAppTheme> }) {
   return (
     <View style={styles.statsGrid}>
-      {Array.from({ length: 6 }).map((_, idx) => (
+      {Array.from({ length: 4 }).map((_, idx) => (
         <View
           key={`admin-skeleton-${idx}`}
           style={[
-            styles.statCard,
+            styles.dashboardStatCard,
             styles.skeletonBlock,
-            { borderColor: theme.border, backgroundColor: theme.bgElevated },
+            { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: '#121826' },
           ]}
         />
       ))}
@@ -552,20 +689,77 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 12, marginTop: 4, marginBottom: 10 },
   logout: { fontWeight: '700', fontSize: 14 },
   tabsRow: { gap: 8, paddingBottom: 4 },
-  tabBtn: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
-  tabBtnText: { fontWeight: '700', fontSize: 13 },
+  tabCapsule: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    marginRight: 8,
+  },
+  tabCapsuleText: { fontWeight: '700', fontSize: 13 },
   content: { padding: 16, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   centerInline: { paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  statCard: { width: '47%', borderWidth: 1, borderRadius: 12, padding: 12, minHeight: 72 },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    width: '100%',
+  },
+  dashboardStatCard: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    minWidth: 148,
+    maxWidth: '100%',
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 88,
+  },
+  dashboardStatValue: { fontSize: 22, fontWeight: '900', lineHeight: 28 },
+  dashboardStatLabel: { fontSize: 12, fontWeight: '700', marginTop: 6, lineHeight: 17 },
   skeletonBlock: { opacity: 0.45 },
-  statValue: { fontSize: 18, fontWeight: '900' },
-  statLabel: { fontSize: 11, marginTop: 4 },
   feeNote: { fontSize: 11, marginTop: 12, lineHeight: 16 },
   textRtl: { writingDirection: 'rtl', textAlign: 'right' },
   rowCard: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 10 },
   rowTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
+  pendingCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    marginBottom: 12,
+  },
+  pendingShopName: { fontSize: 18, fontWeight: '800', lineHeight: 24 },
+  pendingMeta: { fontSize: 13, marginTop: 6, lineHeight: 19 },
+  pendingOwner: { fontSize: 13, marginTop: 4, lineHeight: 19 },
+  pendingAddress: { fontSize: 12, marginTop: 8, lineHeight: 18 },
+  pendingCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
+  },
+  pendingCardFooterRtl: { flexDirection: 'row-reverse' },
+  pendingAcceptBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    minWidth: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingAcceptText: { fontSize: 13, fontWeight: '800' },
+  pendingRejectBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+  },
+  pendingRejectText: { fontSize: 13, fontWeight: '700' },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   approveBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   rejectBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1 },

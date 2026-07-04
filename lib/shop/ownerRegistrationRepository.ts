@@ -54,11 +54,11 @@ export async function registerShopOwner(input: RegisterShopOwnerInput): Promise<
 
   const { error: rpcError } = await supabase.rpc('register_shop_owner', {
     p_shop_name: input.shopName.trim(),
-    p_shop_name_ar: (input.shopNameAr ?? input.shopName).trim(),
+    p_shop_name_ar: input.shopNameAr?.trim() ?? '',
     p_shop_type: input.shopType,
     p_area_id: input.areaId,
     p_address: input.address.trim(),
-    p_address_ar: (input.addressAr ?? input.address).trim(),
+    p_address_ar: input.addressAr?.trim() ?? '',
     p_phone: input.phone.trim(),
   });
 

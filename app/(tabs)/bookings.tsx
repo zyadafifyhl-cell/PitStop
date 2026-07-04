@@ -17,6 +17,7 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { addShopReview, getCustomerShopReview } from '@/lib/booking/reviewsStorage';
+import { orderHistoryReviewBody } from '@/lib/booking/reviewConstants';
 import { clearCustomerBookingHistory, listBookingsForPhone } from '@/lib/booking/storage';
 import type { Booking } from '@/lib/booking/types';
 
@@ -30,6 +31,7 @@ export default function MyBookingsScreen() {
   const { customer, ready: authReady } = useCustomerAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [ratedShopIds, setRatedShopIds] = useState<Set<string>>(new Set());
+  const [shopRatings, setShopRatings] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(true);
   const [ratingShopId, setRatingShopId] = useState<string | null>(null);
   const [eraseConfirmVisible, setEraseConfirmVisible] = useState(false);
@@ -40,6 +42,7 @@ export default function MyBookingsScreen() {
     if (!customer?.phone) {
       setBookings([]);
       setRatedShopIds(new Set());
+      setShopRatings({});
       setBusy(false);
       return;
     }
@@ -48,15 +51,21 @@ export default function MyBookingsScreen() {
     if (customer.id) {
       const shopIds = [...new Set(rows.map((row) => row.shopId))];
       const rated = new Set<string>();
+      const ratings: Record<string, number> = {};
       await Promise.all(
         shopIds.map(async (shopId) => {
           const review = await getCustomerShopReview(shopId, customer.id!);
-          if (review) rated.add(shopId);
+          if (review) {
+            rated.add(shopId);
+            ratings[shopId] = review.rating;
+          }
         }),
       );
       setRatedShopIds(rated);
+      setShopRatings(ratings);
     } else {
       setRatedShopIds(new Set());
+      setShopRatings({});
     }
     setBusy(false);
   }, [customer?.id, customer?.phone]);
@@ -101,12 +110,22 @@ export default function MyBookingsScreen() {
         customerId: customer.id,
         customerName: customer.name?.trim() || t('shop_review_anonymous'),
         rating,
-        body: locale === 'ar' ? 'تقييم من سجل الحجوزات.' : 'Rated from order history.',
+        body: orderHistoryReviewBody(locale),
       });
       setRatedShopIds((prev) => new Set(prev).add(booking.shopId));
+      setShopRatings((prev) => ({ ...prev, [booking.shopId]: rating }));
       Alert.alert(t('shop_review_success_title'), t('order_rating_saved'));
-    } catch {
-      Alert.alert(t('shop_review_submit_fail_title'), t('shop_review_submit_fail_body'));
+    } catch (error) {
+      if (error instanceof Error && error.message === 'shop_review_already_exists') {
+        const existing = await getCustomerShopReview(booking.shopId, customer.id);
+        if (existing) {
+          setRatedShopIds((prev) => new Set(prev).add(booking.shopId));
+          setShopRatings((prev) => ({ ...prev, [booking.shopId]: existing.rating }));
+        }
+        Alert.alert(t('shop_review_success_title'), t('shop_review_already_rated'));
+      } else {
+        Alert.alert(t('shop_review_submit_fail_title'), t('shop_review_submit_fail_body'));
+      }
     } finally {
       setRatingShopId(null);
     }
@@ -154,6 +173,7 @@ export default function MyBookingsScreen() {
               theme={theme}
               t={t}
               alreadyRated={ratedShopIds.has(item.shopId)}
+              savedRating={shopRatings[item.shopId]}
               ratingBusy={ratingShopId === item.shopId}
               onViewDetails={() => onViewDetails(item)}
               onBookAgain={() => onBookAgain(item)}

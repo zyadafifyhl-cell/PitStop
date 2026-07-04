@@ -361,12 +361,12 @@ export default function WashOwnerHubScreen() {
               </Pressable>
             </>
           ) : null}
-          {booking.status === 'confirmed' ? (
+          {booking.status === 'confirmed' || booking.status === 'in_progress' ? (
             <>
               <Pressable
-                onPress={() => onBookingStatusChange(booking, 'in_progress')}
+                onPress={() => onBookingStatusChange(booking, 'done')}
                 style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_in_progress')}</Text>
+                <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_complete')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => onBookingStatusChange(booking, 'no_show')}
@@ -374,13 +374,6 @@ export default function WashOwnerHubScreen() {
                 <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_no_show')}</Text>
               </Pressable>
             </>
-          ) : null}
-          {booking.status === 'in_progress' ? (
-            <Pressable
-              onPress={() => onBookingStatusChange(booking, 'done')}
-              style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-              <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_complete')}</Text>
-            </Pressable>
           ) : null}
           <Pressable
             onPress={() => openPhone(booking.customerPhone).catch(() => undefined)}

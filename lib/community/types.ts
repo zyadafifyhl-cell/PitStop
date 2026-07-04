@@ -27,6 +27,7 @@ export type CommunityComment = {
   authorRole: UserRole;
   parentId?: string;
   content: string;
+  imageUrl?: string;
   createdAt: string;
   likeCount: number;
   userLiked: boolean;

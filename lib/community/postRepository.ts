@@ -14,6 +14,11 @@ const LOCAL_COMMENTS_KEY = '@pitstop/community-comments/v1';
 const LOCAL_POST_LIKES_KEY = '@pitstop/community-post-likes/v1';
 const LOCAL_COMMENT_LIKES_KEY = '@pitstop/community-comment-likes/v1';
 
+type UserProfileJoin = {
+  full_name?: string | null;
+  role?: string | null;
+};
+
 type PostRow = {
   id: string;
   user_id: string;
@@ -22,6 +27,7 @@ type PostRow = {
   image_url?: string | null;
   category_tag: string;
   created_at: string;
+  users?: UserProfileJoin | UserProfileJoin[] | null;
   post_votes?: { vote_type: 'up' | 'down'; user_id: string }[] | null;
   comments?: { id: string }[] | null;
 };
@@ -32,7 +38,9 @@ type CommentRow = {
   user_id: string;
   parent_id?: string | null;
   content: string;
+  image_url?: string | null;
   created_at: string;
+  users?: UserProfileJoin | UserProfileJoin[] | null;
   comment_likes?: { user_id: string }[] | null;
 };
 
@@ -58,6 +66,25 @@ function normalizeRole(value: string | undefined | null): UserRole {
     return value;
   }
   return 'customer';
+}
+
+function pickUserProfile(
+  users: UserProfileJoin | UserProfileJoin[] | null | undefined,
+): UserProfileJoin | null {
+  if (!users) return null;
+  return Array.isArray(users) ? users[0] ?? null : users;
+}
+
+function authorFromUserJoin(
+  users: UserProfileJoin | UserProfileJoin[] | null | undefined,
+  fallback?: Partial<Pick<CommunityPost, 'authorName' | 'authorRole'>>,
+): Pick<CommunityPost, 'authorName' | 'authorRole'> {
+  const profile = pickUserProfile(users);
+  const name = profile?.full_name?.trim();
+  return {
+    authorName: name || fallback?.authorName || 'Driver',
+    authorRole: normalizeRole(profile?.role ?? fallback?.authorRole),
+  };
 }
 
 function likeCountFromPostVotes(votes: { vote_type: 'up' | 'down'; user_id: string }[] | undefined | null): number {
@@ -97,14 +124,15 @@ function mapPostRow(
   overrides?: Partial<Pick<CommunityPost, 'authorName' | 'authorRole'>>,
 ): CommunityPost {
   const votes = row.post_votes ?? [];
+  const author = authorFromUserJoin(row.users, overrides);
   return {
     id: row.id,
     userId: row.user_id,
-    authorName: overrides?.authorName ?? 'Driver',
-    authorRole: overrides?.authorRole ?? 'customer',
+    authorName: author.authorName,
+    authorRole: author.authorRole,
     title: row.title,
     content: row.content,
-    imageUrl: row.image_url ?? undefined,
+    imageUrl: row.image_url?.trim() || undefined,
     categoryTag: normalizeCategoryTag(row.category_tag),
     createdAt: row.created_at,
     likeCount: likeCountFromPostVotes(votes),
@@ -119,14 +147,16 @@ function mapCommentRow(
   overrides?: Partial<Pick<CommunityComment, 'authorName' | 'authorRole'>>,
 ): CommunityComment {
   const likes = row.comment_likes ?? [];
+  const author = authorFromUserJoin(row.users, overrides);
   return {
     id: row.id,
     postId: row.post_id,
     userId: row.user_id,
-    authorName: overrides?.authorName ?? 'Driver',
-    authorRole: overrides?.authorRole ?? 'customer',
+    authorName: author.authorName,
+    authorRole: author.authorRole,
     parentId: row.parent_id ?? undefined,
     content: row.content,
+    imageUrl: row.image_url?.trim() || undefined,
     createdAt: row.created_at,
     likeCount: likes.length,
     userLiked: viewerUserId ? likes.some((like) => like.user_id === viewerUserId) : false,
@@ -156,8 +186,9 @@ function mergePosts(remote: CommunityPost[], local: CommunityPost[]): CommunityP
     }
     byId.set(row.id, {
       ...existing,
-      authorName: row.authorName || existing.authorName,
-      authorRole: row.authorRole || existing.authorRole,
+      authorName:
+        existing.authorName !== 'Driver' ? existing.authorName : row.authorName || existing.authorName,
+      authorRole: existing.authorRole ?? row.authorRole,
       title: existing.title || row.title,
       content: existing.content || row.content,
       imageUrl: existing.imageUrl ?? row.imageUrl,
@@ -239,6 +270,28 @@ async function writeLocalCommentLikes(rows: LocalLike[]): Promise<void> {
   await AsyncStorage.setItem(LOCAL_COMMENT_LIKES_KEY, JSON.stringify(rows));
 }
 
+async function setLocalPostLike(postId: string, userId: string, liked: boolean): Promise<void> {
+  const likes = await readLocalPostLikes();
+  const idx = likes.findIndex((like) => like.targetId === postId && like.userId === userId);
+  if (liked) {
+    if (idx < 0) likes.push({ targetId: postId, userId });
+  } else if (idx >= 0) {
+    likes.splice(idx, 1);
+  }
+  await writeLocalPostLikes(likes);
+}
+
+async function setLocalCommentLike(commentId: string, userId: string, liked: boolean): Promise<void> {
+  const likes = await readLocalCommentLikes();
+  const idx = likes.findIndex((like) => like.targetId === commentId && like.userId === userId);
+  if (liked) {
+    if (idx < 0) likes.push({ targetId: commentId, userId });
+  } else if (idx >= 0) {
+    likes.splice(idx, 1);
+  }
+  await writeLocalCommentLikes(likes);
+}
+
 function applyLocalPostLikes(posts: CommunityPost[], likes: LocalLike[], viewerUserId?: string): CommunityPost[] {
   return posts.map((post) => {
     const postLikes = likes.filter((like) => like.targetId === post.id);
@@ -285,62 +338,27 @@ async function fetchPostsRemote(viewerUserId?: string): Promise<CommunityPost[]>
   const supabase = getSupabase();
   if (!supabase) return [];
 
-  const localById = new Map((await readLocalPosts()).map((row) => [row.id, row]));
-
   const { data, error } = await supabase
     .from('posts')
-    .select('*, post_votes(vote_type, user_id), comments(id)')
+    .select('*, users(full_name, role), post_votes(vote_type, user_id), comments(id)')
     .order('created_at', { ascending: false });
 
   if (error || !data) return [];
-  return (data as PostRow[]).map((row) => {
-    const local = localById.get(row.id);
-    return mapPostRow(row, viewerUserId, {
-      authorName: local?.authorName,
-      authorRole: local?.authorRole,
-    });
-  });
+  return (data as PostRow[]).map((row) => mapPostRow(row, viewerUserId));
 }
 
 async function fetchCommentsRemote(postId: string, viewerUserId?: string): Promise<CommunityComment[]> {
   const supabase = getSupabase();
   if (!supabase || !isUuid(postId)) return [];
 
-  const localById = new Map(
-    (await readLocalComments())
-      .filter((row) => row.postId === postId)
-      .map((row) => [row.id, row]),
-  );
-
   const { data, error } = await supabase
     .from('comments')
-    .select('*, comment_likes(user_id)')
+    .select('*, users(full_name, role), comment_likes(user_id)')
     .eq('post_id', postId)
     .order('created_at', { ascending: true });
 
-  if (error || !data) {
-    const { data: plain, error: plainError } = await supabase
-      .from('comments')
-      .select('*')
-      .eq('post_id', postId)
-      .order('created_at', { ascending: true });
-    if (plainError || !plain) return [];
-    return (plain as CommentRow[]).map((row) => {
-      const local = localById.get(row.id);
-      return mapCommentRow(row, viewerUserId, {
-        authorName: local?.authorName,
-        authorRole: local?.authorRole,
-      });
-    });
-  }
-
-  return (data as CommentRow[]).map((row) => {
-    const local = localById.get(row.id);
-    return mapCommentRow(row, viewerUserId, {
-      authorName: local?.authorName,
-      authorRole: local?.authorRole,
-    });
-  });
+  if (error || !data) return [];
+  return (data as CommentRow[]).map((row) => mapCommentRow(row, viewerUserId));
 }
 
 export async function listCommunityPosts(
@@ -375,6 +393,7 @@ export async function createCommunityPost(input: {
   const content = input.content.trim();
   const authorName = input.authorName.trim();
   const authorRole = input.authorRole ?? 'customer';
+  const imageUrl = input.imageUrl?.trim() || undefined;
 
   const buildLocal = (postId: string, createdAt: string): CommunityPost => ({
     id: postId,
@@ -383,7 +402,7 @@ export async function createCommunityPost(input: {
     authorRole,
     title,
     content,
-    imageUrl: input.imageUrl?.trim() || undefined,
+    imageUrl,
     categoryTag: input.categoryTag,
     createdAt,
     likeCount: 0,
@@ -399,10 +418,10 @@ export async function createCommunityPost(input: {
         user_id: input.userId,
         title,
         content,
-        image_url: input.imageUrl?.trim() || null,
+        image_url: imageUrl || null,
         category_tag: input.categoryTag,
       })
-      .select('*')
+      .select('*, users(full_name, role), post_votes(vote_type, user_id), comments(id)')
       .single();
 
     if (!error && data) {
@@ -433,19 +452,29 @@ export async function toggleCommunityPostLike(input: {
 
     if (!readError) {
       if (existing?.vote_type === 'up') {
-        await supabase.from('post_votes').delete().eq('post_id', input.postId).eq('user_id', input.userId);
-        return;
+        const { error: deleteError } = await supabase
+          .from('post_votes')
+          .delete()
+          .eq('post_id', input.postId)
+          .eq('user_id', input.userId);
+        if (!deleteError) {
+          await setLocalPostLike(input.postId, input.userId, false);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from('post_votes').upsert(
+          {
+            post_id: input.postId,
+            user_id: input.userId,
+            vote_type: 'up',
+          },
+          { onConflict: 'user_id,post_id' },
+        );
+        if (!error) {
+          await setLocalPostLike(input.postId, input.userId, true);
+          return;
+        }
       }
-
-      const { error } = await supabase.from('post_votes').upsert(
-        {
-          post_id: input.postId,
-          user_id: input.userId,
-          vote_type: 'up',
-        },
-        { onConflict: 'user_id,post_id' },
-      );
-      if (!error) return;
     }
   }
 
@@ -469,7 +498,19 @@ export async function listCommunityComments(
   const byId = new Map<string, CommunityComment>();
   for (const row of remote) byId.set(row.id, row);
   for (const row of localForPost) {
-    if (!byId.has(row.id)) byId.set(row.id, row);
+    const existing = byId.get(row.id);
+    if (!existing) {
+      byId.set(row.id, row);
+      continue;
+    }
+    byId.set(row.id, {
+      ...existing,
+      authorName:
+        existing.authorName !== 'Driver' ? existing.authorName : row.authorName || existing.authorName,
+      authorRole: existing.authorRole ?? row.authorRole,
+      content: existing.content || row.content,
+      imageUrl: existing.imageUrl ?? row.imageUrl,
+    });
   }
   return applyLocalCommentLikes([...byId.values()], likes, viewerUserId).sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt),
@@ -492,19 +533,25 @@ export async function toggleCommunityCommentLike(input: {
 
     if (!readError) {
       if (existing) {
-        await supabase
+        const { error: deleteError } = await supabase
           .from('comment_likes')
           .delete()
           .eq('comment_id', input.commentId)
           .eq('user_id', input.userId);
-        return;
+        if (!deleteError) {
+          await setLocalCommentLike(input.commentId, input.userId, false);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from('comment_likes').insert({
+          comment_id: input.commentId,
+          user_id: input.userId,
+        });
+        if (!error) {
+          await setLocalCommentLike(input.commentId, input.userId, true);
+          return;
+        }
       }
-
-      const { error } = await supabase.from('comment_likes').insert({
-        comment_id: input.commentId,
-        user_id: input.userId,
-      });
-      if (!error) return;
     }
   }
 
@@ -523,10 +570,12 @@ export async function addCommunityComment(input: {
   authorName: string;
   authorRole?: UserRole;
   content: string;
+  imageUrl?: string;
   parentId?: string;
 }): Promise<CommunityComment> {
   const content = input.content.trim();
-  if (!content) throw new Error('Comment cannot be empty');
+  const imageUrl = input.imageUrl?.trim() || undefined;
+  if (!content && !imageUrl) throw new Error('Comment cannot be empty');
 
   const authorName = input.authorName.trim();
   const authorRole = input.authorRole ?? 'customer';
@@ -540,8 +589,9 @@ export async function addCommunityComment(input: {
         user_id: input.userId,
         parent_id: input.parentId && isUuid(input.parentId) ? input.parentId : null,
         content,
+        image_url: imageUrl || null,
       })
-      .select('*')
+      .select('*, users(full_name, role), comment_likes(user_id)')
       .single();
 
     if (!error && data) {
@@ -560,6 +610,7 @@ export async function addCommunityComment(input: {
     authorRole,
     parentId: input.parentId,
     content,
+    imageUrl,
     createdAt: new Date().toISOString(),
     likeCount: 0,
     userLiked: false,

@@ -16,7 +16,7 @@ export async function purgeCustomerLocalData(customerId: string, phone?: string)
     '@pitstop/active-vehicle/v1',
     `@pitstop/car-profile/${customerId}`,
     `@pitstop/favorites/${customerId}`,
-    '@pitstop/loyalty_points/v1',
+    '@pitstop/merchant_loyalty/v1',
     '@pitstop/loyalty_stamps',
     '@pitstop/customer-notifications/v1',
     '@pitstop/customer-notif-seen/v1',

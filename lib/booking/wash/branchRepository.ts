@@ -425,7 +425,7 @@ export async function addBranchRemote(
       latitude: coords?.latitude ?? shop.latitude,
       longitude: coords?.longitude ?? shop.longitude,
       profile_name: name.trim(),
-      profile_name_ar: nameAr?.trim() || shop.nameAr,
+      profile_name_ar: nameAr?.trim() || null,
       weekly_hours: defaultWeeklyHours(),
       shop_status: 'open',
       vacation_mode: {},

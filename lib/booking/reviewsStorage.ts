@@ -62,29 +62,3 @@ export async function getShopAverageRatings(shopIds: string[]): Promise<Record<s
   );
   return Object.fromEntries(entries);
 }
-
-export function seedDemoReviews(shopId: string): ShopReview[] {
-  const now = new Date().toISOString();
-  return [
-    {
-      id: 'demo-rev-1',
-      shopId,
-      customerName: 'Ahmed',
-      rating: 5,
-      body: 'Excellent service.',
-      likes: 12,
-      likedBy: [],
-      createdAt: now,
-    },
-    {
-      id: 'demo-rev-2',
-      shopId,
-      customerName: 'Mohamed',
-      rating: 4,
-      body: 'Premium package is worth the price.',
-      likes: 5,
-      likedBy: [],
-      createdAt: now,
-    },
-  ];
-}

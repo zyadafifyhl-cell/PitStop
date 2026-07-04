@@ -49,7 +49,12 @@
     .screen-map { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
     .screen-card { border: 1px solid #dde4ee; border-radius: 6px; padding: 8px; font-size: 8.5pt; background: #fff; }
     .screen-card strong { color: #0d3b66; display: block; margin-bottom: 4px; }
+    .mermaid-wrap { background: #f7f9fc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 10px 0 14px; overflow-x: auto; }
+    .mermaid-wrap pre.mermaid { background: transparent; border: none; padding: 0; margin: 0; font-size: 9pt; }
+    .update-banner { background: #eef4fb; border: 1px solid #c5d4e8; border-radius: 8px; padding: 10px 12px; margin: 10px 0 14px; font-size: 9pt; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose' });</script>
 </head>
 <body>
 
@@ -71,7 +76,7 @@
   <span class="tag">Driver Network</span>
   <span class="tag">Moderation</span>
 </p>
-<p class="cover-meta">Project: car-care-eg · Version 2.0 · Updated Jun 2025: Walk-in POS, Driver Network, role-split owner, Admin ledger/moderation, Premium confirm (userConfirm on web), migrations 7–9</p>
+<p class="cover-meta">Project: car-care-eg · PitStop EG · Version 2.0 · Updated Jul 2026: Talabat-style bookings UX, per-shop reviews, owner-only services, merchant register sign-out, migrations 10–13, full system flowcharts (§40)</p>
 
 <h2>Table of Contents</h2>
 <ol class="toc">
@@ -112,8 +117,9 @@
   <li><a href="#owner-roles">Wash Owner vs Branch Manager (Role Split)</a></li>
   <li><a href="#admin-saas">Super Admin SaaS — Premium · Ledger · Moderation</a></li>
   <li><a href="#media-model">Branch Profile &amp; Cover Photos</a></li>
-  <li><a href="#migrations-7-9">SQL Migrations Steps 7–9 (Checklist)</a></li>
+  <li><a href="#migrations-7-9">SQL Migrations Steps 7–13 (Checklist)</a></li>
   <li><a href="#web-dialogs">Web Dialogs — userAlert &amp; userConfirm</a></li>
+  <li><a href="#system-flows-2026"><strong>40. Complete System Flowcharts (2026)</strong></a></li>
 </ol>
 
 <div class="page-break" id="arch"></div>
@@ -133,8 +139,9 @@
 </table>
 
 <h3>Provider tree (startup)</h3>
-<pre>ThemePreferenceProvider → I18nProvider → ShopCatalogProvider
-  → CustomerAuthProvider → AuthProvider → ShopAuthProvider → AppBootstrap</pre>
+<pre>ThemePreferenceProvider → I18nProvider → AppDialogProvider → ShopCatalogProvider
+  → CustomerAuthProvider → ShopAuthProvider → AppBootstrap → Root Stack</pre>
+<p class="small">There is no separate AuthProvider. AppBootstrap blocks navigation until auth is resolved and routes users by role.</p>
 
 <h3>Data flow (hybrid)</h3>
 <div class="flow">Customer action (book, order)
@@ -165,10 +172,13 @@
   <tr><td>/settings/vehicles</td><td>settings/vehicles.tsx</td><td>Customer vehicle list</td></tr>
   <tr><td>/shop/wash-owner-hub</td><td>shop/wash-owner-hub.tsx</td><td>Wash hub: notifications, orders, history</td></tr>
   <tr><td>/admin</td><td>admin/index.tsx</td><td>Super Admin panel (4 tabs: dashboard, pending, merchants, moderation)</td></tr>
+  <tr><td>/booking/[id]</td><td>booking/[id].tsx</td><td>Order details, cancel, contact, rating</td></tr>
+  <tr><td>/points-marketplace</td><td>points-marketplace.tsx</td><td>Loyalty points marketplace (Settings link)</td></tr>
+  <tr><td>/driver-network/[postId]</td><td>driver-network/[postId].tsx</td><td>Single community post</td></tr>
+  <tr><td>/shop/merchant-*</td><td>shop/merchant-*.tsx</td><td>Owner settings, staff, services, hours, password, terms, privacy</td></tr>
   <tr><td>/reset-password</td><td>reset-password.tsx</td><td>Supabase password reset deep link</td></tr>
-  <tr><td>/login, /verify</td><td>login.tsx, verify.tsx</td><td>Legacy phone OTP (garage prototype)</td></tr>
-  <tr><td>/car/[id], /add-car</td><td>car/, add-car.tsx</td><td>Legacy Egypt garage (SQLite odometer)</td></tr>
 </table>
+<p class="small"><strong>Removed legacy routes:</strong> /login, /verify (phone OTP), /car/[id], /add-car, garage catalog tabs — no longer in the app.</p>
 
 <h3>Customer tabs (<code>app/(tabs)/</code>)</h3>
 <table>
@@ -177,14 +187,14 @@
   <tr><td>bookings</td><td>Customer/guest</td><td>My bookings, cancel, history</td></tr>
   <tr><td>favorites</td><td>Logged-in customer</td><td>Saved shops</td></tr>
   <tr><td>assistant</td><td>Customer/guest</td><td>Driver Network + AI chat</td></tr>
-  <tr><td>settings</td><td>Customer/guest</td><td>Language, theme, vehicles, support, logout</td></tr>
+  <tr><td>settings (My account)</td><td>Logged-in customer / guest</td><td>Language, theme, vehicles, points marketplace, support, logout</td></tr>
   <tr><td>shop</td><td>Shop session</td><td>Owner login or owner dashboard</td></tr>
-  <tr><td>catalog, alerts</td><td>Hidden</td><td>Legacy garage features</td></tr>
 </table>
+<p class="small">Legacy hidden tabs (catalog, alerts, garage) removed from customer navigation.</p>
 
 <h3>Navigation rules (<code>AppBootstrap.tsx</code>)</h3>
 <ul>
-  <li>Public paths: /welcome, /reset-password, /auth-required, /login, /verify</li>
+  <li>Public paths: <code>/welcome</code>, <code>/reset-password</code>, <code>/auth-required</code></li>
   <li><strong>Admin session</strong> → redirect to <code>/admin</code></li>
   <li><strong>Pending owner</strong> → stay on /welcome?pending=1 (no shop access)</li>
   <li>Approved shop session → redirect to /shop</li>
@@ -221,7 +231,7 @@
 <ul>
   <li>Resolves from <code>public.users</code> (owner | branch_manager | admin | pending_owner) or legacy <code>shops.owner_email</code></li>
   <li>Flags: <code>isOwner</code>, <code>isBranchManager</code>, <code>isAdmin</code>, <code>isPendingOwner</code>, <code>isPremium</code></li>
-  <li><code>registerOwner()</code> — signUp + RPC <code>register_shop_owner</code></li>
+  <li><code>registerOwner()</code> — signUp + RPC <code>register_shop_owner</code> → <strong>signOut</strong> (user sees success alert, logs in later when approved)</li>
   <li>Login results: <code>ok</code> | <code>ok_admin</code> | <code>pending_approval</code> | <code>invalid_credentials</code> | <code>email_not_confirmed</code> | <code>email_login_disabled</code> | …</li>
   <li>Storage: <code>@pitstop/shop-session</code> (staff email)</li>
   <li>Branch manager invite uses <code>staffInviteLock</code> to prevent session hijack</li>
@@ -271,15 +281,16 @@ Employees → roster only (branch_employees)</div>
   <li>Service entry cards: maintenance, wash, parts, accessories</li>
   <li>Live promotional offers from shops</li>
   <li>Next upcoming booking snippet</li>
-  <li>Car profile shortcut</li>
-  <li><strong>Loyalty card</strong> — 5-stamp wash loyalty program (logged-in customers only)</li>
+  <li><strong>Active vehicle</strong> — dropdown picker synced with Manage vehicles</li>
+  <li>Points marketplace link from Settings (not on Home)</li>
 </ul>
 
 <h3>Car Wash customer UX (new)</h3>
 <ul>
   <li><strong>Busy badge:</strong> pulsing red notice when owner sets branch status to Busy — on shop list cards and shop profile</li>
   <li><strong>Loyalty stamps:</strong> offline-first; +1 stamp when a wash booking reaches <code>done</code>; reward coupon at 5 stamps</li>
-  <li><strong>Today’s booking progress:</strong> step timeline on My Bookings for same-day appointments (Pending → Confirmed → In Progress → Done)</li>
+  <li><strong>Today’s booking progress:</strong> 3-step timeline on My Bookings for same-day appointments (Pending → Confirmed → Done). Legacy DB status <code>in_progress</code> maps to Confirmed in UI.</li>
+  <li><strong>Completed booking rating:</strong> Talabat-style 5-star footer on My Bookings when status is <code>done</code> — one review per customer per shop (mutually exclusive with shop profile form)</li>
 </ul>
 <p class="ar">ميزات غسيل جديدة: شارة مزدحم، بطاقة ولاء 5 أختام، شريط تقدم للحجوزات اليوم.</p>
 
@@ -306,7 +317,8 @@ Employees → roster only (branch_employees)</div>
 <h3>My bookings</h3>
 <ul>
   <li>List all bookings for customer phone/account</li>
-  <li><strong>Progress timeline</strong> for today’s active wash/service bookings (replaces static badge)</li>
+  <li><strong>Progress timeline</strong> for today’s active wash/service bookings (3 steps: pending → confirmed → done)</li>
+  <li><strong>Rate</strong> footer on completed bookings (<code>OrderListCard</code>); <strong>Book again</strong> on the right</li>
   <li>Cancel pending/confirmed bookings</li>
   <li>Clear history</li>
   <li>In-app notifications for approval, decline, reminders</li>
@@ -402,10 +414,12 @@ maintenance/winch  → Generic owner UI (profile + bookings + PDF)</pre>
     → Owner notification (+ optional push)
     → Owner: confirm → confirmed | decline → cancelled
     → Customer notification + reminders (60 min, 30 min before)
-    → Owner: in_progress → done (or no_show)</div>
+    → Owner: Complete → done (or no_show)
+    → Customer: optional 5-star rating on My Bookings (one per shop)</div>
 
-<h3>Booking statuses</h3>
-<p><code>pending</code> → <code>confirmed</code> → <code>in_progress</code> → <code>done</code> | <code>cancelled</code> | <code>no_show</code></p>
+<h3>Booking statuses (UI)</h3>
+<p><code>pending</code> → <code>confirmed</code> → <code>done</code> | <code>cancelled</code> | <code>no_show</code></p>
+<p class="small">There is no separate “In progress” step in the customer UI or owner wash buttons. Legacy rows with <code>in_progress</code> in the database still display as <strong>Confirmed</strong> and map to step 2 of the 3-step timeline.</p>
 
 <h3>Pricing (<code>lib/booking/storage.ts</code>)</h3>
 <table>
@@ -568,8 +582,9 @@ where email = 'wash@demo.com';</pre>
   <tr><td>lib/i18n/strings.ts</td><td>~928 translation keys × EN + AR</td></tr>
   <tr><td>lib/auth/authMutationLock.ts</td><td>Prevents Supabase auth deadlock during signIn/signUp</td></tr>
   <tr><td>components/ui/WashBusyBadge.tsx</td><td>Pulsing red busy notice for customers</td></tr>
-  <tr><td>components/customer/LoyaltyCard.tsx</td><td>5-stamp loyalty card on Home</td></tr>
-  <tr><td>components/customer/BookingProgressTimeline.tsx</td><td>4-step booking progress for today</td></tr>
+  <tr><td>components/customer/ActiveVehiclePicker.tsx</td><td>Home + booking — active vehicle dropdown synced with Manage vehicles</td></tr>
+  <tr><td>components/customer/OrderListCard.tsx</td><td>My Bookings card — timeline, rate footer, book again</td></tr>
+  <tr><td>components/customer/BookingProgressTimeline.tsx</td><td>3-step booking progress for today</td></tr>
   <tr><td>lib/ui/userAlert.ts</td><td>userAlert() + userConfirm() — web-safe dialogs</td></tr>
   <tr><td>lib/ai-chat.ts</td><td>OpenAI assistant</td></tr>
 </table>
@@ -824,7 +839,7 @@ Shop profile: Call | Directions | Share | Favorite | Gallery | Reviews</div>
 /shop/wash-owner-hub?tab=notifications|orders|history
   |
   +-- notifications: wash notification inbox
-  +-- orders: approve/reject/in_progress/done bookings
+  +-- orders: approve/reject/complete bookings (Accept → Complete, no In Progress button)
   +-- history: completed/cancelled list + clear</div>
 
 <h3>17.6 Branch manager vs owner (wash UI)</h3>
@@ -856,15 +871,15 @@ ShopAuthContext resolves role
 <p><strong>Sections top→bottom:</strong></p>
 <ol>
   <li>Header logo + sign out (if logged in)</li>
-  <li><strong>Loyalty card</strong> (<code>LoyaltyCard</code>) — 5 car-icon stamps; visible for logged-in customers only</li>
-  <li>Car profile card — saved make/model; edit modal</li>
+  <li><strong>Active vehicle picker</strong> (<code>ActiveVehiclePicker</code>) — dropdown synced with Settings → Manage vehicles</li>
+  <li>Car profile card — saved make/model from active vehicle</li>
   <li>Next booking card — upcoming appointment or empty state</li>
   <li>Live offers carousel — wash/maintenance promotions</li>
   <li>Service search + filter (all / wash only)</li>
   <li>4 service cards → navigate to /service/{type}</li>
 </ol>
-<p><strong>Loyalty reward modal:</strong> when 5th stamp unlocks, Home shows modal with coupon code <code>LOYAL-XXXXXX</code> (100% off, 90 days). Stamps sync on focus via <code>syncLoyaltyFromBookings()</code>.</p>
-<p class="ar">الرئيسية: بطاقة ولاء 5 أختام + نافذة كوبون عند اكتمال البرنامج.</p>
+<p><strong>Loyalty points:</strong> Settings → <code>/points-marketplace</code> (not on Home). Wash stamp rewards still sync when owner marks booking <code>done</code>.</p>
+<p class="ar">الرئيسية: اختيار السيارة النشطة + الحجز القادم + العروض. نقاط الولاء من الإعدادات.</p>
 </div>
 
 <div class="module-box">
@@ -884,10 +899,10 @@ ShopAuthContext resolves role
   <tr><td>Name, address, phone</td><td>Call, open maps</td></tr>
   <tr><td>Schedule line</td><td>See open hours</td></tr>
   <tr><td><strong>Busy notice</strong></td><td><code>WashBusyBadge</code> full-width when wash + busy status</td></tr>
-  <tr><td>Services list</td><td>Tap service → book with serviceId</td></tr>
+  <tr><td>Services list</td><td>Owner-configured only — empty until owner adds; tap service → book with serviceId</td></tr>
   <tr><td>Offers</td><td>Read promotions</td></tr>
   <tr><td>More info</td><td>Owner free-text details</td></tr>
-  <tr><td>Reviews</td><td>Read/submit rating (logged in)</td></tr>
+  <tr><td>Reviews</td><td>Real reviews only; submit if not already rated from My Bookings</td></tr>
   <tr><td>Share / Favorite</td><td>Social share; save shop</td></tr>
   <tr><td>Book CTA (sticky)</td><td>→ /book or auth-required</td></tr>
 </table>
@@ -910,10 +925,11 @@ ShopAuthContext resolves role
 
 <div class="module-box">
 <h4>Module F — My Bookings (<code>app/(tabs)/bookings.tsx</code>)</h4>
-<p>List cards: shop name, service, datetime, status badge, cancel button (pending/confirmed).</p>
-<p><strong>Today progress timeline:</strong> for bookings scheduled <em>today</em> with status in <code>pending | confirmed | in_progress | done</code>, the static status badge is replaced by <code>BookingProgressTimeline</code> (4 steps with accent connectors).</p>
-<p>Clear history action for done/cancelled items.</p>
-<p class="ar">حجوزاتي: شريط تقدم مباشر للحجوزات اليوم بدل الشارة الثابتة.</p>
+<p><code>OrderListCard</code> per booking: shop name, service, datetime, price, View details link, cancel (pending/confirmed).</p>
+<p><strong>Today progress timeline:</strong> 3 steps (<code>pending → confirmed → done</code>) via <code>BookingProgressTimeline</code> for same-day active bookings.</p>
+<p><strong>Completed bookings:</strong> Talabat-style <strong>Rate</strong> row (5 cyan stars) when <code>status === 'done'</code>; one review per customer per shop. Right action is always <strong>Book again</strong>.</p>
+<p>Clear history action for done/cancelled items. Detail screen: <code>/booking/[id]</code>.</p>
+<p class="ar">حجوزاتي: 3 خطوات لليوم + تقييم نجوم للحجوزات المكتملة + احجز تاني.</p>
 </div>
 
 <div class="module-box">
@@ -1069,8 +1085,9 @@ ShopAuthContext resolves role
   <tr><td>BookingDatePicker</td><td>components/ui/BookingDatePicker.tsx</td><td>Book screen date selection</td></tr>
   <tr><td>CustomerNotificationsBell</td><td>components/customer/CustomerNotificationsBell.tsx</td><td>In-app notification dropdown</td></tr>
   <tr><td>WashBusyBadge</td><td>components/ui/WashBusyBadge.tsx</td><td>Pulsing red busy notice (shop list + profile)</td></tr>
-  <tr><td>LoyaltyCard</td><td>components/customer/LoyaltyCard.tsx</td><td>5-stamp loyalty card on Home</td></tr>
-  <tr><td>BookingProgressTimeline</td><td>components/customer/BookingProgressTimeline.tsx</td><td>4-step booking progress (My Bookings today)</td></tr>
+  <tr><td>ActiveVehiclePicker</td><td>components/customer/ActiveVehiclePicker.tsx</td><td>Home vehicle dropdown</td></tr>
+  <tr><td>OrderListCard</td><td>components/customer/OrderListCard.tsx</td><td>My Bookings card + rating footer</td></tr>
+  <tr><td>BookingProgressTimeline</td><td>components/customer/BookingProgressTimeline.tsx</td><td>3-step booking progress (My Bookings today)</td></tr>
   <tr><td>ShopCatalogProvider</td><td>context/ShopCatalogContext.tsx</td><td>Loads areas/shops cache for UI lists</td></tr>
   <tr><td>userAlert / userConfirm</td><td>lib/ui/userAlert.ts</td><td>Cross-platform alerts; confirm uses window.confirm on web</td></tr>
 </table>
@@ -1340,7 +1357,7 @@ WalkInBookingModal: car type (required) · phone optional + hint · service · n
   |
   v
 createWalkInBooking() → INSERT bookings
-  booking_type = walk_in · status = in_progress
+  booking_type = walk_in · status = confirmed (then owner completes → done)
   service_price_egp from branch_services · platform_fee_egp = 12%
   customer_id from resolve_customer_id_by_phone if phone matches app user
   |
@@ -1404,9 +1421,9 @@ Shows counter invoice (gross / fee / net) → live queue + ledger + owner PDF re
   <li>Business address</li>
   <li>Shop type chips: wash, maintenance, parts, accessories</li>
   <li>Area chips: from catalog areas (Maadi, Nasr City, …)</li>
-  <li>Email + password (strong password rules)</li>
+  <li>Email + password + <strong>Re-enter password</strong> (must match)</li>
 </ol>
-<p><strong>Submit:</strong> <code>registerOwner()</code> in ShopAuthContext</p>
+<p><strong>Submit:</strong> <code>registerOwner()</code> → success Alert → redirect to owner login tab. English-only fields; Arabic shop fields stay empty in DB unless provided (step 13).</p>
 </div>
 
 <div class="module-box">
@@ -1415,7 +1432,7 @@ Shows counter invoice (gross / fee / net) → live queue + ledger + owner PDF re
   <li><code>supabase.auth.signUp</code> with metadata (name, phone, account_type=shop_owner)</li>
   <li><code>supabase.rpc('register_shop_owner', { p_shop_name, p_shop_type, p_area_id, … })</code></li>
   <li>On RPC failure → signOut and return invalid</li>
-  <li>On success → session restored as pending_owner</li>
+  <li>On success → <strong>signOut</strong> (no pending session flash); user logs in after admin approval</li>
 </ol>
 </div>
 
@@ -1532,8 +1549,7 @@ Shows counter invoice (gross / fee / net) → live queue + ledger + owner PDF re
 Customer: Home tab focus
   → listBookingsForPhone()
   → syncLoyaltyFromBookings() — backfill missed done washes
-  → getLoyaltyStamps() → LoyaltyCard UI
-  → consumePendingLoyaltyReward() → modal if new reward</div>
+  → Settings /points-marketplace for points balance</div>
 
 <h4>Reward coupon format</h4>
 <table>
@@ -1545,11 +1561,11 @@ Customer: Home tab focus
 </table>
 <p class="small"><strong>Limitation:</strong> coupon is stored locally; booking checkout does not yet validate <code>LOYAL-*</code> codes automatically — future enhancement.</p>
 
-<h4>UI — LoyaltyCard on Home</h4>
+<h4>UI — Points marketplace (Settings)</h4>
 <ul>
-  <li>5 car-icon stamp circles; filled stamps use theme accent</li>
-  <li>Progress text: “{count} / {goal} stamps”</li>
-  <li>Hidden for guests and logged-out users</li>
+  <li>Route: <code>/points-marketplace</code> from Settings tab</li>
+  <li>Shows loyalty points balance + partner shop cards</li>
+  <li>Not shown on Home (legacy <code>LoyaltyCard</code> removed)</li>
 </ul>
 
 <h4>i18n keys</h4>
@@ -1573,22 +1589,22 @@ Customer: Home tab focus
 </ol>
 
 <h3>28.3 Live Queue Progress Bar (My Bookings)</h3>
-<p><strong>Purpose:</strong> For <em>today’s</em> active appointments, replace the static status badge with a 4-step horizontal timeline so customers see where they are in the queue.</p>
-<p class="ar"><strong>الغرض:</strong> للحجوزات اليوم فقط — شريط تقدم من 4 خطوات يوضح: قيد الانتظار → مؤكد → جاري التنفيذ → تم.</p>
+<p><strong>Purpose:</strong> For <em>today’s</em> active appointments, show a <strong>3-step</strong> horizontal timeline: Pending → Confirmed → Done.</p>
+<p class="ar"><strong>الغرض:</strong> للحجوزات اليوم فقط — 3 خطوات: قيد الانتظار → مؤكد → تم.</p>
 
 <h4>When shown</h4>
 <pre>showTimeline =
-  isBookingToday(scheduledAt)   // same calendar day as device
-  AND status IN (pending, confirmed, in_progress, done)</pre>
+  isBookingToday(scheduledAt)
+  AND status IN (pending, confirmed, in_progress, done)
+  // in_progress counts as step 2 (Confirmed) in UI</pre>
 <p>Cancelled / no-show bookings keep the normal colored status badge only.</p>
 
 <h4>Steps (left → right)</h4>
 <table>
   <tr><th>Step</th><th>Booking status</th><th>Visual</th></tr>
   <tr><td>1</td><td>pending</td><td>First circle active</td></tr>
-  <tr><td>2</td><td>confirmed</td><td>Connector + circle 2 active</td></tr>
-  <tr><td>3</td><td>in_progress</td><td>Step 3 highlighted (bold label)</td></tr>
-  <tr><td>4</td><td>done</td><td>All steps accent-colored with check icons</td></tr>
+  <tr><td>2</td><td>confirmed or legacy in_progress</td><td>Connector + circle 2 active</td></tr>
+  <tr><td>3</td><td>done</td><td>All steps accent-colored with check icons</td></tr>
 </table>
 <p>Component: <code>BookingProgressTimeline.tsx</code> — uses theme accent for reached steps, muted for future steps.</p>
 
@@ -1598,16 +1614,16 @@ Customer: Home tab focus
   <tr><td><code>booking_progress_title</code></td><td>Section title above timeline</td></tr>
   <tr><td><code>booking_progress_pending</code></td><td>Pending</td></tr>
   <tr><td><code>booking_progress_confirmed</code></td><td>Confirmed</td></tr>
-  <tr><td><code>booking_progress_in_progress</code></td><td>In progress</td></tr>
   <tr><td><code>booking_progress_done</code></td><td>Done</td></tr>
 </table>
+<p class="small"><code>booking_progress_in_progress</code> remains in i18n for legacy data but is not a separate timeline step.</p>
 
 <h4>How to test</h4>
 <ol>
   <li>Customer books wash for <strong>today</strong></li>
   <li>My Bookings: timeline visible, step 1 active (pending)</li>
   <li>Owner confirms → customer refreshes tab → step 2 active</li>
-  <li>Owner sets In progress → step 3; Done → all steps complete</li>
+  <li>Owner completes → step 3 (done); optional Rate footer appears</li>
   <li>Book for tomorrow → only status badge, no timeline</li>
 </ol>
 
@@ -1631,12 +1647,14 @@ Customer: Home tab focus
   <tr><td><code>components/ui/ShopListCard.tsx</code></td><td>Shows compact busy badge</td></tr>
   <tr><td><code>app/shop-profile/[shopId].tsx</code></td><td>Shows full busy badge</td></tr>
   <tr><td><code>lib/booking/shopExtrasStorage.ts</code></td><td>Persists washShopStatus</td></tr>
-  <tr><td><code>components/customer/LoyaltyCard.tsx</code></td><td>Home stamp card</td></tr>
-  <tr><td><code>lib/booking/loyaltyStampsStorage.ts</code></td><td>Stamp logic + coupons</td></tr>
+  <tr><td><code>components/customer/ActiveVehiclePicker.tsx</code></td><td>Home vehicle picker</td></tr>
+  <tr><td><code>components/customer/OrderListCard.tsx</code></td><td>My Bookings + rating</td></tr>
+  <tr><td><code>app/points-marketplace.tsx</code></td><td>Loyalty points UI</td></tr>
+  <tr><td><code>components/customer/BookingProgressTimeline.tsx</code></td><td>3-step progress UI</td></tr>
+  <tr><td><code>lib/booking/loyaltyStampsStorage.ts</code></td><td>Stamp logic on booking done</td></tr>
   <tr><td><code>lib/booking/storage.ts</code></td><td>Calls recordWashBookingDone on status update</td></tr>
-  <tr><td><code>app/(tabs)/index.tsx</code></td><td>Loyalty card + reward modal</td></tr>
-  <tr><td><code>components/customer/BookingProgressTimeline.tsx</code></td><td>4-step progress UI</td></tr>
-  <tr><td><code>app/(tabs)/bookings.tsx</code></td><td>Today timeline integration</td></tr>
+  <tr><td><code>lib/booking/reviewRepository.ts</code></td><td>One review per shop + orderHistoryReviewBody</td></tr>
+  <tr><td><code>app/(tabs)/bookings.tsx</code></td><td>OrderListCard + timeline + rating</td></tr>
   <tr><td><code>lib/auth/authMutationLock.ts</code></td><td>Web auth deadlock guard</td></tr>
   <tr><td><code>lib/i18n/strings.ts</code></td><td>All EN/AR strings above</td></tr>
 </table>
@@ -1704,7 +1722,7 @@ Register & start wash → createWalkInBooking()
   |
   v
 bookings row:
-  booking_type = walk_in · status = in_progress
+  booking_type = walk_in · status = confirmed (then owner completes → done)
   customer_phone nullable · customer_id if phone matches users.phone
   service_price_egp + platform_fee_egp (12%)
   |
@@ -1785,14 +1803,17 @@ setShopCoverImage() — replaces index 0 only
 addShopImage() — appends gallery (skips profile URL duplicate)</div>
 
 <div class="page-break" id="migrations-7-9"></div>
-<h2>38. SQL Migrations Steps 7–9 (Checklist)</h2>
+<h2>38. SQL Migrations Steps 7–13 (Checklist)</h2>
 <p class="ar">ترتيب تشغيل SQL على Supabase — خطوة بخطوة</p>
 <ol>
   <li>Ensure steps 1–6 already applied (see §9)</li>
-  <li>Run <code>apply-pitstop-2.0-steps-7-through-8-bundle.sql</code> in SQL Editor (walk-in + reviews + community)</li>
-  <li>Run <code>apply-pitstop-2.0-step9-admin-saas.sql</code> (ledger watermark, moderation flags, admin RPCs)</li>
-  <li>Verify: bottom of bundle shows 3 checks with <code>ok = true</code></li>
-  <li>Reload app → test POS, Driver Network, /admin tabs</li>
+  <li>Run <code>apply-pitstop-2.0-steps-7-through-8-bundle.sql</code> — walk-in POS, reviews, community feed</li>
+  <li>Run <code>apply-pitstop-2.0-step9-admin-saas.sql</code> — ledger watermark, moderation, admin RPCs</li>
+  <li>Run <code>apply-pitstop-2.0-step10-customer-delete-account.sql</code> — <code>customer_delete_own_account()</code> RPC</li>
+  <li>Run <code>apply-pitstop-2.0-step11-offers.sql</code> — <code>offers</code> table + booking offer linkage</li>
+  <li>Run <code>apply-pitstop-2.0-step12-wash-loyalty.sql</code> — <code>customer_wash_loyalty</code> + Supabase stamp sync</li>
+  <li>Run <code>apply-pitstop-2.0-step13-owner-register-ar-empty.sql</code> — merchant register keeps <code>name_ar</code>/<code>address_ar</code> empty unless provided</li>
+  <li>Verify bundle checks show <code>ok = true</code>; reload app → test POS, bookings, admin, register</li>
 </ol>
 <p>Full auth + demo setup: <code>supabase/SETUP-AUTH-CHECKLIST.md</code></p>
 
@@ -1824,7 +1845,221 @@ userConfirm(
 
 <p><strong>Files:</strong> <code>components/admin/AdminPanel.tsx</code> · <code>lib/ui/userAlert.ts</code></p>
 
-<p class="footer">PitStop Master System Documentation · car-care-eg · Walk-in POS · Driver Network · Admin SaaS · userConfirm web fix · migrations 7–9</p>
+<div class="page-break" id="system-flows-2026"></div>
+<h2>40. Complete System Flowcharts (2026)</h2>
+<p class="ar">مخططات تدفق النظام الكامل — Jul 2026</p>
+
+<div class="update-banner">
+  <strong>How to read:</strong> Interactive Mermaid diagrams render in a browser when you open this HTML file online or locally with internet (CDN). ASCII <code>.flow</code> boxes elsewhere in the doc still work offline / in PDF print.
+</div>
+
+<h3>40.1 App startup &amp; routing (<code>AppBootstrap.tsx</code>)</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  A[App launch] --> B{customerReady AND shopReady?}
+  B -->|no| Z[Return null — splash stays]
+  B -->|yes| C{isAdmin?}
+  C -->|yes| D[/replace /admin/]
+  C -->|no| E{isPendingOwner?}
+  E -->|yes| F[/welcome?focus=owner&amp;pending=1/]
+  E -->|no| G{shop session?}
+  G -->|yes| H[/replace /shop/]
+  G -->|no| I{authPending?}
+  I -->|yes| Z
+  I -->|no| J{logged in OR public path?}
+  J -->|no| K[/welcome?focus=login/]
+  J -->|yes| L{customer/guest on /welcome?}
+  L -->|yes| M[resolveReturnTo → home or deep link]
+  L -->|no| N[Mount navigation stack]
+  D --> N
+  F --> N
+  H --> N
+  K --> N
+  M --> N
+</pre>
+</div>
+<p><strong>Public paths only:</strong> <code>/welcome</code>, <code>/reset-password</code>, <code>/auth-required</code></p>
+
+<h3>40.2 Customer authentication</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+  subgraph Welcome["/welcome"]
+    W1[Customer tab]
+    W2[Owner tab]
+    W3[Continue as guest]
+  end
+  W1 -->|login/register| CA[CustomerAuthContext]
+  W2 -->|shop login| SA[ShopAuthContext]
+  W3 --> G[guest flag → home tabs]
+  CA -->|session| BS[AppBootstrap routes]
+  SA -->|owner/admin/pending| BS
+  CA -->|forgot password| RP[/reset-password/]
+  BS -->|protected screen without session| AR[/auth-required → welcome/]
+</pre>
+</div>
+
+<h3>40.3 Merchant registration &amp; approval</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  R[Owner: merchant register form EN fields] --> V{password match?}
+  V -->|no| E1[Inline error]
+  V -->|yes| RPC[registerOwner → signUp + RPC register_shop_owner]
+  RPC --> SO[signOut immediately]
+  SO --> AL[Alert: Request submitted]
+  AL --> WL[/welcome?focus=owner/]
+  AD[Admin /admin Tab A] --> AP{Approve shop?}
+  AP -->|yes| LIVE[shops.approved = true]
+  LIVE --> OL[Owner login → /shop WashOwnerPanel]
+  AP -->|no| REJ[Stay pending → welcome pending banner]
+  RPC --> PEND[shops.approved = false]
+  PEND --> REJ
+</pre>
+</div>
+<p class="small">Step 13 SQL: Arabic <code>name_ar</code> / <code>address_ar</code> stored empty unless explicitly sent — no English copy fallback.</p>
+
+<h3>40.4 Customer booking journey</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  H[Home / Nearby / Favorites] --> SP[Shop profile]
+  SP --> G{Logged in?}
+  G -->|no| AR[/auth-required/]
+  AR --> W[/welcome login/]
+  G -->|yes| BK[/book/shopId?serviceId/]
+  BK --> F[Date + slot + vehicle + phone]
+  F --> CB[createBooking → pending]
+  CB --> ON[Owner notification]
+  ON --> OC{Owner action}
+  OC -->|Accept| CF[confirmed]
+  OC -->|Reject| CX[cancelled]
+  CF --> RM[Reminders 60m / 30m]
+  RM --> CP[Owner: Complete]
+  CP --> DN[done]
+  DN --> RT[My Bookings: Rate stars optional]
+  DN --> LOY[recordWashBookingDone → loyalty stamps]
+</pre>
+</div>
+
+<h3>40.5 Booking status state machine (UI)</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> pending: createBooking
+  pending --> confirmed: owner Accept
+  pending --> cancelled: owner Reject OR customer cancel
+  confirmed --> done: owner Complete
+  confirmed --> no_show: owner No-show
+  confirmed --> cancelled: customer cancel
+  done --> [*]
+  cancelled --> [*]
+  no_show --> [*]
+  note right of confirmed
+    Legacy DB in_progress
+    displays as Confirmed
+    timeline step 2
+  end note
+</pre>
+</div>
+
+<h3>40.6 Reviews — one per customer per shop</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  Q{Customer already reviewed shop?}
+  Q -->|check Supabase| R[reviewRepository.hasCustomerReviewedShop]
+  R -->|yes| A1[My Bookings: stars disabled]
+  R -->|yes| A2[Shop profile: AlreadyRatedCard]
+  R -->|no| B1[My Bookings done booking: Rate footer]
+  R -->|no| B2[Shop profile: ShopReviewForm]
+  B1 --> S[submitShopReview via orderHistoryReviewBody]
+  B2 --> S
+  S --> L[listShopReviews → owner WashOwnerPanel + profile]
+</pre>
+</div>
+<p><strong>No dummy reviews:</strong> <code>seedDemoReviews()</code> removed — empty state when no real data.</p>
+
+<h3>40.7 Wash owner panel flow</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  OL[Owner /shop login] --> WP[WashOwnerPanel]
+  WP --> BR[Branch switcher — Premium multi-branch]
+  WP --> ST[Branch status open/closed/busy/vacation]
+  WP --> SV[Services CRUD — empty until owner adds]
+  WP --> BK[Bookings list]
+  BK --> P[pending → Accept / Reject]
+  P -->|Accept| C[confirmed]
+  C --> D[Complete → done]
+  C --> NS[No-show]
+  WP --> RV[Reviews tab — listShopReviews]
+  WP --> HUB[/shop/wash-owner-hub orders tab/]
+  ST --> CAT[shopExtrasStorage washShopStatus → customer busy badge]
+</pre>
+</div>
+<p class="small">No “Publish default wash menu” — <code>getActiveServices()</code> returns [] until owner creates services.</p>
+
+<h3>40.8 Platform admin</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+  AD[admin@demo.com login] --> AP[/admin/]
+  AP --> T1[Tab A: Pending merchants approve/reject]
+  AP --> T2[Tab B: Moderation flags]
+  AP --> T3[Tab C: Premium toggle userConfirm]
+  AP --> T4[Tab D: Ledger settle balance]
+  T1 --> SH[shops.approved + owner can login]
+  T3 --> PR[shops.is_premium → WashOwnerPanel gates]
+</pre>
+</div>
+
+<h3>40.9 Hybrid data layer</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+  subgraph Client["React Native + AsyncStorage"]
+    AS[@pitstop/* keys]
+    CR[catalogRepository cache]
+    BK[bookings storage]
+    VH[vehicleStorage]
+  end
+  subgraph Supabase["Supabase Postgres + Auth"]
+    SH2[shops / shop_branches]
+    BO[bookings]
+    RV2[reviews]
+    OF[offers]
+    LY[customer_wash_loyalty]
+  end
+  CR <-->|sync on focus| SH2
+  BK <-->|RLS + RPC| BO
+  RV2 <-->|submitShopReview| Client
+  LY <-->|step12 RPC| BK
+  AS --> Client
+</pre>
+</div>
+
+<h3>40.10 Vehicles &amp; active picker</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+  MV[/settings/vehicles/] --> VS[vehicleStorage save/list]
+  VS --> AV[getActiveVehicle]
+  AV --> HP[Home ActiveVehiclePicker]
+  AV --> BF[Booking form prefill]
+  HP -->|change selection| VS
+</pre>
+</div>
+
+<h3>40.11 Provider &amp; screen map (summary)</h3>
+<div class="flow">ThemePreference → I18n → AppDialog → ShopCatalog → CustomerAuth → ShopAuth → AppBootstrap
+  |
+  +-- Customer tabs: Home | Bookings | Favorites | Assistant | Settings(My account)
+  +-- Stack: shop-profile, book, booking/[id], points-marketplace, admin, shop/*
+  +-- Owner: /shop (panel by type) + wash-owner-hub + merchant-settings stack</div>
+
+<p class="footer">PitStop Master System Documentation · car-care-eg · Jul 2026 · migrations 1–13 · §40 system flowcharts</p>
 
 </body>
 </html>

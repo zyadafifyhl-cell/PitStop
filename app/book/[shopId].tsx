@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  Switch,
   TextInput,
   View,
 } from 'react-native';
@@ -42,6 +43,12 @@ import {
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
 import { createBooking, getSavedCustomerPhone, listBookingsForShop, saveCustomerPhone } from '@/lib/booking/storage';
+import {
+  getMerchantLoyaltyCheckoutState,
+  MERCHANT_LOYALTY_REDEEM_POINTS_PER_EGP,
+  validatePointsRedemptionRemote,
+  type PointsRedemptionValidation,
+} from '@/lib/booking/merchantLoyaltyRepository';
 import { listCustomerVehicles } from '@/lib/booking/vehicleStorage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
@@ -117,6 +124,15 @@ export default function BookShopScreen() {
     discountValue: number;
   } | null>(null);
   const showCoupons = false;
+  const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
+  const [loyaltyBalance, setLoyaltyBalance] = useState(0);
+  const [useLoyaltyPoints, setUseLoyaltyPoints] = useState(false);
+  const [pointsToRedeemInput, setPointsToRedeemInput] = useState('');
+  const [loyaltyValidation, setLoyaltyValidation] = useState<PointsRedemptionValidation | null>(null);
+  const [validatingPoints, setValidatingPoints] = useState(false);
+
+  const CHECKOUT_CYAN = '#00D4FF';
+  const CHECKOUT_CARD = '#121826';
 
   const activeServices = useMemo(() => getActiveServices(shopExtras), [shopExtras]);
 
@@ -207,6 +223,94 @@ export default function BookShopScreen() {
     }, [refreshShopExtras]),
   );
 
+  const refreshLoyaltyBalance = useCallback(async () => {
+    if (!customer?.id || isGuest || !shopId) {
+      setLoyaltyEnabled(false);
+      setLoyaltyBalance(0);
+      return;
+    }
+    const state = await getMerchantLoyaltyCheckoutState(customer.id, shopId);
+    setLoyaltyEnabled(state.enabled);
+    setLoyaltyBalance(state.balance);
+    if (!state.enabled || state.balance <= 0) {
+      setUseLoyaltyPoints(false);
+      setPointsToRedeemInput('');
+      setLoyaltyValidation(null);
+    }
+  }, [customer?.id, isGuest, shopId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshLoyaltyBalance();
+    }, [refreshLoyaltyBalance]),
+  );
+
+  const checkoutOriginalPriceEgp = useMemo(() => {
+    if (!shop) return 0;
+    const servicesTotal = selectedServices.reduce((sum, s) => sum + s.priceEgp, 0);
+    const baseTotal =
+      servicesTotal ||
+      (shop.type === 'wash' ? activeServices[0]?.priceEgp ?? 0 : shopExtras?.servicePriceEgp ?? 0);
+    if (showCoupons && appliedCoupon) {
+      return appliedCoupon.discountType === 'percent'
+        ? Math.max(0, Math.round(baseTotal * (1 - appliedCoupon.discountValue / 100) * 100) / 100)
+        : Math.max(0, Math.round((baseTotal - appliedCoupon.discountValue) * 100) / 100);
+    }
+    return baseTotal;
+  }, [shop, selectedServices, activeServices, shopExtras, showCoupons, appliedCoupon]);
+
+  useEffect(() => {
+    if (!useLoyaltyPoints || !customer?.id || !shop?.id || checkoutOriginalPriceEgp <= 0) {
+      setLoyaltyValidation(null);
+      return;
+    }
+
+    const parsedPoints = Math.floor(Number(pointsToRedeemInput) || 0);
+    if (parsedPoints <= 0) {
+      setLoyaltyValidation(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        setValidatingPoints(true);
+        try {
+          const result = await validatePointsRedemptionRemote({
+            userId: customer.id,
+            shopId: shop.id,
+            pointsToRedeem: parsedPoints,
+            invoiceTotalEgp: checkoutOriginalPriceEgp,
+          });
+          if (!cancelled) setLoyaltyValidation(result);
+        } finally {
+          if (!cancelled) setValidatingPoints(false);
+        }
+      })();
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    useLoyaltyPoints,
+    pointsToRedeemInput,
+    customer?.id,
+    shop?.id,
+    checkoutOriginalPriceEgp,
+  ]);
+
+  const appliedPointsRedeemed =
+    useLoyaltyPoints && loyaltyValidation?.ok ? loyaltyValidation.pointsAllowed : 0;
+  const appliedDiscountEgp =
+    useLoyaltyPoints && loyaltyValidation?.ok ? loyaltyValidation.discountEgp : 0;
+  const checkoutFinalAmountEgp = Math.max(
+    0,
+    Math.round((checkoutOriginalPriceEgp - appliedDiscountEgp) * 100) / 100,
+  );
+  const checkoutPlatformFee = computePlatformFee(checkoutFinalAmountEgp);
+
   const hasOwnerSchedule = shopHasCustomerSchedule(shopExtras) || shopHasSavedSchedule(shopExtras);
 
   const slotExtras = useMemo(() => {
@@ -284,18 +388,46 @@ export default function BookShopScreen() {
       selectedServices.map((s) => s.nameAr || s.name).join(' + ') || undefined;
     const serviceDurationMinutes =
       selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0) || undefined;
-    const baseServicePriceEgp =
-      selectedServices.reduce((sum, s) => sum + s.priceEgp, 0) ||
-      (shop.type === 'wash' ? activeServices[0]?.priceEgp : shopExtras?.servicePriceEgp) ||
-      0;
-    const discountedServicePriceEgp = showCoupons && appliedCoupon
-      ? appliedCoupon.discountType === 'percent'
-        ? Math.max(
-            0,
-            Math.round(baseServicePriceEgp * (1 - appliedCoupon.discountValue / 100) * 100) / 100,
-          )
-        : Math.max(0, Math.round((baseServicePriceEgp - appliedCoupon.discountValue) * 100) / 100)
-      : baseServicePriceEgp;
+    const baseServicePriceEgp = checkoutOriginalPriceEgp;
+    let loyaltyCheckout:
+      | {
+          originalPriceEgp: number;
+          pointsRedeemed: number;
+          discountAppliedEgp: number;
+          finalAmountPaidEgp: number;
+        }
+      | undefined;
+
+    if (useLoyaltyPoints && appliedPointsRedeemed > 0) {
+      const freshValidation = await validatePointsRedemptionRemote({
+        userId: customer.id,
+        shopId: shop.id,
+        pointsToRedeem: appliedPointsRedeemed,
+        invoiceTotalEgp: checkoutOriginalPriceEgp,
+      });
+      if (!freshValidation.ok || freshValidation.pointsAllowed <= 0) {
+        userAlert(t('book_missing_title'), t('book_loyalty_invalid'));
+        return;
+      }
+      loyaltyCheckout = {
+        originalPriceEgp: checkoutOriginalPriceEgp,
+        pointsRedeemed: freshValidation.pointsAllowed,
+        discountAppliedEgp: freshValidation.discountEgp,
+        finalAmountPaidEgp: Math.max(
+          0,
+          Math.round((checkoutOriginalPriceEgp - freshValidation.discountEgp) * 100) / 100,
+        ),
+      };
+    } else {
+      loyaltyCheckout = {
+        originalPriceEgp: checkoutOriginalPriceEgp,
+        pointsRedeemed: 0,
+        discountAppliedEgp: 0,
+        finalAmountPaidEgp: checkoutOriginalPriceEgp,
+      };
+    }
+
+    const discountedServicePriceEgp = loyaltyCheckout.finalAmountPaidEgp;
     const notesCombined = customerNotes.trim() || undefined;
 
     setSaving(true);
@@ -318,12 +450,14 @@ export default function BookShopScreen() {
       }, {
         appliedCouponId: showCoupons ? appliedCoupon?.couponId : undefined,
         couponUsageUserId: showCoupons ? customer.id : undefined,
+        loyaltyCheckout,
       });
       await saveCustomerPhone(normalizedPhone);
+      await refreshLoyaltyBalance();
       setReceiptSummary({
         shopName,
         serviceLabels,
-        totalPrice: discountedServicePriceEgp,
+        totalPrice: loyaltyCheckout.finalAmountPaidEgp,
         totalMinutes,
         scheduledAt,
         timeSlot,
@@ -341,6 +475,21 @@ export default function BookShopScreen() {
     setSuccessVisible(false);
     setReceiptSummary(null);
     router.replace('/bookings');
+  }
+
+  function onRedeemMaxPoints() {
+    const maxFromInvoice = Math.floor(checkoutOriginalPriceEgp * MERCHANT_LOYALTY_REDEEM_POINTS_PER_EGP);
+    const maxPoints = Math.min(loyaltyBalance, maxFromInvoice);
+    setUseLoyaltyPoints(true);
+    setPointsToRedeemInput(maxPoints > 0 ? String(maxPoints) : '');
+  }
+
+  function onToggleLoyaltyRedemption(next: boolean) {
+    setUseLoyaltyPoints(next);
+    if (!next) {
+      setPointsToRedeemInput('');
+      setLoyaltyValidation(null);
+    }
   }
 
   const shopName =
@@ -637,7 +786,121 @@ export default function BookShopScreen() {
           </View>
         ) : null}
 
-        {showCoupons && baseTotalPrice > 0 ? (
+        {checkoutOriginalPriceEgp > 0 && timeSlot && selectedSlot?.status !== 'booked' ? (
+          <>
+            {loyaltyEnabled && loyaltyBalance > 0 && customer && !isGuest ? (
+              <View
+                style={[
+                  styles.checkoutCard,
+                  { backgroundColor: CHECKOUT_CARD, borderColor: 'rgba(255,255,255,0.05)' },
+                ]}>
+                <Text style={[styles.checkoutSectionTitle, { color: theme.text }]}>
+                  {t('book_loyalty_section_title')}
+                </Text>
+                <Text style={[styles.checkoutHint, { color: theme.textMuted, fontSize: 16 }]}>
+                  {t('book_loyalty_available').replace('{points}', String(loyaltyBalance))}
+                </Text>
+                <Text style={[styles.checkoutHint, { color: CHECKOUT_CYAN, fontSize: 16, fontWeight: '700' }]}>
+                  {t('book_loyalty_exchange_hint')}
+                </Text>
+
+                <View style={styles.loyaltyToggleRow}>
+                  <Text style={[styles.loyaltyToggleLabel, { color: theme.text }]}>
+                    {t('book_loyalty_points_input_label')}
+                  </Text>
+                  <Switch
+                    value={useLoyaltyPoints}
+                    onValueChange={onToggleLoyaltyRedemption}
+                    trackColor={{ false: theme.border, true: theme.accentSoft }}
+                    thumbColor={useLoyaltyPoints ? CHECKOUT_CYAN : theme.textDim}
+                  />
+                </View>
+
+                {useLoyaltyPoints ? (
+                  <>
+                    <View style={styles.loyaltyInputRow}>
+                      <TextInput
+                        keyboardType="number-pad"
+                        placeholder="0"
+                        placeholderTextColor={theme.textDim}
+                        value={pointsToRedeemInput}
+                        onChangeText={(text) => setPointsToRedeemInput(text.replace(/[^\d]/g, ''))}
+                        style={[
+                          inputStyle(theme),
+                          styles.loyaltyPointsInput,
+                          { backgroundColor: theme.bgElevated, fontSize: 18, fontWeight: '800' },
+                        ]}
+                      />
+                      <Pressable
+                        onPress={onRedeemMaxPoints}
+                        style={[styles.redeemMaxBtn, { borderColor: CHECKOUT_CYAN, backgroundColor: theme.bgElevated }]}>
+                        <Text style={[styles.redeemMaxBtnText, { color: CHECKOUT_CYAN }]}>
+                          {t('book_loyalty_redeem_max')}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    {validatingPoints ? (
+                      <Text style={[styles.checkoutHint, { color: theme.textMuted }]}>
+                        {t('book_saving')}
+                      </Text>
+                    ) : loyaltyValidation && !loyaltyValidation.ok && Number(pointsToRedeemInput) > 0 ? (
+                      <Text style={[styles.checkoutHint, { color: theme.danger, fontSize: 16 }]}>
+                        {t('book_loyalty_invalid')}
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+              </View>
+            ) : null}
+
+            <View
+              style={[
+                styles.checkoutCard,
+                { backgroundColor: CHECKOUT_CARD, borderColor: 'rgba(255,255,255,0.05)' },
+              ]}>
+              <Text style={[styles.checkoutSectionTitle, { color: theme.text }]}>
+                {t('book_summary_title')}
+              </Text>
+
+              <View style={styles.invoiceRow}>
+                <Text style={[styles.invoiceLabel, { color: theme.textMuted }]}>
+                  {t('book_invoice_subtotal')}
+                </Text>
+                <Text style={[styles.invoiceValue, { color: theme.text }]}>
+                  {formatEgp(checkoutOriginalPriceEgp, locale)}
+                </Text>
+              </View>
+
+              {appliedDiscountEgp > 0 ? (
+                <View style={styles.invoiceRow}>
+                  <Text style={[styles.invoiceLabel, { color: theme.textMuted }]}>
+                    {t('book_invoice_points_discount')}
+                  </Text>
+                  <Text style={[styles.invoiceValue, { color: theme.green }]}>
+                    -{formatEgp(appliedDiscountEgp, locale)}
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={[styles.invoiceDivider, { backgroundColor: theme.border }]} />
+
+              <View style={styles.invoiceRow}>
+                <Text style={[styles.invoiceTotalLabel, { color: theme.text }]}>
+                  {t('book_invoice_total_payment')}
+                </Text>
+                <Text style={[styles.invoiceTotalValue, { color: CHECKOUT_CYAN }]}>
+                  {formatEgp(checkoutFinalAmountEgp, locale)}
+                </Text>
+              </View>
+
+              <Text style={[styles.checkoutHint, { color: theme.textDim, fontSize: 16, marginTop: 8 }]}>
+                {t('book_platform_fee_note').replace('{fee}', formatEgp(checkoutPlatformFee, locale))}
+              </Text>
+            </View>
+          </>
+        ) : null}
+
+        {showCoupons && checkoutOriginalPriceEgp > 0 ? (
           <View style={[styles.checkoutCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.label, { color: theme.text, marginTop: 0 }]}>{t('book_coupon_label')}</Text>
             <View style={styles.couponRow}>
@@ -818,10 +1081,48 @@ const styles = StyleSheet.create({
   checkoutCard: {
     borderWidth: 1,
     borderRadius: 22,
-    padding: 16,
+    padding: 18,
     marginTop: 16,
-    gap: 6,
+    gap: 8,
   },
+  checkoutSectionTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  loyaltyToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    gap: 12,
+  },
+  loyaltyToggleLabel: { fontSize: 16, fontWeight: '800', flex: 1 },
+  loyaltyInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 8 },
+  loyaltyPointsInput: { flex: 1, marginTop: 0, minHeight: 52 },
+  redeemMaxBtn: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  redeemMaxBtnText: { fontSize: 15, fontWeight: '800' },
+  invoiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 6,
+  },
+  invoiceLabel: { fontSize: 16, fontWeight: '700' },
+  invoiceValue: { fontSize: 16, fontWeight: '800' },
+  invoiceDivider: { height: 1, marginVertical: 8 },
+  invoiceTotalLabel: { fontSize: 17, fontWeight: '900' },
+  invoiceTotalValue: { fontSize: 24, fontWeight: '900' },
   checkoutLabel: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   checkoutValue: { fontSize: 22, fontWeight: '900' },
   checkoutStrike: { fontSize: 16, fontWeight: '700', textDecorationLine: 'line-through' },

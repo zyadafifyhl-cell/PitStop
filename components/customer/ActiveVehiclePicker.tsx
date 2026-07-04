@@ -7,8 +7,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import type { CustomerVehicle } from '@/lib/booking/types';
 import {
-  getPrimaryVehicle,
-  listCustomerVehicles,
+  loadVehiclePickerState,
   setActiveVehicle,
 } from '@/lib/booking/vehicleStorage';
 
@@ -38,11 +37,16 @@ export function ActiveVehiclePicker({
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const loadVehicles = useCallback(async () => {
-    const rows = await listCustomerVehicles(customerId);
-    const active = await getPrimaryVehicle(customerId);
-    setVehicles(rows);
-    setActiveVehicleState(active);
-    onVehicleChange?.(active);
+    try {
+      const { vehicles: rows, activeVehicle: active } = await loadVehiclePickerState(customerId);
+      setVehicles(rows);
+      setActiveVehicleState(active);
+      onVehicleChange?.(active);
+    } catch {
+      setVehicles([]);
+      setActiveVehicleState(null);
+      onVehicleChange?.(null);
+    }
   }, [customerId, onVehicleChange]);
 
   useFocusEffect(
@@ -76,9 +80,36 @@ export function ActiveVehiclePicker({
 
       {!activeVehicle ? (
         <View style={styles.body}>
-          <Text style={[styles.emptyHint, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-            {t('home_active_vehicle_empty')}
-          </Text>
+          {vehicles.length > 0 ? (
+            <>
+              <Pressable
+                onPress={() => setPickerOpen((open) => !open)}
+                style={[styles.pickerBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.pickerBtnText, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                  {t('book_vehicle_select_label')}
+                </Text>
+                <FontAwesome name={pickerOpen ? 'chevron-up' : 'chevron-down'} size={12} color={theme.textDim} />
+              </Pressable>
+              {pickerOpen ? (
+                <View style={[styles.dropdown, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                  {vehicles.map((vehicle) => (
+                    <Pressable
+                      key={vehicle.id}
+                      onPress={() => onSelectVehicle(vehicle.id)}
+                      style={[styles.dropdownOption, isRTL && styles.dropdownOptionRtl]}>
+                      <Text style={[styles.dropdownOptionText, { color: theme.text }, isRTL && styles.textRtl]}>
+                        {formatVehicleDisplay(vehicle)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          ) : (
+            <Text style={[styles.emptyHint, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+              {t('home_active_vehicle_empty')}
+            </Text>
+          )}
           {showManageLink ? (
             <Pressable
               onPress={() => router.push('/settings/vehicles' as Href)}

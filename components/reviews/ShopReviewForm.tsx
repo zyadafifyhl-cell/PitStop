@@ -9,14 +9,17 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { addShopReview } from '@/lib/booking/reviewsStorage';
+import { isOrderHistoryReview } from '@/lib/booking/reviewConstants';
 
 type Props = {
   shopId: string;
   alreadyRated?: boolean;
+  savedRating?: number;
+  ratedFromOrders?: boolean;
   onSubmitted?: () => void;
 };
 
-function AlreadyRatedCard() {
+function AlreadyRatedCard({ savedRating = 0, ratedFromOrders = false }: { savedRating?: number; ratedFromOrders?: boolean }) {
   const theme = useAppTheme();
   const { t } = useI18n();
 
@@ -25,12 +28,30 @@ function AlreadyRatedCard() {
       <View style={[styles.alreadyRatedIconWrap, { backgroundColor: theme.accentSoft }]}>
         <FontAwesome name="check-circle" size={28} color={theme.accent} />
       </View>
-      <Text style={[styles.alreadyRatedText, { color: theme.text }]}>{t('shop_review_already_rated')}</Text>
+      {savedRating > 0 ? (
+        <StarRatingSelector
+          value={savedRating}
+          onChange={() => undefined}
+          size={32}
+          gap={6}
+          filledColor={theme.warm}
+          disabled
+        />
+      ) : null}
+      <Text style={[styles.alreadyRatedText, { color: theme.text }]}>
+        {ratedFromOrders ? t('shop_review_already_from_orders') : t('shop_review_already_rated')}
+      </Text>
     </View>
   );
 }
 
-export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Props) {
+export function ShopReviewForm({
+  shopId,
+  alreadyRated = false,
+  savedRating = 0,
+  ratedFromOrders = false,
+  onSubmitted,
+}: Props) {
   const theme = useAppTheme();
   const { t } = useI18n();
   const { customer, isGuest } = useCustomerAuth();
@@ -39,6 +60,8 @@ export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Pr
   const [busy, setBusy] = useState(false);
   const [checkingReview, setCheckingReview] = useState(false);
   const [hasRated, setHasRated] = useState(alreadyRated);
+  const [resolvedRating, setResolvedRating] = useState(savedRating);
+  const [resolvedFromOrders, setResolvedFromOrders] = useState(ratedFromOrders);
 
   const customerName = useMemo(() => {
     if (!customer) return t('shop_review_anonymous');
@@ -47,7 +70,9 @@ export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Pr
 
   useEffect(() => {
     setHasRated(alreadyRated);
-  }, [alreadyRated]);
+    setResolvedRating(savedRating);
+    setResolvedFromOrders(ratedFromOrders);
+  }, [alreadyRated, savedRating, ratedFromOrders]);
 
   const checkExistingReview = useCallback(async () => {
     if (!customer?.id || isGuest) {
@@ -62,7 +87,15 @@ export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Pr
     try {
       const { getCustomerShopReview } = await import('@/lib/booking/reviewsStorage');
       const existing = await getCustomerShopReview(shopId, customer.id);
-      setHasRated(!!existing);
+      if (existing) {
+        setHasRated(true);
+        setResolvedRating(existing.rating);
+        setResolvedFromOrders(isOrderHistoryReview(existing.body));
+      } else {
+        setHasRated(false);
+        setResolvedRating(0);
+        setResolvedFromOrders(false);
+      }
     } finally {
       setCheckingReview(false);
     }
@@ -91,7 +124,7 @@ export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Pr
   }
 
   if (hasRated) {
-    return <AlreadyRatedCard />;
+    return <AlreadyRatedCard savedRating={resolvedRating} ratedFromOrders={resolvedFromOrders} />;
   }
 
   async function onSubmit() {
@@ -114,6 +147,8 @@ export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Pr
         body: body.trim(),
       });
       setHasRated(true);
+      setResolvedRating(rating);
+      setResolvedFromOrders(false);
       setBody('');
       setRating(0);
       onSubmitted?.();
@@ -124,6 +159,7 @@ export function ShopReviewForm({ shopId, alreadyRated = false, onSubmitted }: Pr
           : logAndGetSafeErrorMessage(error, t, 'reviews.addShopReview');
       if (error instanceof Error && error.message === 'shop_review_already_exists') {
         setHasRated(true);
+        void checkExistingReview();
       }
       Alert.alert(t('shop_review_submit_fail_title'), message);
     } finally {

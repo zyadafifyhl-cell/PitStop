@@ -277,21 +277,9 @@ export function getWeeklyHoursDisplayRows(
     });
 }
 
-export function defaultWashServices(): ShopService[] {
-  return [
-    { id: 'svc-exterior', name: 'Exterior Wash', nameAr: 'غسيل خارجي', priceEgp: 120, durationMinutes: 20, active: true, sortOrder: 1 },
-    { id: 'svc-interior', name: 'Interior Cleaning', nameAr: 'تنظيف داخلي', priceEgp: 150, durationMinutes: 30, active: true, sortOrder: 2 },
-    { id: 'svc-steam', name: 'Steam Cleaning', nameAr: 'تنظيف بالبخار', priceEgp: 300, durationMinutes: 45, active: true, sortOrder: 3 },
-    { id: 'svc-wax', name: 'Wax & Polish', nameAr: 'تلميع وشمع', priceEgp: 450, durationMinutes: 60, active: true, sortOrder: 4 },
-    { id: 'svc-premium', name: 'Premium Wash Package', nameAr: 'باقة غسيل Premium', priceEgp: 600, durationMinutes: 60, active: true, sortOrder: 5 },
-    { id: 'svc-ceramic', name: 'Ceramic Protection', nameAr: 'حماية سيراميك', priceEgp: 1800, durationMinutes: 120, active: true, sortOrder: 6 },
-  ];
-}
-
 export function getActiveServices(extras: ShopExtras | null | undefined): ShopService[] {
-  const list = extras?.services?.filter((s) => s.active) ?? [];
-  if (list.length) return list.slice().sort((a, b) => a.sortOrder - b.sortOrder);
-  return defaultWashServices();
+  const list = extras?.services?.filter((s) => s.active !== false) ?? [];
+  return list.slice().sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 export function getServiceById(extras: ShopExtras | null | undefined, serviceId?: string): ShopService | undefined {

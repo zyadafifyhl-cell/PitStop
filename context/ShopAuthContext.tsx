@@ -193,17 +193,19 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
       if (result !== 'ok') return result;
 
       const supabase = getSupabase();
-      const session = await supabase?.auth.getSession();
-      const user = session?.data.session?.user;
-      if (user?.email) {
-        await applySession(user.id, user.email);
+      if (supabase) {
+        await signOutCurrentTab(supabase.auth.signOut.bind(supabase.auth));
       }
+      setShop(null);
+      setStaff(null);
+      setShopStaff(null);
+      await tabAuthStorage.removeItem(SESSION_KEY);
       return 'ok';
     } finally {
       endAuthMutation();
       setBusy(false);
     }
-  }, [applySession]);
+  }, []);
 
   const logout = useCallback(async () => {
     signingOutRef.current = true;

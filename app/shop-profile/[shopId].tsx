@@ -21,7 +21,8 @@ import { getShopById } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { applyOfferDiscount, isOfferLive, pickBestLiveOffer } from '@/lib/booking/offerPricing';
-import { getCustomerShopReview, listShopReviews, seedDemoReviews } from '@/lib/booking/reviewsStorage';
+import { getCustomerShopReview, listShopReviews } from '@/lib/booking/reviewsStorage';
+import { isOrderHistoryReview } from '@/lib/booking/reviewConstants';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { getActiveServices, getWeeklyHoursDisplayRows } from '@/lib/booking/shopSchedule';
 import type { ShopExtras, ShopOffer, ShopReview } from '@/lib/booking/types';
@@ -46,6 +47,8 @@ export default function ShopProfileScreen() {
   const [averageRating, setAverageRating] = useState<number | null>(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [customerAlreadyReviewed, setCustomerAlreadyReviewed] = useState(false);
+  const [customerReviewRating, setCustomerReviewRating] = useState(0);
+  const [customerReviewFromOrders, setCustomerReviewFromOrders] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [branchCoords, setBranchCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -80,6 +83,8 @@ export default function ShopProfileScreen() {
     setExtras(row);
     setBranchCoords(coords);
     setCustomerAlreadyReviewed(!!customerReview);
+    setCustomerReviewRating(customerReview?.rating ?? 0);
+    setCustomerReviewFromOrders(customerReview ? isOrderHistoryReview(customerReview.body) : false);
     const visibleRemote = reviewRows.filter((review) => !review.hidden);
     if (visibleRemote.length) {
       setAverageRating(visibleRemote.reduce((sum, review) => sum + review.rating, 0) / visibleRemote.length);
@@ -88,7 +93,7 @@ export default function ShopProfileScreen() {
     } else {
       setAverageRating(null);
       setReviewCount(0);
-      setReviews(seedDemoReviews(shop.id).filter((review) => !review.hidden));
+      setReviews([]);
     }
   }, [shop, customer?.id]);
 
@@ -254,7 +259,12 @@ export default function ShopProfileScreen() {
 
       <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('shop_profile_services')}</Text>
-        {services.map((service) => {
+        {services.length === 0 ? (
+          <Text style={[styles.serviceMeta, { color: theme.textMuted }]}>
+            {t('wash_services_empty')}
+          </Text>
+        ) : (
+          services.map((service) => {
           const label = locale === 'ar' ? service.nameAr || service.name : service.name;
           return (
             <View key={service.id} style={[styles.serviceRow, { borderColor: theme.border }]}>
@@ -272,7 +282,8 @@ export default function ShopProfileScreen() {
               </Pressable>
             </View>
           );
-        })}
+        })
+        )}
       </View>
 
       <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -285,6 +296,8 @@ export default function ShopProfileScreen() {
         <ShopReviewForm
           shopId={shop.id}
           alreadyRated={customerAlreadyReviewed}
+          savedRating={customerReviewRating}
+          ratedFromOrders={customerReviewFromOrders}
           onSubmitted={() => {
             setCustomerAlreadyReviewed(true);
             refreshExtras();

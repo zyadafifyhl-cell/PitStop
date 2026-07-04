@@ -131,7 +131,12 @@ export function ShopListCard({
             ) : null}
           </View>
           <View style={styles.topRight}>
-            {distanceLabel ? <Text style={[styles.distance, { color: theme.accent }]}>{distanceLabel}</Text> : null}
+            {distanceLabel ? (
+              <View style={styles.distanceRow}>
+                <FontAwesome name="map-marker" size={12} color={theme.warm} />
+                <Text style={[styles.distance, { color: theme.warm }]}>{distanceLabel}</Text>
+              </View>
+            ) : null}
             {averageRating != null ? (
               <View style={styles.rating}>
                 <FontAwesome name="star" size={12} color={theme.text} />
@@ -261,7 +266,8 @@ const styles = StyleSheet.create({
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
   badge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontSize: 11, fontWeight: '700' },
-  distance: { fontSize: 12, fontWeight: '700' },
+  distanceRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  distance: { fontSize: 12, fontWeight: '800' },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   ratingText: { fontSize: 13, fontWeight: '600' },
   ratingPlaceholder: { fontSize: 11, fontWeight: '600' },

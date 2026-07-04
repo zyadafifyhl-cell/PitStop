@@ -75,6 +75,7 @@ create table if not exists public.shops (
   rating numeric(2, 1) default 4.5,
   is_active boolean not null default true,
   is_premium boolean not null default false,
+  is_loyalty_enabled boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -236,6 +237,10 @@ create table if not exists public.bookings (
   service_name_ar text,
   service_price_egp numeric(10, 2) not null default 0,
   platform_fee_egp numeric(10, 2) not null default 0,
+  original_price_egp numeric(10, 2),
+  points_redeemed integer not null default 0,
+  discount_applied_egp numeric(10, 2) not null default 0,
+  final_amount_paid_egp numeric(10, 2),
   offer_id uuid references public.offers(id) on delete set null,
   customer_notes text,
   owner_rejection_note text,
@@ -269,6 +274,28 @@ create table if not exists public.offers (
 
 create index if not exists offers_shop_active_idx on public.offers (shop_id, is_active, end_date desc);
 create index if not exists offers_live_idx on public.offers (is_active, start_date, end_date);
+
+create table if not exists public.customer_merchant_loyalty (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  shop_id text not null references public.shops(id) on delete cascade,
+  points_balance integer not null default 0 check (points_balance >= 0),
+  processed_booking_ids jsonb not null default '[]'::jsonb,
+  redeemed_booking_ids jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, shop_id)
+);
+
+create index if not exists customer_merchant_loyalty_user_idx
+  on public.customer_merchant_loyalty (user_id);
+
+create index if not exists customer_merchant_loyalty_shop_idx
+  on public.customer_merchant_loyalty (shop_id);
+
+create index if not exists customer_merchant_loyalty_marketplace_idx
+  on public.customer_merchant_loyalty (user_id, points_balance desc)
+  where points_balance > 0;
 
 create table if not exists public.shop_reviews (
   id uuid primary key default gen_random_uuid(),
@@ -673,3 +700,13 @@ create policy "Anyone can read shop push tokens" on public.shop_push_tokens
 drop policy if exists "Anyone can manage shop push tokens" on public.shop_push_tokens;
 create policy "Anyone can manage shop push tokens" on public.shop_push_tokens
   for all using (true) with check (true);
+
+alter table public.customer_merchant_loyalty enable row level security;
+
+drop policy if exists "Customers read own merchant loyalty" on public.customer_merchant_loyalty;
+create policy "Customers read own merchant loyalty" on public.customer_merchant_loyalty
+  for select using (user_id = auth.uid());
+
+drop policy if exists "Shop owners read merchant loyalty" on public.customer_merchant_loyalty;
+create policy "Shop owners read merchant loyalty" on public.customer_merchant_loyalty
+  for select using (public.can_manage_shop(shop_id));

@@ -13,9 +13,13 @@ import {
 } from 'react-native';
 
 import { ShopListCard } from '@/components/ui/ShopListCard';
+import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
+import { shopTypeLabel } from '@/lib/booking/format';
+import { listActiveOfferFlagsByShopIds } from '@/lib/booking/offerRepository';
+import { listFavoriteShopIds } from '@/lib/booking/favoritesStorage';
 import { formatDistanceAway } from '@/lib/booking/nearby';
 import {
   isDiscoverableShopType,
@@ -23,19 +27,22 @@ import {
   type DiscoverableListing,
 } from '@/lib/booking/nearbyDiscovery';
 import { getShopAverageRatings, type ShopRatingSummary } from '@/lib/booking/reviewsStorage';
-import { shopTypeLabel } from '@/lib/booking/format';
-import { listActiveOfferFlagsByShopIds } from '@/lib/booking/offerRepository';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
-import type { ShopExtras } from '@/lib/booking/types';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
-import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { parseShopType } from '@/lib/booking/serviceType';
-import { listFavoriteShopIds } from '@/lib/booking/favoritesStorage';
-import { useCustomerAuth } from '@/context/CustomerAuthContext';
+import { isStoreShopType } from '@/lib/booking/storeCatalog';
+import type { ShopExtras } from '@/lib/booking/types';
 import { openListingsInMaps, openPhone } from '@/lib/linking/contact';
 import type { TranslationKey } from '@/lib/i18n/strings';
 
 type NearbyFilter = 'all' | 'top_rated' | 'price' | 'distance' | 'open_now' | 'favorites';
+
+const RADIUS_OPTIONS_KM = [5, 10, 25, 50] as const;
+const DEFAULT_RADIUS_KM = 25;
+
+function formatRadiusLabel(km: number, locale: 'en' | 'ar'): string {
+  return locale === 'ar' ? `${km} كم` : `${km} km`;
+}
 
 export default function NearbyScreen() {
   const { type: rawType } = useLocalSearchParams<{ type: string }>();
@@ -46,6 +53,9 @@ export default function NearbyScreen() {
   const type = parseShopType(rawType);
   const [loading, setLoading] = useState(true);
   const [locationDenied, setLocationDenied] = useState(false);
+  const [userLat, setUserLat] = useState<number | null>(null);
+  const [userLng, setUserLng] = useState<number | null>(null);
+  const [selectedRadius, setSelectedRadius] = useState<number>(DEFAULT_RADIUS_KM);
   const [shops, setShops] = useState<DiscoverableListing[]>([]);
   const [ratingsMap, setRatingsMap] = useState<Record<string, ShopRatingSummary>>({});
   const [search, setSearch] = useState('');
@@ -53,19 +63,15 @@ export default function NearbyScreen() {
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [offerFlags, setOfferFlags] = useState<Record<string, { hasActiveOffer: boolean; maxDiscount: number }>>({});
 
-  const load = useCallback(async () => {
-    if (!type || !catalogReady || !isDiscoverableShopType(type)) return;
-    setLoading(true);
-    let lat: number | null = null;
-    let lng: number | null = null;
+  const refreshLocation = useCallback(async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        lat = pos.coords.latitude;
-        lng = pos.coords.longitude;
+        setUserLat(pos.coords.latitude);
+        setUserLng(pos.coords.longitude);
         setLocationDenied(false);
       } else {
         setLocationDenied(true);
@@ -73,8 +79,15 @@ export default function NearbyScreen() {
     } catch {
       setLocationDenied(true);
     }
+  }, []);
 
-    const rows = await listDiscoverableSortedByDistance(type, lat, lng);
+  const loadListings = useCallback(async () => {
+    if (!type || !catalogReady || !isDiscoverableShopType(type)) return;
+    setLoading(true);
+
+    const rows = await listDiscoverableSortedByDistance(type, userLat, userLng, {
+      radiusKm: selectedRadius,
+    });
     setShops(rows);
 
     const shopIds = [...new Set(rows.map((row) => row.id))];
@@ -87,17 +100,17 @@ export default function NearbyScreen() {
       setFavoriteIds([]);
     }
     setLoading(false);
-  }, [type, catalogReady, catalogVersion, customer?.id]);
-
-  useEffect(() => {
-    if (catalogReady) load();
-  }, [catalogReady, load]);
+  }, [type, catalogReady, catalogVersion, customer?.id, userLat, userLng, selectedRadius]);
 
   useFocusEffect(
     useCallback(() => {
-      if (catalogReady) load();
-    }, [catalogReady, load]),
+      void refreshLocation();
+    }, [refreshLocation]),
   );
+
+  useEffect(() => {
+    if (catalogReady) void loadListings();
+  }, [catalogReady, loadListings]);
 
   const filteredShops = useMemo(() => {
     let rows = shops.slice();
@@ -121,6 +134,8 @@ export default function NearbyScreen() {
       rows = rows.slice().sort((a, b) => a.name.localeCompare(b.name));
     } else if (filter === 'distance') {
       rows = rows.slice().sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+    } else if (filter === 'open_now') {
+      /* handled per-card via NearbyShopCard */
     } else if (filter === 'favorites') {
       rows = rows.filter((shop) => favoriteIds.includes(shop.id));
     }
@@ -154,19 +169,44 @@ export default function NearbyScreen() {
   }
 
   return (
-    <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.screen, { backgroundColor: '#080D1A' }]} contentContainerStyle={styles.content}>
       <Text style={[styles.title, { color: theme.text }]}>{t('nearby_title')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>
         {locationDenied ? t('nearby_no_location') : t('nearby_lead')}
       </Text>
       <Text style={[styles.badge, { color: theme.accent }]}>{serviceLabel}</Text>
 
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.radiusRow}>
+        {RADIUS_OPTIONS_KM.map((km) => {
+          const active = selectedRadius === km;
+          return (
+            <Pressable
+              key={km}
+              onPress={() => setSelectedRadius(km)}
+              style={[
+                styles.radiusPill,
+                {
+                  borderColor: active ? '#00D4FF' : 'rgba(255,255,255,0.05)',
+                  backgroundColor: active ? 'rgba(0, 212, 255, 0.14)' : '#121826',
+                },
+              ]}>
+              <Text style={[styles.radiusPillText, { color: active ? '#00D4FF' : theme.textMuted }]}>
+                {formatRadiusLabel(km, locale)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       <TextInput
         value={search}
         onChangeText={setSearch}
         placeholder={t('nearby_search_placeholder')}
         placeholderTextColor={theme.textDim}
-        style={[styles.search, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+        style={[
+          styles.search,
+          { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated },
+        ]}
       />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
@@ -266,6 +306,9 @@ function NearbyShopCard({
 
   if (filter === 'open_now' && openNow === false && !keepVisibleDespiteOpenFilter) return null;
 
+  const distanceLabel =
+    shop.distanceKm != null ? formatDistanceAway(shop.distanceKm, locale) : undefined;
+
   return (
     <ShopListCard
       shopId={shop.id}
@@ -282,7 +325,7 @@ function NearbyShopCard({
       latitude={shop.latitude}
       longitude={shop.longitude}
       phone={shop.phone}
-      distanceLabel={formatDistanceAway(shop.distanceKm, locale)}
+      distanceLabel={distanceLabel}
       bookLabel={t('shop_card_view_details')}
       onCall={() =>
         openPhone(shop.phone).catch(() =>
@@ -308,6 +351,14 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '900', marginBottom: 8 },
   lead: { fontSize: 15, lineHeight: 22, marginBottom: 10 },
   badge: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', marginBottom: 12 },
+  radiusRow: { gap: 8, paddingBottom: 14 },
+  radiusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  radiusPillText: { fontSize: 13, fontWeight: '800' },
   search: {
     borderWidth: 1,
     borderRadius: 12,

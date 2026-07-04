@@ -3,7 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
 import { registerCouponUsageRemote } from '@/lib/booking/couponRepository';
 import { formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
-import { awardLoyaltyPointsOnDone } from '@/lib/booking/loyaltyPointsStorage';
+import {
+  deductMerchantLoyaltyPointsRemote,
+  recordMerchantLoyaltyPointsOnDone,
+} from '@/lib/booking/merchantLoyaltyRepository';
 import { recordWashBookingDone } from '@/lib/booking/loyaltyStampsStorage';
 import { handleBookingConfirmed } from '@/lib/booking/bookingLifecycle';
 import {
@@ -101,6 +104,10 @@ type BookingRow = {
   service_name_ar?: string | null;
   service_price_egp: number | string | null;
   platform_fee_egp: number | string | null;
+  original_price_egp?: number | string | null;
+  points_redeemed?: number | null;
+  discount_applied_egp?: number | string | null;
+  final_amount_paid_egp?: number | string | null;
   offer_id?: string | null;
   customer_notes?: string | null;
   owner_rejection_note?: string | null;
@@ -119,6 +126,13 @@ export type CreateBookingOptions = {
   appliedCouponId?: string;
   /** Auth user id for coupon usage logging. */
   couponUsageUserId?: string;
+  /** Per-merchant loyalty redemption at checkout. */
+  loyaltyCheckout?: {
+    originalPriceEgp: number;
+    pointsRedeemed: number;
+    discountAppliedEgp: number;
+    finalAmountPaidEgp: number;
+  };
 };
 
 export type WalkInBookingInput = {
@@ -153,6 +167,12 @@ function mapBookingRow(row: BookingRow): Booking {
     serviceNameAr: row.service_name_ar ?? undefined,
     servicePriceEgp: Number(row.service_price_egp ?? 0),
     platformFeeEgp: Number(row.platform_fee_egp ?? 0),
+    originalPriceEgp: row.original_price_egp != null ? Number(row.original_price_egp) : undefined,
+    pointsRedeemed: row.points_redeemed ?? undefined,
+    discountAppliedEgp:
+      row.discount_applied_egp != null ? Number(row.discount_applied_egp) : undefined,
+    finalAmountPaidEgp:
+      row.final_amount_paid_egp != null ? Number(row.final_amount_paid_egp) : undefined,
     offerId: row.offer_id ?? undefined,
     customerNotes: row.customer_notes ?? undefined,
     ownerRejectionNote: row.owner_rejection_note ?? undefined,
@@ -190,6 +210,7 @@ function buildBookingInsertRow(
     status: BookingStatus;
     bookingType: BookingType;
     branchId?: string;
+    loyaltyCheckout?: CreateBookingOptions['loyaltyCheckout'];
   },
 ): Record<string, unknown> {
   const row: Record<string, unknown> = {
@@ -213,6 +234,15 @@ function buildBookingInsertRow(
   };
   if (isUuid(input.offerId)) {
     row.offer_id = input.offerId;
+  }
+  if (params.loyaltyCheckout) {
+    row.original_price_egp = params.loyaltyCheckout.originalPriceEgp;
+    row.points_redeemed = params.loyaltyCheckout.pointsRedeemed;
+    row.discount_applied_egp = params.loyaltyCheckout.discountAppliedEgp;
+    row.final_amount_paid_egp = params.loyaltyCheckout.finalAmountPaidEgp;
+  } else {
+    row.original_price_egp = params.servicePriceEgp;
+    row.final_amount_paid_egp = params.servicePriceEgp;
   }
   return row;
 }
@@ -336,14 +366,21 @@ export async function createBooking(
     }
   }
 
-  const platformFeeEgp = computePlatformFee(servicePriceEgp, PLATFORM_FEE_RATE);
+  const platformFeeEgp = computePlatformFee(
+    options?.loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp,
+    PLATFORM_FEE_RATE,
+  );
   const booking: Booking = {
     ...input,
     offerId: resolvedOfferId,
     branchId: branchId ?? input.branchId,
     bookingType,
-    servicePriceEgp,
+    servicePriceEgp: options?.loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp,
     platformFeeEgp,
+    originalPriceEgp: options?.loyaltyCheckout?.originalPriceEgp ?? servicePriceEgp,
+    pointsRedeemed: options?.loyaltyCheckout?.pointsRedeemed ?? 0,
+    discountAppliedEgp: options?.loyaltyCheckout?.discountAppliedEgp ?? 0,
+    finalAmountPaidEgp: options?.loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp,
     id: newId(),
     status: initialStatus,
     createdAt: new Date().toISOString(),
@@ -354,11 +391,12 @@ export async function createBooking(
     const insertRow = buildBookingInsertRow(
       { ...input, offerId: resolvedOfferId },
       {
-        servicePriceEgp,
+        servicePriceEgp: booking.servicePriceEgp ?? servicePriceEgp,
         platformFeeEgp,
         status: initialStatus,
         bookingType,
         branchId,
+        loyaltyCheckout: options?.loyaltyCheckout,
       },
     );
     const { data, error } = await supabase.from('bookings').insert(insertRow).select('*').single();
@@ -377,6 +415,24 @@ export async function createBooking(
         }
       }
       await upsertLocalBooking(created);
+      if (
+        options?.loyaltyCheckout &&
+        options.loyaltyCheckout.pointsRedeemed > 0 &&
+        isUuid(created.id) &&
+        isUuid(input.customerId)
+      ) {
+        try {
+          await deductMerchantLoyaltyPointsRemote({
+            userId: input.customerId,
+            shopId: created.shopId,
+            bookingId: created.id,
+            pointsToRedeem: options.loyaltyCheckout.pointsRedeemed,
+            discountEgp: options.loyaltyCheckout.discountAppliedEgp,
+          });
+        } catch (loyaltyError) {
+          console.warn('Merchant loyalty deduction failed (non-blocking):', loyaltyError);
+        }
+      }
       if (bookingType !== 'walk_in') {
         await pushOwnerNotification({
           shopId: created.shopId,
@@ -459,7 +515,7 @@ export async function createWalkInBooking(input: WalkInBookingInput): Promise<Bo
     },
     {
       bookingType: 'walk_in',
-      initialStatus: input.initialStatus ?? 'in_progress',
+      initialStatus: input.initialStatus ?? 'confirmed',
       skipOwnerPush: true,
     },
   );
@@ -490,6 +546,8 @@ export async function updateBookingStatus(
 
   if (!updated) return null;
 
+  let remoteSynced = false;
+
   await upsertLocalBooking(updated);
 
   const supabase = getSupabase();
@@ -504,7 +562,10 @@ export async function updateBookingStatus(
     if (!error && data) {
       updated = mapBookingRow(data as BookingRow);
       await upsertLocalBooking(updated);
+      remoteSynced = true;
     }
+  } else {
+    remoteSynced = true;
   }
 
   if (updated && status === 'cancelled' && previousStatus !== 'cancelled') {
@@ -515,9 +576,17 @@ export async function updateBookingStatus(
     await handleBookingConfirmed({ booking: updated, previousStatus });
   }
 
-  if (updated && status === 'done' && previousStatus !== 'done') {
-    await awardLoyaltyPointsOnDone(updated, previousStatus);
-    await recordWashBookingDone(updated, previousStatus);
+  if (updated && status === 'done' && previousStatus !== 'done' && remoteSynced) {
+    try {
+      await recordWashBookingDone(updated, previousStatus);
+    } catch (error) {
+      console.warn('Wash loyalty stamp sync failed (non-blocking):', error);
+    }
+    try {
+      await recordMerchantLoyaltyPointsOnDone(updated, previousStatus);
+    } catch (error) {
+      console.warn('Merchant loyalty points sync failed (non-blocking):', error);
+    }
   }
 
   return updated;

@@ -53,7 +53,6 @@ import {
 } from '@/lib/booking/reporting';
 import {
   listShopReviews,
-  seedDemoReviews,
   setReviewHidden,
   setReviewOwnerReply,
   setReviewReported,
@@ -229,7 +228,7 @@ function applyBranchToForms(branch: WashBranch, setters: {
   setBranchLongitude: (v: number | null) => void;
 }) {
   setters.setProfileName(branch.profileName ?? branch.name);
-  setters.setProfileNameAr(branch.profileNameAr ?? branch.nameAr ?? '');
+  setters.setProfileNameAr(branch.profileNameAr ?? '');
   setters.setProfileAddress(branch.profileAddress ?? '');
   setters.setProfileAddressAr(branch.profileAddressAr ?? '');
   setters.setProfilePhone(branch.profilePhone ?? '');
@@ -384,7 +383,7 @@ export function WashOwnerPanel({ shop }: Props) {
       setBranchState(stateWithCoupons);
       syncBranchForms(branchWithCoupons);
       setBookings(scopedBookings);
-      setReviews(reviewRows.length ? reviewRows : seedDemoReviews(shop.id));
+      setReviews(reviewRows);
       setUnreadNotifCount(
         branch?.id ? pendingQueue.filter((booking) => booking.branchId === branch.id).length : pendingQueue.length,
       );
@@ -1404,12 +1403,12 @@ export function WashOwnerPanel({ shop }: Props) {
                 </Pressable>
               </>
             ) : null}
-            {booking.status === 'confirmed' ? (
+            {booking.status === 'confirmed' || booking.status === 'in_progress' ? (
               <>
                 <Pressable
-                  onPress={() => onBookingStatusChange(booking, 'in_progress')}
+                  onPress={() => onBookingStatusChange(booking, 'done')}
                   style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                  <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_in_progress')}</Text>
+                  <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_complete')}</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => onBookingStatusChange(booking, 'no_show')}
@@ -1417,13 +1416,6 @@ export function WashOwnerPanel({ shop }: Props) {
                   <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_action_no_show')}</Text>
                 </Pressable>
               </>
-            ) : null}
-            {booking.status === 'in_progress' ? (
-              <Pressable
-                onPress={() => onBookingStatusChange(booking, 'done')}
-                style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_complete')}</Text>
-              </Pressable>
             ) : null}
             <Pressable
               onPress={() => onContactCustomer(booking.customerPhone)}

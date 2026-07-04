@@ -71,15 +71,12 @@ function emptyBranch(name: string, nameAr?: string): WashBranch {
 }
 
 async function branchFromExtras(shop: Shop, extras: Awaited<ReturnType<typeof getShopExtras>>): Promise<WashBranch> {
-  const branch = emptyBranch(
-    extras.profileName || shop.name,
-    extras.profileNameAr || shop.nameAr,
-  );
+  const branch = emptyBranch(extras.profileName || shop.name, extras.profileNameAr ?? '');
   branch.id = 'main';
   branch.profileName = extras.profileName ?? shop.name;
-  branch.profileNameAr = extras.profileNameAr ?? shop.nameAr;
+  branch.profileNameAr = extras.profileNameAr ?? '';
   branch.profileAddress = extras.profileAddress ?? shop.address;
-  branch.profileAddressAr = extras.profileAddressAr ?? shop.addressAr;
+  branch.profileAddressAr = extras.profileAddressAr ?? '';
   branch.profilePhone = extras.profilePhone ?? shop.phone;
   branch.profileEmail = extras.profileEmail;
   branch.moreInfo = extras.moreInfo;

@@ -1,5 +1,5 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { StarRatingSelector } from '@/components/reviews/StarRatingSelector';
@@ -16,12 +16,15 @@ import {
 import { getShopById } from '@/lib/booking/catalogRepository';
 import type { Booking } from '@/lib/booking/types';
 
+const RATING_DIVIDER = 'rgba(255,255,255,0.05)';
+
 type Props = {
   booking: Booking;
   locale: Locale;
   theme: AppThemeTokens;
   t: (key: TranslationKey) => string;
   alreadyRated: boolean;
+  savedRating?: number;
   ratingBusy: boolean;
   onViewDetails: () => void;
   onBookAgain: () => void;
@@ -34,6 +37,7 @@ export function OrderListCard({
   theme,
   t,
   alreadyRated,
+  savedRating = 0,
   ratingBusy,
   onViewDetails,
   onBookAgain,
@@ -41,68 +45,78 @@ export function OrderListCard({
 }: Props) {
   const shop = getShopById(booking.shopId);
   const shopName = resolveShopDisplayName(shop, booking.shopId, locale);
-  const showBookAgain =
-    booking.status === 'done' || booking.status === 'cancelled' || booking.status === 'no_show';
-  const showRating = booking.status === 'done';
+  const showRatingFooter = booking.status === 'done';
+  const [selectedRating, setSelectedRating] = useState(savedRating);
+
+  useEffect(() => {
+    if (savedRating > 0) setSelectedRating(savedRating);
+  }, [savedRating]);
+
+  const displayRating = alreadyRated ? savedRating || selectedRating : selectedRating;
+
+  function onPressStar(ratingValue: number) {
+    if (alreadyRated || ratingBusy) return;
+    setSelectedRating(ratingValue);
+    onRate(ratingValue);
+  }
 
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <View style={styles.topRow}>
-        <Text style={[styles.statusText, { color: theme.textMuted }]}>
-          {orderStatusLabel(booking.status, locale)}
-        </Text>
-        <Text style={[styles.dateText, { color: theme.textMuted }]}>
-          {formatOrderCardDateTime(booking.scheduledAt, locale)}
-        </Text>
-      </View>
-
-      <View style={styles.contentRow}>
-        <View style={[styles.serviceIcon, { backgroundColor: theme.accentSoft }]}>
-          <FontAwesome name={serviceIconName(booking.shopType)} size={20} color={theme.warm} />
-        </View>
-        <View style={styles.contentMeta}>
-          <Text style={[styles.shopName, { color: theme.text }]} numberOfLines={2}>
-            {shopName}
+      <View style={styles.cardBody}>
+        <View style={styles.topRow}>
+          <Text style={[styles.statusText, { color: theme.textMuted }]}>
+            {orderStatusLabel(booking.status, locale)}
           </Text>
-          <Text style={[styles.bookingId, { color: theme.textMuted }]}>
-            {formatBookingIdLabel(booking.id, locale)}
+          <Text style={[styles.dateText, { color: theme.textMuted }]}>
+            {formatOrderCardDateTime(booking.scheduledAt, locale)}
           </Text>
         </View>
-      </View>
 
-      <View style={styles.actionRow}>
-        <View style={styles.priceBlock}>
-          <Text style={[styles.totalPrice, { color: theme.text }]}>{orderTotalLabel(booking, locale)}</Text>
-          <Pressable onPress={onViewDetails} accessibilityRole="link">
-            <Text style={[styles.viewDetails, { color: theme.accent }]}>{t('orders_view_details')}</Text>
-          </Pressable>
+        <View style={styles.contentRow}>
+          <View style={[styles.serviceIcon, { backgroundColor: theme.accentSoft }]}>
+            <FontAwesome name={serviceIconName(booking.shopType)} size={20} color={theme.warm} />
+          </View>
+          <View style={styles.contentMeta}>
+            <Text style={[styles.shopName, { color: theme.text }]} numberOfLines={2}>
+              {shopName}
+            </Text>
+            <Text style={[styles.bookingId, { color: theme.textMuted }]}>
+              {formatBookingIdLabel(booking.id, locale)}
+            </Text>
+          </View>
         </View>
-        {showBookAgain ? (
+
+        <View style={styles.actionRow}>
+          <View style={styles.priceBlock}>
+            <Text style={[styles.totalPrice, { color: theme.text }]}>{orderTotalLabel(booking, locale)}</Text>
+            <Pressable onPress={onViewDetails} accessibilityRole="link">
+              <Text style={[styles.viewDetails, { color: theme.accent }]}>{t('orders_view_details')}</Text>
+            </Pressable>
+          </View>
           <Pressable
             onPress={onBookAgain}
             style={[styles.bookAgainBtn, { borderColor: theme.text }]}
             accessibilityRole="button">
             <Text style={[styles.bookAgainText, { color: theme.text }]}>{t('orders_book_again')}</Text>
           </Pressable>
-        ) : (
-          <Pressable
-            onPress={onViewDetails}
-            style={[styles.bookAgainBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}
-            accessibilityRole="button">
-            <Text style={[styles.bookAgainText, { color: theme.text }]}>{t('orders_view_details')}</Text>
-          </Pressable>
-        )}
+        </View>
       </View>
 
-      {showRating ? (
-        <View style={[styles.rateRow, { borderTopColor: theme.border }]}>
+      {showRatingFooter ? (
+        <View style={[styles.rateFooter, { borderTopColor: RATING_DIVIDER }]}>
           <Text style={[styles.rateLabel, { color: theme.textMuted }]}>{t('orders_rate')}</Text>
           {ratingBusy ? (
-            <ActivityIndicator color={theme.accent} />
-          ) : alreadyRated ? (
-            <StarRatingSelector value={5} onChange={() => undefined} size={28} disabled />
+            <ActivityIndicator color={theme.warm} />
           ) : (
-            <StarRatingSelector value={0} onChange={onRate} size={28} />
+            <StarRatingSelector
+              value={displayRating}
+              onChange={onPressStar}
+              size={32}
+              gap={6}
+              filledColor={theme.warm}
+              emptyColor={theme.textDim}
+              disabled={alreadyRated}
+            />
           )}
         </View>
       ) : null}
@@ -114,8 +128,11 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderRadius: 20,
-    padding: 16,
     marginBottom: 14,
+    overflow: 'hidden',
+  },
+  cardBody: {
+    padding: 16,
     gap: 14,
   },
   topRow: {
@@ -156,13 +173,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bookAgainText: { fontSize: 15, fontWeight: '900' },
-  rateRow: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 14,
+  rateFooter: {
+    borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
-  rateLabel: { fontSize: 16, fontWeight: '800' },
+  rateLabel: { fontSize: 16, fontWeight: '800', flexShrink: 0 },
 });

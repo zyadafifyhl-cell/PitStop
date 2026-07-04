@@ -54,12 +54,10 @@ export type ModerationQueueItem = {
 };
 
 export type PlatformStats = {
-  totalBookings: number;
-  completedBookings: number;
-  platformFeeEgp: number;
-  grossRevenueEgp: number;
-  pendingOwnerCount: number;
-  activeMerchantCount: number;
+  totalRevenueEgp: number;
+  activeShopsCount: number;
+  completedBookingsCount: number;
+  reportedPostsCount: number;
 };
 
 const PLATFORM_FEE_RATE = 0.12;
@@ -329,40 +327,31 @@ export async function deleteModerationContent(item: ModerationQueueItem): Promis
 
 export async function fetchPlatformStats(): Promise<PlatformStats> {
   const supabase = getSupabase();
-  if (!supabase) {
-    return {
-      totalBookings: 0,
-      completedBookings: 0,
-      platformFeeEgp: 0,
-      grossRevenueEgp: 0,
-      pendingOwnerCount: 0,
-      activeMerchantCount: 0,
-    };
-  }
+  const empty: PlatformStats = {
+    totalRevenueEgp: 0,
+    activeShopsCount: 0,
+    completedBookingsCount: 0,
+    reportedPostsCount: 0,
+  };
+  if (!supabase) return empty;
 
-  const [bookingsRes, pendingRes, merchantsRes] = await Promise.all([
-    supabase.from('bookings').select('status, service_price_egp, platform_fee_egp'),
-    supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'pending_owner'),
-    supabase
-      .from('users')
-      .select('id', { count: 'exact', head: true })
-      .eq('role', 'owner')
-      .eq('is_active', true),
+  const [shopsRes, bookingsCountRes, revenueRes, postsRes] = await Promise.all([
+    supabase.from('shops').select('id', { count: 'exact', head: true }).eq('is_active', true),
+    supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('status', 'done'),
+    supabase.from('bookings').select('final_amount_paid_egp').eq('status', 'done'),
+    supabase.from('posts').select('id', { count: 'exact', head: true }).eq('reported', true),
   ]);
 
-  const rows = bookingsRes.data ?? [];
-  const done = rows.filter((b) => b.status === 'done');
-  const gross = done.reduce((sum, b) => sum + Number(b.service_price_egp ?? 0), 0);
-  const feeFromDb = done.reduce((sum, b) => sum + Number(b.platform_fee_egp ?? 0), 0);
-  const platformFee = feeFromDb > 0 ? feeFromDb : Math.round(gross * PLATFORM_FEE_RATE * 100) / 100;
+  const totalRevenueEgp = (revenueRes.data ?? []).reduce((sum, row) => {
+    const paid = Number(row.final_amount_paid_egp ?? 0);
+    return sum + (Number.isFinite(paid) ? paid : 0);
+  }, 0);
 
   return {
-    totalBookings: rows.length,
-    completedBookings: done.length,
-    platformFeeEgp: platformFee,
-    grossRevenueEgp: gross,
-    pendingOwnerCount: pendingRes.count ?? 0,
-    activeMerchantCount: merchantsRes.count ?? 0,
+    totalRevenueEgp: Math.round(totalRevenueEgp * 100) / 100,
+    activeShopsCount: shopsRes.count ?? 0,
+    completedBookingsCount: bookingsCountRes.count ?? 0,
+    reportedPostsCount: postsRes.count ?? 0,
   };
 }
 

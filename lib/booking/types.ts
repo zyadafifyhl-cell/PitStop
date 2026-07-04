@@ -48,6 +48,14 @@ export type Booking = {
   platformFeeEgp?: number;
   /** Applied shop offer (Supabase public.offers.id). */
   offerId?: string;
+  /** Subtotal before loyalty redemption (Step 4 checkout). */
+  originalPriceEgp?: number;
+  /** Loyalty points redeemed at checkout for this merchant. */
+  pointsRedeemed?: number;
+  /** EGP discount from loyalty redemption. */
+  discountAppliedEgp?: number;
+  /** Net amount paid after discounts — basis for earn rule. */
+  finalAmountPaidEgp?: number;
   scheduledAt: string;
   status: BookingStatus;
   createdAt: string;
