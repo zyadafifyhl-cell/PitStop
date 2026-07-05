@@ -97,6 +97,12 @@ export async function getShopExtras(shopId: string): Promise<ShopExtras> {
   return normalized;
 }
 
+/** Local AsyncStorage snapshot only — no network (instant shop profile paint). */
+export async function getShopExtrasCached(shopId: string): Promise<ShopExtras> {
+  const map = await readMap();
+  return normalizeExtras(shopId, map[shopId]);
+}
+
 export async function setShopProfileInfo(
   shopId: string,
   input: {

@@ -7,6 +7,7 @@ type Locale = 'en' | 'ar';
 type NotificationMessages = {
   bookingApproved: string;
   bookingDeclined: string;
+  bookingShopReopened: string;
   bookingReminderHour: string;
   bookingReminderSoon: string;
   partsConfirmed: string;
@@ -31,6 +32,9 @@ export function formatCustomerNotificationLine(
   if (notification.kind === 'booking_declined') {
     return messages.bookingDeclined.replace('{shop}', shopName).replace('{when}', when);
   }
+  if (notification.kind === 'booking_shop_reopened') {
+    return messages.bookingShopReopened.replace('{shop}', shopName).replace('{when}', when);
+  }
   if (notification.kind === 'booking_reminder') {
     const mins = notification.reminderMinutesBefore ?? 30;
     if (mins >= 60) {
@@ -47,9 +51,14 @@ export function formatCustomerNotificationLine(
   return messages.partsDeclined.replace('{shop}', shopName);
 }
 
+export function customerNotificationIsShopReopened(notification: CustomerNotification): boolean {
+  return notification.kind === 'booking_shop_reopened';
+}
+
 export function customerNotificationIsApproved(notification: CustomerNotification): boolean {
   return (
     notification.kind === 'booking_approved' ||
+    notification.kind === 'booking_shop_reopened' ||
     notification.kind === 'parts_order_confirmed' ||
     notification.kind === 'booking_reminder' ||
     notification.kind === 'review_owner_reply'

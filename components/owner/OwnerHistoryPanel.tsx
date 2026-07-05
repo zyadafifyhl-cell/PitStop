@@ -31,8 +31,10 @@ import {
   resolveLastNDaysRange,
   toYmdLocal,
 } from '@/lib/booking/reporting';
+import { reportBookingSourceLabel } from '@/lib/booking/reportPrintLabels';
 import type { Booking, Shop } from '@/lib/booking/types';
-import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
+import { insertShopReportHistory } from '@/lib/booking/reportHistoryRepository';
+import type { WashCenterNotification } from '@/lib/booking/wash/types';
 import { openReportPrintFrameWeb } from '@/lib/pdf/reportPrintWeb';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 
@@ -47,6 +49,7 @@ type Props = {
   branchOptions?: Array<{ id: string; label: string }>;
   selectedBranchId?: string;
   onSelectBranchId?: (branchId: string) => void;
+  onReportGenerated?: (row: WashCenterNotification) => void;
 };
 
 export function OwnerHistoryPanel({
@@ -58,6 +61,7 @@ export function OwnerHistoryPanel({
   branchOptions,
   selectedBranchId = 'all',
   onSelectBranchId,
+  onReportGenerated,
 }: Props) {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
@@ -230,21 +234,40 @@ export function OwnerHistoryPanel({
       generatedAt: new Date(),
       locale,
     });
+    const title = t('wash_report_title');
+    const body = t(`${prefix}_count`)
+      .replace('{count}', String(scopedReportBookings.length))
+      .replace('{range}', rangeLabel);
+    const shouldPersistReport =
+      pushReportNotification || mode === 'reports' || typeof onReportGenerated === 'function';
+
     setGeneratingPdf(true);
     try {
-      if (pushReportNotification) {
-        await pushWashCenterNotification({
+      if (shouldPersistReport) {
+        const savedReport = await insertShopReportHistory({
           shopId: shop.id,
           branchId: scopedBranchId ?? undefined,
-          kind: 'weekly_revenue',
-          title: t('wash_report_title'),
-          body: t(`${prefix}_count`)
-            .replace('{count}', String(scopedReportBookings.length))
-            .replace('{range}', rangeLabel),
+          scope: scope === 'all' ? 'all' : 'branch',
+          rangeStart: reportRange.start,
+          rangeEnd: reportRange.end,
+          locale,
+          grossEgp: scopedFinancialTotals.gross,
+          platformFeeEgp: scopedFinancialTotals.fee,
+          netEgp: scopedFinancialTotals.net,
+          bookingCount: scopedReportBookings.length,
+          title,
+          body,
           reportHtml: html,
         });
+        if (savedReport) {
+          onReportGenerated?.(savedReport);
+        }
       }
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const appRows = scopedReportBookings.filter((booking) => booking.bookingType !== 'walk_in');
+        const walkRows = scopedReportBookings.filter((booking) => booking.bookingType === 'walk_in');
+        const appRevenueEgp = appRows.reduce((sum, row) => sum + (row.servicePriceEgp ?? 0), 0);
+        const walkInRevenueEgp = walkRows.reduce((sum, row) => sum + (row.servicePriceEgp ?? 0), 0);
         openReportPrintFrameWeb({
           shopName: locale === 'ar' ? shop.nameAr : shop.name,
           reportTitle: t(`${prefix}_title`),
@@ -253,8 +276,18 @@ export function OwnerHistoryPanel({
           grossRevenue: scopedFinancialTotals.gross,
           platformFee: scopedFinancialTotals.fee,
           netEarnings: scopedFinancialTotals.net,
+          locale,
+          insights: {
+            totalBookings: scopedReportBookings.length,
+            grossRevenue: scopedFinancialTotals.gross,
+            appCount: appRows.length,
+            walkInCount: walkRows.length,
+            appRevenueEgp,
+            walkInRevenueEgp,
+            cancelledNoShowCount: 0,
+          },
           rows: scopedReportBookings.map((booking, index) => {
-            const sourceLabel = booking.bookingType === 'walk_in' ? 'Walk-In' : 'App';
+            const sourceLabel = reportBookingSourceLabel(locale, booking.bookingType === 'walk_in');
             const money = normalizeBookingMoney(booking);
             return {
               bookingId: booking.id || `#${index + 1}`,

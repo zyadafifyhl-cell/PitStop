@@ -11,8 +11,8 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listActiveCouponsForShop } from '@/lib/booking/couponRepository';
 import { getWashBranchState, type WashBranchContext } from '@/lib/booking/wash/washBranchStorage';
 import { buildReportExportModelFromSavedHtml, openReportPrintFrameWeb } from '@/lib/pdf/reportPrintWeb';
+import { listShopReportHistory } from '@/lib/booking/reportHistoryRepository';
 import type { WashCenterNotification } from '@/lib/booking/wash/types';
-import { listWashCenterNotifications } from '@/lib/booking/wash/washNotificationCenter';
 
 export default function WashReportsScreen() {
   const theme = useAppTheme();
@@ -59,12 +59,19 @@ export default function WashReportsScreen() {
   const loadHistory = useCallback(async () => {
     if (!shop) return;
     const [rows] = await Promise.all([
-      listWashCenterNotifications(shop.id),
+      listShopReportHistory(shop.id),
       // Ensure coupon persistence query is hydrated for this shop on reports load.
       listActiveCouponsForShop(shop.id),
     ]);
-    setReportHistory(rows.filter((row) => row.kind === 'weekly_revenue' || row.kind === 'system_alert'));
+    setReportHistory(rows);
   }, [shop]);
+
+  const onReportGenerated = useCallback((row: WashCenterNotification) => {
+    setReportHistory((prev) => {
+      if (prev.some((entry) => entry.id === row.id)) return prev;
+      return [row, ...prev];
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -95,6 +102,7 @@ export default function WashReportsScreen() {
         shopName: locale === 'ar' ? shop.nameAr : shop.name,
         reportTitle: row.title || model.reportTitle,
         generatedAtText: new Date(row.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
+        locale: model.locale ?? locale,
       });
       return;
     }
@@ -128,6 +136,7 @@ export default function WashReportsScreen() {
         branchOptions={branchOptions}
         selectedBranchId={selectedBranchId}
         onSelectBranchId={setSelectedBranchId}
+        onReportGenerated={onReportGenerated}
       />
       <View style={[styles.historyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
         <Text style={[styles.historyTitle, { color: theme.text }]}>{t('wash_report_history_title')}</Text>

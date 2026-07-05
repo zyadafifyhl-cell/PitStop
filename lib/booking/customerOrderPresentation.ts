@@ -82,11 +82,15 @@ export function resolveShopPhone(shop: Shop | undefined): string {
 }
 
 export function orderStatusLabel(status: Booking['status'], locale: Locale): string {
-  return bookingStatusLabel(status, locale);
+  if (status === 'suspended_by_shop') {
+    return bookingStatusLabel(status, locale);
+  }
+  return bookingStatusLabel(normalizeCustomerOrderStatus(status), locale);
 }
 
 /** Customer order cards treat legacy in_progress as confirmed in the wash lifecycle. */
 export function normalizeCustomerOrderStatus(status: Booking['status']): Booking['status'] {
+  if (status === 'suspended_by_shop') return status;
   if (status === 'in_progress') return 'confirmed';
   return status;
 }
@@ -106,6 +110,13 @@ export type OrderStatusBadgeTone = {
 };
 
 export function orderStatusBadgeTone(status: Booking['status']): OrderStatusBadgeTone {
+  if (status === 'suspended_by_shop') {
+    return {
+      backgroundColor: 'rgba(234, 179, 8, 0.22)',
+      color: '#FDE68A',
+      borderColor: 'rgba(234, 179, 8, 0.45)',
+    };
+  }
   const normalized = normalizeCustomerOrderStatus(status);
   switch (normalized) {
     case 'pending':

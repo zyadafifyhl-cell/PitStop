@@ -8,7 +8,8 @@ export type DbBookingStatus =
   | 'in_progress'
   | 'done'
   | 'cancelled'
-  | 'no_show';
+  | 'no_show'
+  | 'suspended_by_shop';
 
 /** App identity row — public.users (mirrors auth.users). */
 export type DbUser = {

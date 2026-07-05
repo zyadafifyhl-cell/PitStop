@@ -7,6 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
+import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
 import { HomeHeroCarAnimation } from '@/components/home/HomeHeroCarAnimation';
 import { AppTheme } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -17,7 +18,11 @@ import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { getAreaById } from '@/lib/booking/areas';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
-import { listBookingsForPhone } from '@/lib/booking/storage';
+import {
+  fetchNextUpcomingBookingForPhone,
+  isHomeNextUpcomingBooking,
+  applyVirtualBookingLifecycle,
+} from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
 import { listAllActiveOffers, subscribeOffersRealtime } from '@/lib/booking/offerRepository';
 import { formatOfferBadge, isOfferLive, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
@@ -52,7 +57,8 @@ export default function HomeScreen() {
   const { customer, isGuest } = useCustomerAuth();
   const { signOut, busy: signingOut } = useAppSignOut();
   const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
-  const [nextBooking, setNextBooking] = useState<Booking | null>(null);
+  const [nextBookingSnapshot, setNextBookingSnapshot] = useState<Booking | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [liveOffers, setLiveOffers] = useState<
     Array<{ shopId: string; shopName: string; shopArea: string; shopType: ShopType; offer: ShopOffer }>
   >([]);
@@ -125,21 +131,26 @@ export default function HomeScreen() {
   }
 
   const refreshHomeData = useCallback(async () => {
-    if (!customer) {
-      setNextBooking(null);
+    if (!customer?.phone) {
+      setNextBookingSnapshot(null);
       return;
     }
 
-    const bookings = customer.phone ? await listBookingsForPhone(customer.phone) : [];
-    const now = Date.now();
-    const upcoming = bookings
-      .filter((booking) => {
-        const time = new Date(booking.scheduledAt).getTime();
-        return time >= now && booking.status !== 'cancelled' && booking.status !== 'done';
-      })
-      .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt))[0] ?? null;
-    setNextBooking(upcoming);
-  }, [customer]);
+    const upcoming = await fetchNextUpcomingBookingForPhone(customer.phone);
+    setNextBookingSnapshot(upcoming);
+    setNowMs(Date.now());
+  }, [customer?.phone]);
+
+  const nextBooking = useMemo(() => {
+    if (!nextBookingSnapshot) return null;
+    const effective = applyVirtualBookingLifecycle(nextBookingSnapshot, nowMs);
+    return isHomeNextUpcomingBooking(effective, nowMs) ? effective : null;
+  }, [nextBookingSnapshot, nowMs]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -156,9 +167,9 @@ export default function HomeScreen() {
     return unsubscribe;
   }, [loadLiveOffers]);
 
-  const greeting = customer
-    ? tp('home_greeting_named', { name: customer.name.split(' ')[0] ?? customer.name })
-    : t('home_greeting');
+  const greetingName = customer
+    ? customer.name.split(' ')[0]?.trim() || customer.name
+    : null;
   const nextBookingShop =
     catalogReady && nextBooking ? getShopById(nextBooking.shopId) : undefined;
   const nextBookingShopName = nextBookingShop
@@ -172,18 +183,33 @@ export default function HomeScreen() {
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <AutomotiveBackground theme={theme} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <View style={styles.heroSection}>
-          <View style={styles.heroTextCol}>
-            <Text style={[styles.greeting, { color: theme.textMuted }]}>{greeting}</Text>
-          </View>
-          {customer && !isGuest ? (
-            <View style={styles.heroCarCol}>
-              <HomeHeroCarAnimation />
+        <View style={styles.heroHeaderBlock}>
+          <View style={styles.topHeaderRow}>
+            <View style={styles.greetingBlock}>
+              <Text style={[styles.greetingEyebrow, { color: theme.textDim }]}>{t('home_greeting')}</Text>
+              <Text style={[styles.greetingName, { color: theme.text }]}>
+                {greetingName ? tp('home_greeting_named', { name: greetingName }) : t('home_greeting')}
+              </Text>
             </View>
-          ) : null}
+            {customer && !isGuest ? (
+              <View style={styles.headerBellSlot}>
+                <CustomerNotificationsBell embedded />
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.heroHeadlineRow}>
+            <View style={styles.heroHeadlineCol}>
+              <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
+              <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
+            </View>
+            {customer && !isGuest ? (
+              <View style={styles.heroCarCol}>
+                <HomeHeroCarAnimation />
+              </View>
+            ) : null}
+          </View>
         </View>
-        <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
-        <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
 
       <CurvyCard theme={theme}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('screen_vehicle')}</Text>
@@ -342,30 +368,63 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
-  content: { padding: 20, paddingBottom: 52, gap: 2 },
-  heroSection: {
+  content: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 52 },
+  heroHeaderBlock: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  topHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 0,
+    paddingBottom: 0,
+  },
+  greetingBlock: {
+    flex: 1,
+    gap: 2,
+    marginBottom: 0,
+    paddingBottom: 0,
+  },
+  greetingEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  greetingName: {
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+    lineHeight: 22,
+    marginBottom: 0,
+  },
+  headerBellSlot: {
+    flexShrink: 0,
+  },
+  heroHeadlineRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 8,
-    minHeight: 88,
+    gap: 10,
+    marginTop: 0,
+    marginBottom: 0,
+    paddingTop: 0,
   },
-  heroTextCol: {
+  heroHeadlineCol: {
     flex: 1,
-    justifyContent: 'center',
-    minHeight: 88,
-    paddingTop: 8,
+    paddingTop: 0,
   },
   heroCarCol: {
     flexShrink: 0,
-    width: '38%',
-    maxWidth: 220,
-    minWidth: 148,
+    width: '30%',
+    maxWidth: 168,
+    minWidth: 120,
+    marginTop: 0,
   },
-  greeting: { fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
-  title: { fontSize: 32, fontWeight: '900', marginBottom: 8, letterSpacing: -0.5, lineHeight: 38 },
-  lead: { fontSize: 17, lineHeight: 24, marginBottom: 16 },
+  title: { fontSize: 28, fontWeight: '900', marginTop: 0, marginBottom: 4, letterSpacing: -0.5, lineHeight: 32 },
+  lead: { fontSize: 16, lineHeight: 21, marginTop: 0, marginBottom: 0 },
   sectionCard: {
     borderWidth: 1,
     borderRadius: 24,

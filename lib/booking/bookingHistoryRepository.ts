@@ -1,4 +1,5 @@
 import type { Booking, BookingStatus } from '@/lib/booking/types';
+import { DEFAULT_SERVICE_DURATION_MINUTES } from '@/lib/booking/format';
 import {
   isFinalizedHistoryBooking,
   listBookingsForShop,
@@ -36,4 +37,29 @@ export async function listArchivedBookingsForStaff(
 
 export function isArchivedBookingStatus(status: BookingStatus): boolean {
   return ARCHIVED_DB_STATUSES.includes(status);
+}
+
+/** Active/upcoming merchant queue — excludes shop-suspended slots. */
+export function isActiveQueueBooking(booking: Booking, now = Date.now()): boolean {
+  if (booking.status === 'suspended_by_shop') return false;
+  if (booking.status !== 'pending' && booking.status !== 'confirmed') return false;
+
+  const startMs = new Date(booking.scheduledAt).getTime();
+  if (Number.isNaN(startMs)) return false;
+
+  const durationMs = (booking.serviceDurationMinutes ?? DEFAULT_SERVICE_DURATION_MINUTES) * 60_000;
+  const endMs = startMs + durationMs;
+  const isToday = new Date(startMs).toDateString() === new Date(now).toDateString();
+
+  return startMs > now || (isToday && now < endMs);
+}
+
+export async function listActiveQueueBookingsForStaff(
+  shopId: string,
+  branchId?: string | null,
+): Promise<Booking[]> {
+  const all = await listBookingsForShop(shopId);
+  const scoped = branchId ? all.filter((row) => row.branchId === branchId) : all;
+  const now = Date.now();
+  return sortBookingsByScheduledAtDesc(scoped.filter((row) => isActiveQueueBooking(row, now)));
 }

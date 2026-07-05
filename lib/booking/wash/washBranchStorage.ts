@@ -15,6 +15,7 @@ import {
   updateBranchRemote,
   updateShopLocationRemote,
 } from '@/lib/booking/wash/branchRepository';
+import { applyShopOperationalBookingExceptionFlow } from '@/lib/booking/bookingShopClosureRepository';
 import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
 import { persistImageUri, persistImageUris } from '@/lib/media/persistImageUri';
 
@@ -366,6 +367,19 @@ export async function saveWashBranchStatus(
   vacationMode: WashVacationMode,
   ctx?: WashBranchContext,
 ): Promise<WashBranch> {
+  const state = await getWashBranchState(shop, ctx);
+  const previousStatus = activeBranchFromState(state).shopStatus ?? 'open';
   const { branch } = await updateActiveWashBranch(shop, { shopStatus, vacationMode }, ctx);
+
+  const branchUuid = isUuid(branch.id) ? branch.id : await resolveRemoteBranchId(shop.id, branch.id);
+  if (branchUuid) {
+    await applyShopOperationalBookingExceptionFlow({
+      shopId: shop.id,
+      branchId: branchUuid,
+      previousStatus,
+      nextStatus: shopStatus,
+    });
+  }
+
   return branch;
 }

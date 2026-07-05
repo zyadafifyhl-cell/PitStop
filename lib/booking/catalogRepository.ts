@@ -137,6 +137,34 @@ export function getShopById(id: string): Shop | undefined {
   return shopsCache.find((shop) => shop.id === id);
 }
 
+/** Fetch a single active shop row when it is missing from the in-memory catalog cache. */
+export async function fetchShopByIdRemote(id: string): Promise<Shop | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('shops')
+      .select('*')
+      .eq('id', id)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (error || !data) return null;
+    const shop = mapShopRow(data as ShopRow);
+    const existingIdx = shopsCache.findIndex((row) => row.id === shop.id);
+    if (existingIdx >= 0) {
+      shopsCache[existingIdx] = shop;
+    } else {
+      shopsCache.push(shop);
+    }
+    catalogReady = true;
+    void saveCatalogToStorage();
+    return shop;
+  } catch {
+    return null;
+  }
+}
+
 /** Keep in-memory catalog in sync after owner updates shop GPS. */
 export function patchShopCoordinates(shopId: string, latitude: number, longitude: number): void {
   const shop = shopsCache.find((row) => row.id === shopId);

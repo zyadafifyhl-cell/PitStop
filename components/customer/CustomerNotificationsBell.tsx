@@ -16,11 +16,12 @@ import {
   customerNotificationIsApproved,
   customerNotificationIsReminder,
   customerNotificationIsReviewReply,
+  customerNotificationIsShopReopened,
   formatCustomerNotificationLine,
 } from '@/lib/booking/customerNotificationText';
 import type { CustomerNotification } from '@/lib/booking/types';
 
-export function CustomerNotificationsBell() {
+export function CustomerNotificationsBell({ embedded = false }: { embedded?: boolean }) {
   const { customer, isGuest } = useCustomerAuth();
   const { t, tp, locale } = useI18n();
   const theme = useAppTheme();
@@ -66,6 +67,7 @@ export function CustomerNotificationsBell() {
   const notificationMessages = {
     bookingApproved: t('customer_notification_booking_approved'),
     bookingDeclined: t('customer_notification_booking_declined'),
+    bookingShopReopened: t('customer_notification_booking_shop_reopened'),
     bookingReminderHour: t('customer_notification_booking_reminder_hour'),
     bookingReminderSoon: t('customer_notification_booking_reminder_soon'),
     partsConfirmed: t('customer_notification_parts_confirmed'),
@@ -77,7 +79,7 @@ export function CustomerNotificationsBell() {
     <>
       <Pressable
         onPress={openModal}
-        style={styles.bellBtn}
+        style={[styles.bellBtn, embedded && styles.bellBtnEmbedded]}
         accessibilityLabel={t('customer_notifications_button')}
         hitSlop={8}>
         <FontAwesome name="bell" size={20} color={theme.text} />
@@ -100,6 +102,7 @@ export function CustomerNotificationsBell() {
                   const approved = customerNotificationIsApproved(notification);
                   const isReminder = customerNotificationIsReminder(notification);
                   const isReviewReply = customerNotificationIsReviewReply(notification);
+                  const isShopReopened = customerNotificationIsShopReopened(notification);
                   return (
                     <View
                       key={notification.id}
@@ -126,9 +129,11 @@ export function CustomerNotificationsBell() {
                               ? t('customer_notification_status_reminder')
                               : isReviewReply
                                 ? t('customer_notification_status_reply')
-                                : approved
-                                  ? t('customer_notification_status_approved')
-                                  : t('customer_notification_status_declined')}
+                                : isShopReopened
+                                  ? t('customer_notification_status_reopened')
+                                  : approved
+                                    ? t('customer_notification_status_approved')
+                                    : t('customer_notification_status_declined')}
                           </Text>
                         </View>
                       </View>
@@ -167,6 +172,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  bellBtnEmbedded: { marginRight: 0 },
   badge: {
     position: 'absolute',
     top: 0,

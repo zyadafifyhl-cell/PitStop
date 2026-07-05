@@ -1,5 +1,11 @@
 import type { Shop, Booking } from '@/lib/booking/types';
 import { APP_BRAND_NAME } from '@/constants/Brand';
+import {
+  formatReportCancelledValue,
+  formatReportChannelSplitValue,
+  getReportPrintLabels,
+  reportBookingSourceLabel,
+} from '@/lib/booking/reportPrintLabels';
 
 export type ReportPreset = '2d' | '3d' | '7d' | '30d' | 'custom';
 
@@ -163,27 +169,28 @@ export function computeOperationalInsights(params: {
     cancelledNoShowCount,
     locale,
   } = params;
-  const isAr = locale === 'ar';
+  const labels = getReportPrintLabels(locale);
   const aov = totalBookings > 0 ? grossRevenue / totalBookings : 0;
   const appPct = totalBookings > 0 ? (appCount / totalBookings) * 100 : 0;
   const walkPct = totalBookings > 0 ? (walkInCount / totalBookings) * 100 : 0;
-  const bookingsWord = isAr ? 'حجز' : 'Bookings';
 
   return {
-    aovLabel: isAr ? 'متوسط قيمة الطلب' : 'Average Order Value',
+    aovLabel: labels.aov,
     aovValue: formatEgp(aov, locale),
-    channelLabel: isAr ? 'توزيع القنوات' : 'Channel Split',
-    channelValue: isAr
-      ? `تطبيق ${formatReportPercent(appPct, locale)} · مباشر ${formatReportPercent(walkPct, locale)}`
-      : `App ${formatReportPercent(appPct, locale)} · Walk-In ${formatReportPercent(walkPct, locale)}`,
-    vehiclesLabel: isAr ? 'إجمالي المركبات المخدومة' : 'Total Vehicles Serviced',
-    vehiclesValue: totalBookings.toLocaleString(isAr ? 'ar-EG' : 'en-EG'),
-    appRevenueLabel: isAr ? 'إيرادات التطبيق' : 'App Revenue',
+    channelLabel: labels.channelSplit,
+    channelValue: formatReportChannelSplitValue(
+      locale,
+      formatReportPercent(appPct, locale),
+      formatReportPercent(walkPct, locale),
+    ),
+    vehiclesLabel: labels.vehiclesServiced,
+    vehiclesValue: totalBookings.toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
+    appRevenueLabel: labels.appRevenue,
     appRevenueValue: formatEgp(appRevenueEgp, locale),
-    walkInRevenueLabel: isAr ? 'إيرادات الزيارة المباشرة' : 'Walk-In Revenue',
+    walkInRevenueLabel: labels.walkInRevenue,
     walkInRevenueValue: formatEgp(walkInRevenueEgp, locale),
-    cancelledLabel: isAr ? 'ملغي / عدم حضور' : 'Cancelled / No-Shows',
-    cancelledValue: `${cancelledNoShowCount.toLocaleString(isAr ? 'ar-EG' : 'en-EG')} ${bookingsWord}`,
+    cancelledLabel: labels.cancelledNoShows,
+    cancelledValue: formatReportCancelledValue(locale, cancelledNoShowCount),
   };
 }
 
@@ -226,6 +233,7 @@ export function buildOwnerReportHtml(params: {
 }): string {
   const { shop, bookings, rangeLabel, generatedAt, locale } = params;
   const isAr = locale === 'ar';
+  const labels = getReportPrintLabels(locale);
 
   const sortedBookings = bookings
     .slice()
@@ -280,13 +288,7 @@ export function buildOwnerReportHtml(params: {
 
     if (isWalkIn) walkInCount += 1;
     const when = new Date(booking.scheduledAt).toLocaleString(isAr ? 'ar-EG' : 'en-EG');
-    const sourceLabel = isWalkIn
-      ? isAr
-        ? 'زيارة مباشرة'
-        : 'Walk-in'
-      : isAr
-        ? 'تطبيق'
-        : 'App';
+    const sourceLabel = reportBookingSourceLabel(locale, isWalkIn);
 
     htmlRows.push(`
       <tr data-booking-id="${escapeHtml(booking.id)}">
@@ -305,7 +307,7 @@ export function buildOwnerReportHtml(params: {
     payloadRows.push({
       bookingId: booking.id,
       dateText: when,
-      serviceType: isWalkIn ? 'Walk-In' : 'App',
+      serviceType: sourceLabel,
       amountEgp: money.servicePriceEgp,
       platformFeeEgp: money.platformFeeEgp,
       netEgp: money.ownerNetEgp,
@@ -318,9 +320,10 @@ export function buildOwnerReportHtml(params: {
   const generatedLabel = generatedAt.toLocaleString(isAr ? 'ar-EG' : 'en-EG');
   const reportPayload = safeJsonForHtml({
     shopName: isAr ? shop.nameAr : shop.name,
-    reportTitle: isAr ? 'فاتورة/تقرير الحجوزات' : 'Bookings Invoice/Report',
+    reportTitle: labels.bookingsTitle,
     rangeLabel,
     generatedAt: generatedLabel,
+    locale,
     totals: {
       gross: totals.gross,
       fee: totals.fee,
@@ -338,10 +341,10 @@ export function buildOwnerReportHtml(params: {
     rows: payloadRows,
   });
 
-  const reportTitle = isAr ? 'فاتورة/تقرير الحجوزات' : 'Bookings Invoice/Report';
-  const shopLabel = isAr ? 'المحل' : 'Shop';
-  const periodLabel = isAr ? 'الفترة' : 'Date range';
-  const generatedLabelKey = isAr ? 'تم الإنشاء' : 'Generated at';
+  const reportTitle = labels.bookingsTitle;
+  const shopLabel = labels.shop;
+  const periodLabel = labels.dateRange;
+  const generatedLabelKey = labels.generatedAt;
   const insights = computeOperationalInsights({
     totalBookings: bookings.length,
     grossRevenue: totals.gross,
@@ -352,7 +355,7 @@ export function buildOwnerReportHtml(params: {
     cancelledNoShowCount,
     locale,
   });
-  const insightsTitle = isAr ? 'رؤى تشغيلية' : 'Operational Insights';
+  const insightsTitle = labels.operationalInsights;
 
   return `<!doctype html>
 <html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
@@ -686,7 +689,7 @@ export function buildOwnerReportHtml(params: {
         </div>
       </div>
       <div class="header-copy">
-        <div class="doc-type">${isAr ? 'تقرير مالي تنفيذي' : 'Executive Financial Report'}</div>
+        <div class="doc-type">${escapeHtml(labels.executiveTitle)}</div>
         <h1>${escapeHtml(reportTitle)}</h1>
       </div>
     </header>
@@ -706,30 +709,30 @@ export function buildOwnerReportHtml(params: {
       </div>
     </section>
 
-    <h2 class="section-title">${isAr ? 'ملخص العمليات' : 'Operations summary'}</h2>
+    <h2 class="section-title">${escapeHtml(labels.operationsSummary)}</h2>
     <div class="stats-grid">
-      <div class="stat-card"><div class="label">${isAr ? 'إجمالي الحجوزات' : 'Total bookings'}</div><div class="value">${bookings.length}</div></div>
-      <div class="stat-card"><div class="label">${isAr ? 'تم التنفيذ' : 'Done'}</div><div class="value">${statusCount.done}</div></div>
-      <div class="stat-card"><div class="label">${isAr ? 'حجوزات التطبيق' : 'App bookings'}</div><div class="value">${appCount}</div></div>
-      <div class="stat-card"><div class="label">${isAr ? 'زيارات مباشرة' : 'Walk-in POS'}</div><div class="value">${walkInCount}</div></div>
-      <div class="stat-card"><div class="label">${isAr ? 'مؤكد' : 'Confirmed'}</div><div class="value">${statusCount.confirmed}</div></div>
-      <div class="stat-card"><div class="label">${isAr ? 'ملغي' : 'Cancelled'}</div><div class="value">${statusCount.cancelled}</div></div>
-      <div class="stat-card"><div class="label">${isAr ? 'صيانة' : 'Maintenance'}</div><div class="value">${typeCount.maintenance}</div></div>
-      <div class="stat-card"><div class="label">${isAr ? 'غسيل / قطع / ونش' : 'Wash / Parts / Winch'}</div><div class="value">${typeCount.wash + typeCount.parts + typeCount.winch}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.totalBookings)}</div><div class="value">${bookings.length}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.done)}</div><div class="value">${statusCount.done}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.appBookings)}</div><div class="value">${appCount}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.walkInPos)}</div><div class="value">${walkInCount}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.confirmed)}</div><div class="value">${statusCount.confirmed}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.cancelled)}</div><div class="value">${statusCount.cancelled}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.maintenance)}</div><div class="value">${typeCount.maintenance}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.washPartsWinch)}</div><div class="value">${typeCount.wash + typeCount.parts + typeCount.winch}</div></div>
     </div>
 
-    <h2 class="section-title">${isAr ? 'الملخص المالي' : 'Financial summary'}</h2>
+    <h2 class="section-title">${escapeHtml(labels.financialSummary)}</h2>
     <div class="financial-summary">
       <div class="metric-card" data-metric="gross">
-        <div class="label">${isAr ? 'إجمالي المبيعات' : 'Gross Revenue'}</div>
+        <div class="label">${escapeHtml(labels.grossRevenue)}</div>
         <div class="value">${formatEgp(totals.gross, locale)}</div>
       </div>
       <div class="metric-card" data-metric="fee">
-        <div class="label">${isAr ? 'عمولة المنصة (12%)' : 'Platform Fee (12%)'}</div>
+        <div class="label">${escapeHtml(labels.platformFee)}</div>
         <div class="value">${formatEgp(totals.fee, locale)}</div>
       </div>
       <div class="metric-card metric-card--net" data-metric="net">
-        <div class="label">${isAr ? 'صافي أرباح المحل' : 'Net Earnings'}</div>
+        <div class="label">${escapeHtml(labels.netEarnings)}</div>
         <div class="value">${formatEgp(totals.net, locale)}</div>
       </div>
     </div>
@@ -737,25 +740,25 @@ export function buildOwnerReportHtml(params: {
     <h2 class="section-title">${escapeHtml(insightsTitle)}</h2>
     ${renderOperationalInsightsGridHtml(insights)}
 
-    <h2 class="section-title">${isAr ? 'تفاصيل الحجوزات' : 'Booking ledger'}</h2>
+    <h2 class="section-title">${escapeHtml(labels.bookingLedger)}</h2>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th style="width:5%">#</th>
-            <th style="width:14%">${isAr ? 'الموعد' : 'Scheduled at'}</th>
-            <th style="width:8%">${isAr ? 'المصدر' : 'Source'}</th>
-            <th style="width:12%">${isAr ? 'رقم العميل' : 'Customer phone'}</th>
-            <th style="width:11%">${isAr ? 'نوع السيارة' : 'Car type'}</th>
-            <th style="width:8%">${isAr ? 'اللون' : 'Color'}</th>
-            <th style="width:8%">${isAr ? 'الحالة' : 'Status'}</th>
-            <th style="width:11%">${isAr ? 'سعر الخدمة' : 'Service price'}</th>
-            <th style="width:11%">${isAr ? 'عمولة المنصة' : 'Platform fee'}</th>
-            <th style="width:12%">${isAr ? 'صافي المحل' : 'Owner net'}</th>
+            <th style="width:14%">${escapeHtml(labels.tableScheduled)}</th>
+            <th style="width:8%">${escapeHtml(labels.tableSource)}</th>
+            <th style="width:12%">${escapeHtml(labels.tableCustomerPhone)}</th>
+            <th style="width:11%">${escapeHtml(labels.tableCarType)}</th>
+            <th style="width:8%">${escapeHtml(labels.tableColor)}</th>
+            <th style="width:8%">${escapeHtml(labels.tableStatus)}</th>
+            <th style="width:11%">${escapeHtml(labels.tableServicePrice)}</th>
+            <th style="width:11%">${escapeHtml(labels.tablePlatformFee)}</th>
+            <th style="width:12%">${escapeHtml(labels.tableOwnerNet)}</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || `<tr class="empty-row"><td colspan="10">${isAr ? 'لا توجد حجوزات في هذه الفترة' : 'No bookings for this period'}</td></tr>`}
+          ${rows || `<tr class="empty-row"><td colspan="10">${escapeHtml(labels.noBookingsPeriod)}</td></tr>`}
         </tbody>
       </table>
     </div>

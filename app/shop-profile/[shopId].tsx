@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -11,23 +11,24 @@ import {
   View,
 } from 'react-native';
 
+import { ShopProfileLoadingScreen } from '@/components/shop/ShopProfileLoadingScreen';
 import { WorkingHoursTable } from '@/components/ui/WorkingHoursTable';
 import { ShopMediaImage } from '@/components/ui/ShopMediaImage';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
-import { useShopCatalog } from '@/context/ShopCatalogContext';
-import { getShopById } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { applyCampaignPrice, formatOfferBadge, isOfferLive, pickBestLiveOffer, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
-import { getCustomerShopReview, listShopReviews, computeShopRatingSummary, formatReviewStarRow } from '@/lib/booking/reviewsStorage';
 import { isOrderHistoryReview } from '@/lib/booking/reviewConstants';
-import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
+import { formatReviewStarRow } from '@/lib/booking/reviewsStorage';
+import {
+  bootstrapShopProfileFromCache,
+  fetchShopProfileRemote,
+  shopExtrasFingerprint,
+} from '@/lib/booking/shopProfileLoader';
 import { getActiveServices, getWeeklyHoursDisplayRows } from '@/lib/booking/shopSchedule';
-import type { ShopExtras, ShopOffer, ShopReview } from '@/lib/booking/types';
-import { fetchBranchProfile, fetchDefaultBranchCoordinates, fetchDefaultBranchProfile } from '@/lib/booking/wash/branchRepository';
-import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
+import type { Shop, ShopExtras, ShopOffer, ShopReview } from '@/lib/booking/types';
 import { resolveShopMedia } from '@/lib/media/shopImages';
 import { WashStatusBadge, type WashCustomerStatus } from '@/components/ui/WashBusyBadge';
 import { ShopReviewForm } from '@/components/reviews/ShopReviewForm';
@@ -41,7 +42,8 @@ export default function ShopProfileScreen() {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
   const { isGuest, customer } = useCustomerAuth();
-  const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
+  const [shop, setShop] = useState<Shop | null>(null);
+  const [loading, setLoading] = useState(true);
   const [extras, setExtras] = useState<ShopExtras | null>(null);
   const [reviews, setReviews] = useState<ShopReview[]>([]);
   const [averageRating, setAverageRating] = useState<number | null>(null);
@@ -52,55 +54,121 @@ export default function ShopProfileScreen() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [branchCoords, setBranchCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const extrasFingerprintRef = useRef<string | null>(null);
 
-  const shop = useMemo(
-    () => (catalogReady && shopId ? getShopById(shopId) : undefined),
-    [catalogReady, catalogVersion, shopId],
+  const applyRemoteSnapshot = useCallback(
+    (snapshot: Awaited<ReturnType<typeof fetchShopProfileRemote>>, options?: { force?: boolean }) => {
+      const nextFingerprint = shopExtrasFingerprint(snapshot.extras);
+      const extrasChanged = options?.force || extrasFingerprintRef.current !== nextFingerprint;
+
+      if (snapshot.shop) {
+        setShop((prev) => {
+          if (!prev) return snapshot.shop;
+          if (prev.id !== snapshot.shop!.id) return snapshot.shop;
+          if (
+            prev.name === snapshot.shop!.name &&
+            prev.phone === snapshot.shop!.phone &&
+            prev.address === snapshot.shop!.address &&
+            prev.latitude === snapshot.shop!.latitude &&
+            prev.longitude === snapshot.shop!.longitude
+          ) {
+            return prev;
+          }
+          return snapshot.shop;
+        });
+      } else {
+        setShop(null);
+      }
+
+      if (extrasChanged) {
+        extrasFingerprintRef.current = nextFingerprint;
+        setExtras(snapshot.extras);
+      }
+
+      setBranchCoords((prev) => {
+        if (
+          snapshot.branchCoords &&
+          prev?.latitude === snapshot.branchCoords.latitude &&
+          prev?.longitude === snapshot.branchCoords.longitude
+        ) {
+          return prev;
+        }
+        return snapshot.branchCoords;
+      });
+
+      setReviews(snapshot.reviews);
+      setAverageRating(snapshot.averageRating);
+      setReviewCount(snapshot.reviewCount);
+      setCustomerAlreadyReviewed(!!snapshot.customerReview);
+      setCustomerReviewRating(snapshot.customerReview?.rating ?? 0);
+      setCustomerReviewFromOrders(
+        snapshot.customerReview ? isOrderHistoryReview(snapshot.customerReview.body) : false,
+      );
+    },
+    [],
   );
 
-  const refreshExtras = useCallback(async () => {
-    if (!shop) return;
-    let syncedBranchCoords: { latitude: number; longitude: number } | null = null;
-    if (shop.type === 'wash') {
-      const currentExtras = await getShopExtras(shop.id);
-      const activeBranchId = currentExtras.activeBranchId?.trim();
-      const branch = activeBranchId
-        ? await fetchBranchProfile(shop.id, activeBranchId)
-        : await fetchDefaultBranchProfile(shop.id);
-      if (branch) {
-        await syncWashBranchToShopExtras(shop.id, branch);
-        if (branch.latitude != null && branch.longitude != null) {
-          syncedBranchCoords = { latitude: branch.latitude, longitude: branch.longitude };
+  useEffect(() => {
+    if (!shopId) {
+      setShop(null);
+      setExtras(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    extrasFingerprintRef.current = null;
+
+    (async () => {
+      const cached = await bootstrapShopProfileFromCache(shopId);
+      if (cancelled) return;
+
+      if (cached.shop) {
+        setShop(cached.shop);
+        setExtras(cached.extras);
+        setBranchCoords(cached.branchCoords);
+        extrasFingerprintRef.current = shopExtrasFingerprint(cached.extras);
+        setLoading(false);
+      }
+
+      try {
+        const remote = await fetchShopProfileRemote(shopId, customer?.id);
+        if (cancelled) return;
+        applyRemoteSnapshot(remote, { force: !cached.shop });
+        if (!remote.shop) {
+          setShop(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
         }
       }
-    }
-    const [row, reviewRows, coords, customerReview] = await Promise.all([
-      getShopExtras(shop.id),
-      listShopReviews(shop.id),
-      syncedBranchCoords ? Promise.resolve(syncedBranchCoords) : fetchDefaultBranchCoordinates(shop.id),
-      customer?.id ? getCustomerShopReview(shop.id, customer.id) : Promise.resolve(null),
-    ]);
-    setExtras(row);
-    setBranchCoords(coords);
-    setCustomerAlreadyReviewed(!!customerReview);
-    setCustomerReviewRating(customerReview?.rating ?? 0);
-    setCustomerReviewFromOrders(customerReview ? isOrderHistoryReview(customerReview.body) : false);
-    const visibleRemote = reviewRows.filter((review) => !review.hidden);
-    const summary = computeShopRatingSummary(reviewRows);
-    setAverageRating(summary.average);
-    setReviewCount(summary.count);
-    setReviews(visibleRemote);
-  }, [shop, customer?.id]);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shopId, customer?.id, applyRemoteSnapshot]);
+
+  const refreshRemote = useCallback(async () => {
+    if (!shopId) return;
+    const remote = await fetchShopProfileRemote(shopId, customer?.id);
+    applyRemoteSnapshot(remote);
+  }, [shopId, customer?.id, applyRemoteSnapshot]);
 
   useFocusEffect(
     useCallback(() => {
-      refreshExtras();
-    }, [refreshExtras]),
+      void refreshRemote();
+    }, [refreshRemote]),
   );
 
   const offerBadgeMessages = useMemo(() => buildOfferBadgeMessages(t), [t]);
 
-  if (!shop) {
+  if (loading && !shop) {
+    return <ShopProfileLoadingScreen />;
+  }
+
+  if (!shop || !extras) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
         <Text style={{ color: theme.text }}>{t('book_shop_not_found')}</Text>
@@ -317,7 +385,7 @@ export default function ShopProfileScreen() {
           ratedFromOrders={customerReviewFromOrders}
           onSubmitted={() => {
             setCustomerAlreadyReviewed(true);
-            refreshExtras();
+            void refreshRemote();
           }}
         />
         {reviews.map((review) => (

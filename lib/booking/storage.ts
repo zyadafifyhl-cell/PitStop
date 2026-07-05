@@ -73,6 +73,7 @@ export function isConfirmedPastAutoDoneWindow(scheduledAt: string, now = Date.no
 
 /** Virtual lifecycle: stale confirmed/in_progress slots become done at read time. */
 export function resolveEffectiveBookingStatus(booking: Booking, now = Date.now()): BookingStatus {
+  if (booking.status === 'suspended_by_shop') return booking.status;
   if (
     (booking.status === 'confirmed' || booking.status === 'in_progress') &&
     isConfirmedPastAutoDoneWindow(booking.scheduledAt, now)
@@ -347,6 +348,13 @@ async function upsertLocalBooking(booking: Booking): Promise<void> {
   await writeAll(rows);
 }
 
+/** Patch local booking cache after remote bulk status updates. */
+export async function syncLocalBookingsFromRemote(bookings: Booking[]): Promise<void> {
+  for (const booking of bookings) {
+    await upsertLocalBooking(booking);
+  }
+}
+
 function mergeBookings(remote: Booking[], local: Booking[]): Booking[] {
   const localById = new Map(local.map((row) => [row.id, row]));
   const merged = remote.map((row) => {
@@ -409,6 +417,55 @@ export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
     return sortBookingsByScheduledAtDesc(mergeBookings(remoteRows, localRows));
   }
   return sortBookingsByScheduledAtDesc(localRows);
+}
+
+const HOME_NEXT_BOOKING_STATUSES = new Set<BookingStatus>(['pending', 'confirmed']);
+
+/** True when a booking should appear in the Home "My next booking" card. */
+export function isHomeNextUpcomingBooking(booking: Booking, now = Date.now()): boolean {
+  const effective = applyVirtualBookingLifecycle(booking, now);
+  if (!HOME_NEXT_BOOKING_STATUSES.has(effective.status)) return false;
+  const scheduledMs = new Date(effective.scheduledAt).getTime();
+  if (Number.isNaN(scheduledMs)) return false;
+  return scheduledMs >= now;
+}
+
+/** Closest upcoming pending/confirmed booking from an in-memory list. */
+export function pickNextUpcomingBooking(bookings: Booking[], now = Date.now()): Booking | null {
+  return (
+    bookings
+      .filter((row) => isHomeNextUpcomingBooking(row, now))
+      .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt))[0] ?? null
+  );
+}
+
+/** Fetch the single closest upcoming booking for the Home card (Supabase-first, local fallback). */
+export async function fetchNextUpcomingBookingForPhone(phone: string, now = Date.now()): Promise<Booking | null> {
+  const nowIso = new Date(now).toISOString();
+  const supabase = getSupabase();
+
+  if (supabase) {
+    const phoneVariants = phoneLookupVariants(phone);
+    const response = await withRemoteTimeout(
+      supabase
+        .from('bookings')
+        .select('*')
+        .in('customer_phone', phoneVariants.length ? phoneVariants : [phone])
+        .in('status', ['pending', 'confirmed'])
+        .gte('scheduled_at', nowIso)
+        .order('scheduled_at', { ascending: true })
+        .limit(1),
+      null,
+    );
+
+    if (response && !response.error && response.data?.length) {
+      const candidate = applyVirtualBookingLifecycle(mapBookingRow(response.data[0] as BookingRow), now);
+      if (isHomeNextUpcomingBooking(candidate, now)) return candidate;
+    }
+  }
+
+  const localRows = (await readAll()).filter((b) => phonesEqual(b.customerPhone, phone));
+  return pickNextUpcomingBooking(localRows, now);
 }
 
 export async function getBookingForCustomer(bookingId: string, phone: string): Promise<Booking | null> {

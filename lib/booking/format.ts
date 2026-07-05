@@ -30,6 +30,7 @@ export function bookingStatusLabel(status: BookingStatus, locale: Locale): strin
     done: { en: 'Completed', ar: 'مكتمل' },
     cancelled: { en: 'Cancelled', ar: 'ملغي' },
     no_show: { en: 'No show', ar: 'لم يحضر' },
+    suspended_by_shop: { en: 'Shop Temporarily Closed', ar: 'المحل مغلق مؤقتًا' },
   };
   return locale === 'ar' ? map[status].ar : map[status].en;
 }

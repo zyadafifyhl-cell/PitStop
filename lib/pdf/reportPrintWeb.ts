@@ -1,5 +1,11 @@
 import { APP_BRAND_NAME } from '@/constants/Brand';
-import { computeOperationalInsights, renderOperationalInsightsGridHtml } from '@/lib/booking/reporting';
+import {
+  computeOperationalInsights,
+  formatEgp,
+  renderOperationalInsightsGridHtml,
+} from '@/lib/booking/reporting';
+import { getReportPrintLabels } from '@/lib/booking/reportPrintLabels';
+import type { Locale } from '@/lib/i18n/strings';
 
 export type ReportExportRow = {
   bookingId: string;
@@ -16,6 +22,7 @@ export type ReportExportModel = {
   grossRevenue: number;
   platformFee: number;
   netEarnings: number;
+  locale?: Locale;
   rows: ReportExportRow[];
   insights?: {
     totalBookings: number;
@@ -40,6 +47,7 @@ type HtmlPayload = {
   reportTitle?: string;
   rangeLabel?: string;
   generatedAt?: string;
+  locale?: Locale;
   totals?: {
     gross?: number;
     fee?: number;
@@ -70,8 +78,12 @@ function money(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
-function formatEgp(value: number): string {
-  return `EGP ${money(value).toFixed(2)}`;
+function formatMoney(value: number, locale: Locale): string {
+  return formatEgp(money(value), locale);
+}
+
+function resolveLocale(value: unknown): Locale {
+  return value === 'ar' ? 'ar' : 'en';
 }
 
 function formatOrderNumber(rawId: string): string {
@@ -109,6 +121,7 @@ export function buildReportExportModelFromSavedHtml(html: string): ReportExportM
         reportTitle: payload.reportTitle || 'Bookings Report',
         rangeLabel: payload.rangeLabel || '-',
         generatedAtText: payload.generatedAt || new Date().toLocaleString(),
+        locale: resolveLocale(payload.locale),
         grossRevenue: money(payload.totals?.gross ?? 0),
         platformFee: money(payload.totals?.fee ?? 0),
         netEarnings: money(payload.totals?.net ?? 0),
@@ -167,8 +180,9 @@ function typeBadgeHtml(typeText: string): string {
 }
 
 function deriveInsightsFromExportModel(model: ReportExportModel) {
+  const locale = model.locale ?? 'en';
   if (model.insights) {
-    return computeOperationalInsights({ ...model.insights, locale: 'en' });
+    return computeOperationalInsights({ ...model.insights, locale });
   }
 
   const appRows = model.rows.filter((row) => !row.typeText.trim().toLowerCase().includes('walk'));
@@ -181,11 +195,14 @@ function deriveInsightsFromExportModel(model: ReportExportModel) {
     appRevenueEgp: appRows.reduce((sum, row) => sum + row.revenueEgp, 0),
     walkInRevenueEgp: walkRows.reduce((sum, row) => sum + row.revenueEgp, 0),
     cancelledNoShowCount: 0,
-    locale: 'en',
+    locale,
   });
 }
 
 function buildReportPrintHtml(model: ReportExportModel): string {
+  const locale = model.locale ?? 'en';
+  const isAr = locale === 'ar';
+  const labels = getReportPrintLabels(locale);
   const insights = deriveInsightsFromExportModel(model);
 
   const tableRows = model.rows.length
@@ -195,14 +212,14 @@ function buildReportPrintHtml(model: ReportExportModel): string {
   <td class="col-booking">${escapeHtml(formatOrderNumber(row.bookingId))}</td>
   <td>${escapeHtml(row.dateText)}</td>
   <td>${typeBadgeHtml(row.typeText)}</td>
-  <td class="col-revenue">${escapeHtml(formatEgp(row.revenueEgp))}</td>
+  <td class="col-revenue">${escapeHtml(formatMoney(row.revenueEgp, locale))}</td>
 </tr>`,
         )
         .join('')
-    : `<tr class="empty-row"><td colspan="4">No bookings in this report.</td></tr>`;
+    : `<tr class="empty-row"><td colspan="4">${escapeHtml(labels.emptyRows)}</td></tr>`;
 
   return `<!doctype html>
-<html lang="en" dir="ltr">
+<html lang="${locale}" dir="${isAr ? 'rtl' : 'ltr'}">
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(model.reportTitle)}</title>
@@ -258,7 +275,7 @@ function buildReportPrintHtml(model: ReportExportModel): string {
       text-transform: uppercase;
       color: rgba(197, 209, 227, 0.82);
     }
-    .header-copy { text-align: right; }
+    .header-copy { text-align: ${isAr ? 'left' : 'right'}; }
     .header-copy h1 { margin: 0 0 4px; font-size: 17px; font-weight: 700; color: #fff; }
     .doc-type {
       font-size: 12px;
@@ -363,7 +380,7 @@ function buildReportPrintHtml(model: ReportExportModel): string {
       border: none;
       border-bottom: 1px solid var(--line);
       padding: 11px 10px;
-      text-align: left;
+      text-align: ${isAr ? 'right' : 'left'};
       font-size: 12px;
       word-break: break-word;
       color: var(--ink);
@@ -432,52 +449,52 @@ function buildReportPrintHtml(model: ReportExportModel): string {
         </div>
       </div>
       <div class="header-copy">
-        <div class="doc-type">Executive Financial Report</div>
+        <div class="doc-type">${escapeHtml(labels.executiveTitle)}</div>
         <h1>${escapeHtml(model.reportTitle)}</h1>
       </div>
     </header>
 
     <section class="meta-panel">
       <div class="meta-item">
-        <div class="meta-label">Shop</div>
+        <div class="meta-label">${escapeHtml(labels.shop)}</div>
         <div class="meta-value">${escapeHtml(model.shopName)}</div>
       </div>
       <div class="meta-item">
-        <div class="meta-label">Date range</div>
+        <div class="meta-label">${escapeHtml(labels.dateRange)}</div>
         <div class="meta-value">${escapeHtml(model.rangeLabel)}</div>
       </div>
       <div class="meta-item">
-        <div class="meta-label">Generated at</div>
+        <div class="meta-label">${escapeHtml(labels.generatedAt)}</div>
         <div class="meta-value">${escapeHtml(model.generatedAtText)}</div>
       </div>
     </section>
 
     <div class="financial-summary">
       <div class="metric-card" data-metric="gross">
-        <div class="label">Gross Revenue</div>
-        <div class="value">${escapeHtml(formatEgp(model.grossRevenue))}</div>
+        <div class="label">${escapeHtml(labels.grossRevenue)}</div>
+        <div class="value">${escapeHtml(formatMoney(model.grossRevenue, locale))}</div>
       </div>
       <div class="metric-card" data-metric="fee">
-        <div class="label">Platform Fee (12%)</div>
-        <div class="value">${escapeHtml(formatEgp(model.platformFee))}</div>
+        <div class="label">${escapeHtml(labels.platformFee)}</div>
+        <div class="value">${escapeHtml(formatMoney(model.platformFee, locale))}</div>
       </div>
       <div class="metric-card metric-card--net" data-metric="net">
-        <div class="label">Net Earnings</div>
-        <div class="value">${escapeHtml(formatEgp(model.netEarnings))}</div>
+        <div class="label">${escapeHtml(labels.netEarnings)}</div>
+        <div class="value">${escapeHtml(formatMoney(model.netEarnings, locale))}</div>
       </div>
     </div>
 
-    <h2 class="section-title">Operational Insights</h2>
+    <h2 class="section-title">${escapeHtml(labels.operationalInsights)}</h2>
     ${renderOperationalInsightsGridHtml(insights)}
 
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th style="width: 18%">Booking ID</th>
-            <th style="width: 42%">Date</th>
-            <th style="width: 14%">Type</th>
-            <th style="width: 26%">Revenue</th>
+            <th style="width: 18%">${escapeHtml(labels.tableBookingId)}</th>
+            <th style="width: 42%">${escapeHtml(labels.tableDate)}</th>
+            <th style="width: 14%">${escapeHtml(labels.tableType)}</th>
+            <th style="width: 26%">${escapeHtml(labels.tableRevenue)}</th>
           </tr>
         </thead>
         <tbody>${tableRows}</tbody>

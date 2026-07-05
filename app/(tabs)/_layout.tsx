@@ -68,7 +68,7 @@ export default function TabLayout() {
         options={{
           title: t('tab_home'),
           tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
-          headerRight: customerHeaderRight,
+          headerShown: false,
           href: hasCustomerArea || !shop ? undefined : null,
         }}
       />
