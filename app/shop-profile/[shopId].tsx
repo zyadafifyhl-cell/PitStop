@@ -21,7 +21,7 @@ import { getShopById } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { applyCampaignPrice, formatOfferBadge, isOfferLive, pickBestLiveOffer, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
-import { getCustomerShopReview, listShopReviews } from '@/lib/booking/reviewsStorage';
+import { getCustomerShopReview, listShopReviews, computeShopRatingSummary, formatReviewStarRow } from '@/lib/booking/reviewsStorage';
 import { isOrderHistoryReview } from '@/lib/booking/reviewConstants';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { getActiveServices, getWeeklyHoursDisplayRows } from '@/lib/booking/shopSchedule';
@@ -86,15 +86,10 @@ export default function ShopProfileScreen() {
     setCustomerReviewRating(customerReview?.rating ?? 0);
     setCustomerReviewFromOrders(customerReview ? isOrderHistoryReview(customerReview.body) : false);
     const visibleRemote = reviewRows.filter((review) => !review.hidden);
-    if (visibleRemote.length) {
-      setAverageRating(visibleRemote.reduce((sum, review) => sum + review.rating, 0) / visibleRemote.length);
-      setReviewCount(visibleRemote.length);
-      setReviews(visibleRemote);
-    } else {
-      setAverageRating(null);
-      setReviewCount(0);
-      setReviews([]);
-    }
+    const summary = computeShopRatingSummary(reviewRows);
+    setAverageRating(summary.average);
+    setReviewCount(summary.count);
+    setReviews(visibleRemote);
   }, [shop, customer?.id]);
 
   useFocusEffect(
@@ -329,7 +324,7 @@ export default function ShopProfileScreen() {
           <View key={review.id} style={[styles.reviewRow, { borderColor: theme.border }]}>
             <View style={styles.reviewHeader}>
               <Text style={[styles.reviewName, { color: theme.text }]}>{review.customerName}</Text>
-              <Text style={[styles.reviewRating, { color: theme.accent }]}>{'★'.repeat(review.rating)}</Text>
+              <Text style={[styles.reviewRating, { color: theme.accent }]}>{formatReviewStarRow(review.rating)}</Text>
             </View>
             <Text style={[styles.reviewBody, { color: theme.textMuted }]}>{review.body}</Text>
             {review.ownerReply ? (

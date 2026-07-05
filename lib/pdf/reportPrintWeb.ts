@@ -1,4 +1,5 @@
 import { APP_BRAND_NAME } from '@/constants/Brand';
+import { computeOperationalInsights, renderOperationalInsightsGridHtml } from '@/lib/booking/reporting';
 
 export type ReportExportRow = {
   bookingId: string;
@@ -16,6 +17,15 @@ export type ReportExportModel = {
   platformFee: number;
   netEarnings: number;
   rows: ReportExportRow[];
+  insights?: {
+    totalBookings: number;
+    grossRevenue: number;
+    appCount: number;
+    walkInCount: number;
+    appRevenueEgp: number;
+    walkInRevenueEgp: number;
+    cancelledNoShowCount: number;
+  };
 };
 
 type HtmlPayloadRow = {
@@ -34,6 +44,15 @@ type HtmlPayload = {
     gross?: number;
     fee?: number;
     net?: number;
+  };
+  insights?: {
+    totalBookings?: number;
+    grossRevenue?: number;
+    appCount?: number;
+    walkInCount?: number;
+    appRevenueEgp?: number;
+    walkInRevenueEgp?: number;
+    cancelledNoShowCount?: number;
   };
   rows?: HtmlPayloadRow[];
 };
@@ -94,6 +113,17 @@ export function buildReportExportModelFromSavedHtml(html: string): ReportExportM
         platformFee: money(payload.totals?.fee ?? 0),
         netEarnings: money(payload.totals?.net ?? 0),
         rows,
+        insights: payload.insights
+          ? {
+              totalBookings: payload.insights.totalBookings ?? rows.length,
+              grossRevenue: money(payload.insights.grossRevenue ?? payload.totals?.gross ?? 0),
+              appCount: payload.insights.appCount ?? 0,
+              walkInCount: payload.insights.walkInCount ?? 0,
+              appRevenueEgp: money(payload.insights.appRevenueEgp ?? 0),
+              walkInRevenueEgp: money(payload.insights.walkInRevenueEgp ?? 0),
+              cancelledNoShowCount: payload.insights.cancelledNoShowCount ?? 0,
+            }
+          : undefined,
       };
     } catch {
       // Fallback to table parser below for older reports.
@@ -114,8 +144,8 @@ export function buildReportExportModelFromSavedHtml(html: string): ReportExportM
 
   if (!tableRows.length) return null;
   const grossRevenue = tableRows.reduce((sum, row) => sum + row.revenueEgp, 0);
-  const platformFee = parseMoney(parsed.querySelector('.card:nth-child(10) .value')?.textContent ?? '');
-  const netEarnings = parseMoney(parsed.querySelector('.card:nth-child(11) .value')?.textContent ?? '');
+  const platformFee = parseMoney(parsed.querySelector('[data-metric="fee"] .value')?.textContent ?? '');
+  const netEarnings = parseMoney(parsed.querySelector('[data-metric="net"] .value')?.textContent ?? '');
   const title = parsed.querySelector('h1')?.textContent?.trim() || 'Bookings Report';
   return {
     shopName: APP_BRAND_NAME,
@@ -129,19 +159,47 @@ export function buildReportExportModelFromSavedHtml(html: string): ReportExportM
   };
 }
 
+function typeBadgeHtml(typeText: string): string {
+  const normalized = typeText.trim().toLowerCase();
+  const isWalkIn = normalized.includes('walk');
+  const badgeClass = isWalkIn ? 'badge badge-walkin' : 'badge badge-app';
+  return `<span class="${badgeClass}">${escapeHtml(typeText)}</span>`;
+}
+
+function deriveInsightsFromExportModel(model: ReportExportModel) {
+  if (model.insights) {
+    return computeOperationalInsights({ ...model.insights, locale: 'en' });
+  }
+
+  const appRows = model.rows.filter((row) => !row.typeText.trim().toLowerCase().includes('walk'));
+  const walkRows = model.rows.filter((row) => row.typeText.trim().toLowerCase().includes('walk'));
+  return computeOperationalInsights({
+    totalBookings: model.rows.length,
+    grossRevenue: model.grossRevenue,
+    appCount: appRows.length,
+    walkInCount: walkRows.length,
+    appRevenueEgp: appRows.reduce((sum, row) => sum + row.revenueEgp, 0),
+    walkInRevenueEgp: walkRows.reduce((sum, row) => sum + row.revenueEgp, 0),
+    cancelledNoShowCount: 0,
+    locale: 'en',
+  });
+}
+
 function buildReportPrintHtml(model: ReportExportModel): string {
+  const insights = deriveInsightsFromExportModel(model);
+
   const tableRows = model.rows.length
     ? model.rows
         .map(
           (row) => `<tr>
   <td class="col-booking">${escapeHtml(formatOrderNumber(row.bookingId))}</td>
   <td>${escapeHtml(row.dateText)}</td>
-  <td>${escapeHtml(row.typeText)}</td>
+  <td>${typeBadgeHtml(row.typeText)}</td>
   <td class="col-revenue">${escapeHtml(formatEgp(row.revenueEgp))}</td>
 </tr>`,
         )
         .join('')
-    : `<tr><td colspan="4">No bookings in this report.</td></tr>`;
+    : `<tr class="empty-row"><td colspan="4">No bookings in this report.</td></tr>`;
 
   return `<!doctype html>
 <html lang="en" dir="ltr">
@@ -149,51 +207,283 @@ function buildReportPrintHtml(model: ReportExportModel): string {
   <meta charset="utf-8" />
   <title>${escapeHtml(model.reportTitle)}</title>
   <style>
-    html, body { margin: 0; padding: 0; background: #fff; color: #111827; }
-    body { font-family: Arial, Helvetica, sans-serif; padding: 24px; }
-    .header h1 { margin: 0 0 6px; font-size: 22px; font-weight: 800; }
-    .meta { color: #4b5563; font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
-    .summary { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px; }
-    .card { border: 1px solid #d1d5db; border-radius: 10px; padding: 10px 12px; background: #f9fafb; }
-    .label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
-    .value { font-size: 15px; font-weight: 800; color: #111827; }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; font-size: 12px; word-break: break-word; }
-    th { background: #f3f4f6; font-weight: 800; }
-    .col-booking { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.2px; }
-    .col-revenue { white-space: nowrap; }
-    tbody tr:nth-child(even) td { background: #fafafa; }
+    :root {
+      --radius: 0;
+      --navy: #080D1A;
+      --slate: #1e293b;
+      --cyan: #00D4FF;
+      --green: #34D399;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #eaecf0;
+      --surface: #f8fafc;
+      --surface-alt: #f1f5f9;
+      --card-shadow: 0 1px 2px rgba(8, 13, 26, 0.06), 0 8px 24px rgba(8, 13, 26, 0.06);
+    }
+    * { box-sizing: border-box; border-radius: 0 !important; }
+    html, body { margin: 0; padding: 0; background: #fff; color: var(--ink); }
+    body {
+      font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      padding: 0 0 24px;
+      letter-spacing: -0.01em;
+    }
+    .report-shell { max-width: 920px; margin: 0 auto; padding: 24px 24px 0; }
+    .report-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 20px 22px;
+      background: linear-gradient(135deg, var(--navy) 0%, #0f172a 55%, #162033 100%);
+      box-shadow: var(--card-shadow);
+      margin-bottom: 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      background: rgba(0, 212, 255, 0.12);
+      border: 1px solid rgba(0, 212, 255, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .brand-name { font-size: 24px; font-weight: 800; line-height: 1; color: #fff; letter-spacing: -0.04em; }
+    .brand-name span { color: var(--cyan); }
+    .brand-sub {
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(197, 209, 227, 0.82);
+    }
+    .header-copy { text-align: right; }
+    .header-copy h1 { margin: 0 0 4px; font-size: 17px; font-weight: 700; color: #fff; }
+    .doc-type {
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(197, 209, 227, 0.78);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .meta-panel {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .meta-item {
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .meta-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .meta-value { font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--ink); word-break: break-word; }
+    .financial-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .metric-card {
+      padding: 16px 18px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: var(--card-shadow);
+    }
+    .metric-card .label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .metric-card .value { font-size: 22px; font-weight: 800; color: var(--ink); letter-spacing: -0.03em; }
+    .metric-card--net {
+      background: linear-gradient(145deg, var(--navy) 0%, var(--slate) 100%);
+      border: 1px solid rgba(0, 212, 255, 0.22);
+      box-shadow: 0 10px 28px rgba(8, 13, 26, 0.18);
+    }
+    .metric-card--net .label { color: rgba(197, 209, 227, 0.82); }
+    .metric-card--net .value { color: var(--green); font-size: 24px; }
+    .section-title {
+      margin: 0 0 12px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .insights-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .insight-card {
+      padding: 14px 16px;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .insight-card .label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .insight-card .value {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.35;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      word-break: break-word;
+    }
+    .table-wrap {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      box-shadow: var(--card-shadow);
+      background: #fff;
+    }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+    th, td {
+      border: none;
+      border-bottom: 1px solid var(--line);
+      padding: 11px 10px;
+      text-align: left;
+      font-size: 12px;
+      word-break: break-word;
+      color: var(--ink);
+      vertical-align: middle;
+    }
+    th {
+      background: var(--surface-alt);
+      color: #475569;
+      font-weight: 700;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:nth-child(even) td { background: #fafbfc; }
+    tbody tr:nth-child(odd) td { background: #fff; }
+    .col-booking { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.2px; font-weight: 600; }
+    .col-revenue { white-space: nowrap; font-weight: 700; color: #0f766e; font-variant-numeric: tabular-nums; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .badge-app {
+      background: rgba(0, 212, 255, 0.14);
+      color: #0369a1;
+      border: 1px solid rgba(0, 212, 255, 0.28);
+    }
+    .badge-walkin {
+      background: rgba(100, 116, 139, 0.12);
+      color: #334155;
+      border: 1px solid rgba(100, 116, 139, 0.22);
+    }
+    .empty-row td { text-align: center; padding: 24px; color: var(--muted); }
     @media print {
-      body { padding: 14px; }
-      .summary { grid-template-columns: repeat(3, 1fr); }
+      html, body, table, td, th, .metric-card, .report-header, .badge {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      body { padding: 0; }
+      .report-shell { padding: 12px 12px 0; max-width: none; }
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>${escapeHtml(model.reportTitle)}</h1>
-    <div class="meta">
-      Shop: ${escapeHtml(model.shopName)}<br/>
-      Date range: ${escapeHtml(model.rangeLabel)}<br/>
-      Generated at: ${escapeHtml(model.generatedAtText)}
+  <div class="report-shell">
+    <header class="report-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 14h16l-1.2 4H5.2L4 14Z" fill="#00D4FF" opacity="0.95"/>
+            <path d="M6 10h12l-1.5 4H7.5L6 10Z" fill="#C5D1E3"/>
+            <circle cx="7.5" cy="18.5" r="1.6" fill="#ffffff"/>
+            <circle cx="16.5" cy="18.5" r="1.6" fill="#ffffff"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-name">Pit<span>Stop</span></div>
+          <div class="brand-sub">${escapeHtml(APP_BRAND_NAME.replace(/^PitStop\s*/i, '').trim() || 'Executive Report')}</div>
+        </div>
+      </div>
+      <div class="header-copy">
+        <div class="doc-type">Executive Financial Report</div>
+        <h1>${escapeHtml(model.reportTitle)}</h1>
+      </div>
+    </header>
+
+    <section class="meta-panel">
+      <div class="meta-item">
+        <div class="meta-label">Shop</div>
+        <div class="meta-value">${escapeHtml(model.shopName)}</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Date range</div>
+        <div class="meta-value">${escapeHtml(model.rangeLabel)}</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Generated at</div>
+        <div class="meta-value">${escapeHtml(model.generatedAtText)}</div>
+      </div>
+    </section>
+
+    <div class="financial-summary">
+      <div class="metric-card" data-metric="gross">
+        <div class="label">Gross Revenue</div>
+        <div class="value">${escapeHtml(formatEgp(model.grossRevenue))}</div>
+      </div>
+      <div class="metric-card" data-metric="fee">
+        <div class="label">Platform Fee (12%)</div>
+        <div class="value">${escapeHtml(formatEgp(model.platformFee))}</div>
+      </div>
+      <div class="metric-card metric-card--net" data-metric="net">
+        <div class="label">Net Earnings</div>
+        <div class="value">${escapeHtml(formatEgp(model.netEarnings))}</div>
+      </div>
+    </div>
+
+    <h2 class="section-title">Operational Insights</h2>
+    ${renderOperationalInsightsGridHtml(insights)}
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 18%">Booking ID</th>
+            <th style="width: 42%">Date</th>
+            <th style="width: 14%">Type</th>
+            <th style="width: 26%">Revenue</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
     </div>
   </div>
-  <div class="summary">
-    <div class="card"><div class="label">Gross Revenue</div><div class="value">${escapeHtml(formatEgp(model.grossRevenue))}</div></div>
-    <div class="card"><div class="label">Platform Fee (12%)</div><div class="value">${escapeHtml(formatEgp(model.platformFee))}</div></div>
-    <div class="card"><div class="label">Net Earnings</div><div class="value">${escapeHtml(formatEgp(model.netEarnings))}</div></div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th style="width: 18%">Booking ID</th>
-        <th style="width: 42%">Date</th>
-        <th style="width: 14%">Type</th>
-        <th style="width: 26%">Revenue</th>
-      </tr>
-    </thead>
-    <tbody>${tableRows}</tbody>
-  </table>
 </body>
 </html>`;
 }

@@ -33,6 +33,19 @@ type Props = {
 
 type Step = 'form' | 'invoice';
 
+function buildWalkInMultiServicePayload(services: ShopService[], locale: 'en' | 'ar') {
+  const names = services.map((service) => (locale === 'ar' ? service.nameAr || service.name : service.name));
+  const namesAr = services.map((service) => service.nameAr || service.name);
+
+  return {
+    serviceId: services[0]?.id,
+    serviceName: names.join(', '),
+    serviceNameAr: namesAr.join(locale === 'ar' ? '، ' : ', '),
+    servicePriceEgp: services.reduce((sum, service) => sum + service.priceEgp, 0),
+    serviceDurationMinutes: services.reduce((sum, service) => sum + service.durationMinutes, 0),
+  };
+}
+
 export function WalkInBookingModal({
   visible,
   onClose,
@@ -48,21 +61,28 @@ export function WalkInBookingModal({
   const [carType, setCarType] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
-  const [selectedServiceId, setSelectedServiceId] = useState<string | undefined>();
-  const [servicePickerOpen, setServicePickerOpen] = useState(false);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [resolvingCustomer, setResolvingCustomer] = useState(false);
   const [resolvedCustomerId, setResolvedCustomerId] = useState<string | undefined>();
   const [createdBooking, setCreatedBooking] = useState<Booking | null>(null);
 
   const activeServices = useMemo(
-    () => services.filter((s) => s.active && s.visible !== false).sort((a, b) => a.sortOrder - b.sortOrder),
+    () => services.filter((service) => service.active && service.visible !== false).sort((a, b) => a.sortOrder - b.sortOrder),
     [services],
   );
 
-  const selectedService = useMemo(
-    () => activeServices.find((s) => s.id === selectedServiceId) ?? activeServices[0],
-    [activeServices, selectedServiceId],
+  const selectedServices = useMemo(
+    () => activeServices.filter((service) => selectedServiceIds.includes(service.id)),
+    [activeServices, selectedServiceIds],
+  );
+
+  const serviceTotals = useMemo(
+    () => ({
+      totalPriceEgp: selectedServices.reduce((sum, service) => sum + service.priceEgp, 0),
+      totalDurationMinutes: selectedServices.reduce((sum, service) => sum + service.durationMinutes, 0),
+    }),
+    [selectedServices],
   );
 
   useEffect(() => {
@@ -71,8 +91,7 @@ export function WalkInBookingModal({
     setCarType('');
     setPhone('');
     setNotes('');
-    setSelectedServiceId(activeServices[0]?.id);
-    setServicePickerOpen(false);
+    setSelectedServiceIds([]);
     setCreatedBooking(null);
     setBusy(false);
     setResolvingCustomer(false);
@@ -111,6 +130,12 @@ export function WalkInBookingModal({
     };
   }, [phone, visible]);
 
+  function toggleServiceSelection(serviceId: string) {
+    setSelectedServiceIds((current) =>
+      current.includes(serviceId) ? current.filter((id) => id !== serviceId) : [...current, serviceId],
+    );
+  }
+
   const fieldStyle = [
     styles.input,
     {
@@ -127,10 +152,13 @@ export function WalkInBookingModal({
       Alert.alert(t('walk_in_missing_title'), t('walk_in_missing_vehicle'));
       return;
     }
-    if (!selectedService) {
+    if (selectedServices.length === 0) {
       Alert.alert(t('walk_in_missing_title'), t('walk_in_missing_service'));
       return;
     }
+
+    const aggregated = buildWalkInMultiServicePayload(selectedServices, locale);
+
     setBusy(true);
     try {
       const booking = await createWalkInBooking({
@@ -140,11 +168,11 @@ export function WalkInBookingModal({
         customerPhone: phone.trim() || undefined,
         customerId: resolvedCustomerId,
         skipPhoneLookup: true,
-        serviceId: selectedService.id,
-        serviceName: selectedService.name,
-        serviceNameAr: selectedService.nameAr,
-        servicePriceEgp: selectedService.priceEgp,
-        serviceDurationMinutes: selectedService.durationMinutes,
+        serviceId: aggregated.serviceId,
+        serviceName: aggregated.serviceName,
+        serviceNameAr: aggregated.serviceNameAr,
+        servicePriceEgp: aggregated.servicePriceEgp,
+        serviceDurationMinutes: aggregated.serviceDurationMinutes,
         customerNotes: notes.trim() || undefined,
         initialStatus: 'done',
       });
@@ -167,11 +195,12 @@ export function WalkInBookingModal({
   }
 
   const invoiceMoney = createdBooking ? normalizeBookingMoney(createdBooking) : null;
-  const serviceLabel = selectedService
-    ? locale === 'ar'
-      ? selectedService.nameAr || selectedService.name
-      : selectedService.name
-    : '—';
+  const serviceLabel =
+    createdBooking != null
+      ? locale === 'ar'
+        ? createdBooking.serviceNameAr || createdBooking.serviceName || '—'
+        : createdBooking.serviceName || '—'
+      : '—';
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCloseModal}>
@@ -211,55 +240,49 @@ export function WalkInBookingModal({
                 </View>
               ) : null}
 
-              <Text style={[styles.sectionLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-                {t('walk_in_service_label')}
-              </Text>
+              <View style={styles.serviceHeaderRow}>
+                <Text style={[styles.sectionLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                  {t('walk_in_service_label')}
+                </Text>
+                {selectedServices.length > 0 ? (
+                  <Text style={[styles.selectionCount, { color: theme.textDim }, isRTL && styles.textRtl]}>
+                    {t('walk_in_services_selected').replace('{count}', String(selectedServices.length))}
+                  </Text>
+                ) : null}
+              </View>
               {activeServices.length === 0 ? (
                 <Text style={[styles.emptyHint, { color: theme.textDim }]}>{t('walk_in_no_services')}</Text>
               ) : (
                 <View style={styles.serviceList}>
-                  <Pressable
-                    onPress={() => setServicePickerOpen((open) => !open)}
-                    style={[styles.serviceSelectBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.serviceChipTitle, { color: theme.text }]}>
-                        {selectedService ? (locale === 'ar' ? selectedService.nameAr || selectedService.name : selectedService.name) : '—'}
-                      </Text>
-                      {selectedService ? (
-                        <Text style={[styles.serviceChipMeta, { color: theme.textMuted }]}>
-                          {formatEgp(selectedService.priceEgp, locale)} · {selectedService.durationMinutes}{' '}
-                          {locale === 'ar' ? 'د' : 'min'}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <FontAwesome name={servicePickerOpen ? 'chevron-up' : 'chevron-down'} size={12} color={theme.textDim} />
-                  </Pressable>
-                  {servicePickerOpen ? (
-                    <View style={[styles.dropdownList, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                      {activeServices.map((service) => {
-                        const label = locale === 'ar' ? service.nameAr || service.name : service.name;
-                        const selected = service.id === (selectedServiceId ?? activeServices[0]?.id);
-                        return (
-                          <Pressable
-                            key={service.id}
-                            onPress={() => {
-                              setSelectedServiceId(service.id);
-                              setServicePickerOpen(false);
-                            }}
-                            style={[
-                              styles.dropdownItem,
-                              selected && { backgroundColor: theme.accentSoft },
-                            ]}>
-                            <Text style={[styles.serviceChipTitle, { color: theme.text }]}>{label}</Text>
-                            <Text style={[styles.serviceChipMeta, { color: theme.textMuted }]}>
-                              {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
-                              {locale === 'ar' ? 'د' : 'min'}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : null}
+                  {activeServices.map((service) => {
+                    const label = locale === 'ar' ? service.nameAr || service.name : service.name;
+                    const selected = selectedServiceIds.includes(service.id);
+                    return (
+                      <Pressable
+                        key={service.id}
+                        onPress={() => toggleServiceSelection(service.id)}
+                        style={[
+                          styles.serviceOption,
+                          {
+                            borderColor: selected ? theme.accent : theme.border,
+                            backgroundColor: selected ? theme.accentSoft : theme.bgElevated,
+                          },
+                        ]}>
+                        <FontAwesome
+                          name={selected ? 'check-square' : 'square-o'}
+                          size={18}
+                          color={selected ? theme.accent : theme.textDim}
+                        />
+                        <View style={styles.serviceOptionBody}>
+                          <Text style={[styles.serviceChipTitle, { color: theme.text }]}>{label}</Text>
+                          <Text style={[styles.serviceChipMeta, { color: theme.textMuted }]}>
+                            {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
+                            {locale === 'ar' ? 'د' : 'min'}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               )}
 
@@ -272,12 +295,21 @@ export function WalkInBookingModal({
                 style={[...fieldStyle, styles.noteInput]}
               />
 
-              {selectedService ? (
+              {selectedServices.length > 0 ? (
                 <View style={[styles.previewBox, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                  <Text style={[styles.previewLabel, { color: theme.textMuted }]}>{t('walk_in_price_preview')}</Text>
-                  <Text style={[styles.previewValue, { color: theme.accent }]}>
-                    {formatEgp(selectedService.priceEgp, locale)}
-                  </Text>
+                  <View style={styles.previewRow}>
+                    <Text style={[styles.previewLabel, { color: theme.textMuted }]}>{t('walk_in_price_preview')}</Text>
+                    <Text style={[styles.previewValue, { color: theme.accent }]}>
+                      {formatEgp(serviceTotals.totalPriceEgp, locale)}
+                    </Text>
+                  </View>
+                  <View style={[styles.previewDivider, { backgroundColor: theme.border }]} />
+                  <View style={styles.previewRow}>
+                    <Text style={[styles.previewLabel, { color: theme.textMuted }]}>{t('walk_in_duration_preview')}</Text>
+                    <Text style={[styles.previewDuration, { color: theme.text }]}>
+                      {serviceTotals.totalDurationMinutes} {locale === 'ar' ? 'دقيقة' : 'min'}
+                    </Text>
+                  </View>
                 </View>
               ) : null}
 
@@ -412,38 +444,35 @@ const styles = StyleSheet.create({
     minHeight: 72,
     textAlignVertical: 'top',
   },
+  serviceHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
   sectionLabel: {
     fontSize: 12,
     fontWeight: '700',
-    marginTop: 4,
+  },
+  selectionCount: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   serviceList: {
     gap: 8,
   },
-  serviceSelectBtn: {
+  serviceOption: {
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
-  dropdownList: {
-    borderWidth: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  dropdownItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(148, 163, 184, 0.25)',
-  },
-  serviceChip: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 10,
+  serviceOptionBody: {
+    flex: 1,
   },
   serviceChipTitle: {
     fontSize: 14,
@@ -457,9 +486,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     padding: 12,
+    gap: 10,
+  },
+  previewRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
+  },
+  previewDivider: {
+    height: StyleSheet.hairlineWidth,
   },
   previewLabel: {
     fontSize: 13,
@@ -468,6 +504,10 @@ const styles = StyleSheet.create({
   previewValue: {
     fontSize: 18,
     fontWeight: '900',
+  },
+  previewDuration: {
+    fontSize: 15,
+    fontWeight: '800',
   },
   emptyHint: {
     fontSize: 13,

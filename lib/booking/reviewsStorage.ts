@@ -48,11 +48,22 @@ export async function setReviewReported(shopId: string, reviewId: string, report
 
 export type ShopRatingSummary = { average: number | null; count: number };
 
+/** Mirrors customer-facing Home / Shop Profile average — visible reviews only. */
+export function computeShopRatingSummary(reviews: ShopReview[]): ShopRatingSummary {
+  const visible = reviews.filter((row) => !row.hidden);
+  if (!visible.length) return { average: null, count: 0 };
+  const sum = visible.reduce((total, row) => total + row.rating, 0);
+  return { average: sum / visible.length, count: visible.length };
+}
+
+export function formatReviewStarRow(rating: number, maxStars = 5): string {
+  const clamped = Math.max(0, Math.min(maxStars, Math.round(rating)));
+  return `${'★'.repeat(clamped)}${'☆'.repeat(maxStars - clamped)}`;
+}
+
 export async function getShopAverageRating(shopId: string): Promise<ShopRatingSummary> {
-  const reviews = (await listShopReviews(shopId)).filter((row) => !row.hidden);
-  if (!reviews.length) return { average: null, count: 0 };
-  const sum = reviews.reduce((total, row) => total + row.rating, 0);
-  return { average: sum / reviews.length, count: reviews.length };
+  const reviews = await listShopReviews(shopId);
+  return computeShopRatingSummary(reviews);
 }
 
 export async function getShopAverageRatings(shopIds: string[]): Promise<Record<string, ShopRatingSummary>> {

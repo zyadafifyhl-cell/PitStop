@@ -25,7 +25,7 @@ import {
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { formatEgp } from '@/lib/booking/reporting';
-import { listShopReviews, setReviewOwnerReply } from '@/lib/booking/reviewsStorage';
+import { listShopReviews, setReviewOwnerReply, computeShopRatingSummary, formatReviewStarRow } from '@/lib/booking/reviewsStorage';
 import { updateBookingStatus } from '@/lib/booking/storage';
 import type { Booking, BookingStatus, ShopReview } from '@/lib/booking/types';
 import { filterWashNotificationsForStaff } from '@/lib/booking/wash/bookingDispatch';
@@ -144,12 +144,18 @@ export default function WashOwnerHubScreen() {
     [notifications],
   );
 
-  const unreadReviewCount = reviewNotifications.filter((n) => !n.read).length;
+  const visibleReviews = useMemo(
+    () =>
+      reviews
+        .filter((review) => !review.hidden)
+        .slice()
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [reviews],
+  );
 
-  function reviewForNotification(row: WashCenterNotification): ShopReview | undefined {
-    if (!row.reviewId) return undefined;
-    return reviews.find((review) => review.id === row.reviewId);
-  }
+  const ratingSummary = useMemo(() => computeShopRatingSummary(reviews), [reviews]);
+
+  const unreadReviewCount = reviewNotifications.filter((n) => !n.read).length;
 
   async function onSubmitReviewReply(reviewId: string, notificationId?: string) {
     if (!shop) return;
@@ -237,47 +243,83 @@ export default function WashOwnerHubScreen() {
     });
   }
 
-  function renderReviewNotificationCard(row: WashCenterNotification) {
-    const unread = !row.read;
-    const review = reviewForNotification(row);
-    const stars = review ? '★'.repeat(review.rating) : row.body.match(/★+/)?.[0] ?? '';
+  function renderReviewSummary() {
+    return (
+      <View style={[styles.ratingSummary, { borderColor: theme.border, backgroundColor: theme.card }]}>
+        <Text style={[styles.ratingSummaryLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+          {t('wash_hub_rating_summary')}
+        </Text>
+        <Text style={[styles.ratingSummaryValue, { color: theme.text }, isRTL && styles.textRtl]}>
+          {ratingSummary.average != null ? `★ ${ratingSummary.average.toFixed(1)}` : '—'}
+        </Text>
+        <Text style={[styles.ratingSummaryStars, { color: theme.accent }, isRTL && styles.textRtl]}>
+          {ratingSummary.average != null ? formatReviewStarRow(ratingSummary.average) : formatReviewStarRow(0)}
+        </Text>
+        <Text style={[styles.ratingSummaryMeta, { color: theme.textDim }, isRTL && styles.textRtl]}>
+          {t('wash_hub_rating_count').replace('{count}', String(ratingSummary.count))}
+        </Text>
+      </View>
+    );
+  }
+
+  function renderReviewRow(review: ShopReview) {
+    const linkedNotification = reviewNotifications.find((row) => row.reviewId === review.id);
+    const unread = linkedNotification ? !linkedNotification.read : false;
 
     return (
       <View
-        key={row.id}
+        key={review.id}
         style={[
           styles.card,
-          styles.notifCard,
+          styles.reviewCard,
           {
             borderColor: unread ? '#3B82F6' : theme.border,
             backgroundColor: unread ? theme.bgElevated : theme.card,
           },
         ]}>
         {unread ? <UnreadPulseDot rtl={isRTL} /> : null}
-        <Text style={[styles.cardTitle, { color: theme.text }]}>
-          {review?.customerName ?? row.title}
-        </Text>
-        <Text style={[styles.meta, { color: theme.accent }]}>{stars}</Text>
-        <Text style={[styles.meta, { color: theme.textMuted }]}>{review?.body ?? row.body}</Text>
-        {review?.ownerReply ? (
-          <Text style={[styles.meta, { color: theme.textDim }]}>
+        <View style={[styles.reviewHeader, isRTL && styles.reviewHeaderRtl]}>
+          <Text style={[styles.cardTitle, { color: theme.text }, isRTL && styles.textRtl]}>{review.customerName}</Text>
+          <Text style={[styles.reviewStars, { color: theme.accent }, isRTL && styles.textRtl]}>
+            {formatReviewStarRow(review.rating)}
+          </Text>
+        </View>
+        <Text style={[styles.meta, { color: theme.textMuted }, isRTL && styles.textRtl]}>{review.body}</Text>
+        {review.ownerReply ? (
+          <Text style={[styles.meta, { color: theme.textDim }, isRTL && styles.textRtl]}>
             {t('wash_review_owner_reply')}: {review.ownerReply}
           </Text>
         ) : null}
         <TextInput
-          value={replyDrafts[review?.id ?? row.id] ?? ''}
-          onChangeText={(value) =>
-            setReplyDrafts((prev) => ({ ...prev, [review?.id ?? row.id]: value }))
-          }
+          value={replyDrafts[review.id] ?? ''}
+          onChangeText={(value) => setReplyDrafts((prev) => ({ ...prev, [review.id]: value }))}
           placeholder={t('wash_hub_reply_placeholder')}
           placeholderTextColor={theme.textDim}
           multiline
-          style={[styles.noteInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+          style={[
+            styles.noteInput,
+            {
+              color: theme.text,
+              borderColor: theme.border,
+              backgroundColor: theme.bgElevated,
+              textAlign: isRTL ? 'right' : 'left',
+              writingDirection: isRTL ? 'rtl' : 'ltr',
+            },
+          ]}
         />
         <Pressable
-          onPress={() => review && void onSubmitReviewReply(review.id, row.id)}
-          disabled={busy || !review}
-          style={[styles.actionBtn, styles.actionBtnPrimary, { backgroundColor: theme.accent, borderColor: theme.accent, marginTop: 8, opacity: busy || !review ? 0.6 : 1 }]}>
+          onPress={() => void onSubmitReviewReply(review.id, linkedNotification?.id)}
+          disabled={busy}
+          style={[
+            styles.actionBtn,
+            styles.actionBtnPrimary,
+            {
+              backgroundColor: theme.accent,
+              borderColor: theme.accent,
+              marginTop: 8,
+              opacity: busy ? 0.6 : 1,
+            },
+          ]}>
           <Text style={[styles.actionBtnText, { color: theme.onAccent }]}>{t('wash_hub_reply_submit')}</Text>
         </Pressable>
       </View>
@@ -286,10 +328,15 @@ export default function WashOwnerHubScreen() {
 
   function renderTabContent() {
     if (tab === 'reviews') {
-      return reviewNotifications.length === 0 ? (
-        <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_hub_reviews_empty')}</Text>
-      ) : (
-        reviewNotifications.map((row) => renderReviewNotificationCard(row))
+      if (visibleReviews.length === 0) {
+        return <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_hub_reviews_empty')}</Text>;
+      }
+
+      return (
+        <>
+          {renderReviewSummary()}
+          {visibleReviews.map((review) => renderReviewRow(review))}
+        </>
       );
     }
 
@@ -521,7 +568,46 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 24 },
+  textRtl: { writingDirection: 'rtl', textAlign: 'right' },
+  ratingSummary: {
+    borderWidth: 1,
+    borderRadius: 0,
+    padding: 14,
+    marginBottom: 12,
+    gap: 4,
+  },
+  ratingSummaryLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.08,
+    textTransform: 'uppercase',
+  },
+  ratingSummaryValue: {
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.03,
+  },
+  ratingSummaryStars: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  ratingSummaryMeta: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  reviewCard: { position: 'relative', overflow: 'visible', borderRadius: 0 },
+  reviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 4,
+  },
+  reviewHeaderRtl: { flexDirection: 'row-reverse' },
+  reviewStars: { fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
   notifCard: { position: 'relative', overflow: 'visible' },
   unreadDot: {
     position: 'absolute',

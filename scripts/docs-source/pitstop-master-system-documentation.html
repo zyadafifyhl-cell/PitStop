@@ -75,8 +75,10 @@
   <span class="tag">Walk-in POS</span>
   <span class="tag">Driver Network</span>
   <span class="tag">Moderation</span>
+  <span class="tag">Realtime Offers</span>
+  <span class="tag">Campaign Engine</span>
 </p>
-<p class="cover-meta">Project: car-care-eg · PitStop EG · Version 2.0 · Updated Jul 2026: Talabat-style bookings UX, per-shop reviews, owner-only services, merchant register sign-out, migrations 10–13, full system flowcharts (§40)</p>
+<p class="cover-meta">Project: car-care-eg · PitStop EG · Version 2.0 · Updated Jul 2026: booking lifecycle engine, marketing campaigns, merchant realtime, custom confirm modal, Talabat-style bookings UX, migrations 10–13 campaigns, full system flowcharts (§40–§46)</p>
 
 <h2>Table of Contents</h2>
 <ol class="toc">
@@ -120,6 +122,12 @@
   <li><a href="#migrations-7-9">SQL Migrations Steps 7–13 (Checklist)</a></li>
   <li><a href="#web-dialogs">Web Dialogs — userAlert &amp; userConfirm</a></li>
   <li><a href="#system-flows-2026"><strong>40. Complete System Flowcharts (2026)</strong></a></li>
+  <li><a href="#splash-home"><strong>41. Premium Splash &amp; Home Hero Animation</strong></a></li>
+  <li><a href="#merchant-realtime"><strong>42. Merchant Realtime &amp; Order Notifier</strong></a></li>
+  <li><a href="#booking-lifecycle"><strong>43. Smart Booking Lifecycle &amp; No-Show Override</strong></a></li>
+  <li><a href="#custom-confirm"><strong>44. Custom Confirm Modal (Web + Native)</strong></a></li>
+  <li><a href="#marketing-campaigns"><strong>45. Marketing Offers &amp; Campaigns Engine</strong></a></li>
+  <li><a href="#merchant-history"><strong>46. Merchant History, Reports &amp; Financial Integrity</strong></a></li>
 </ol>
 
 <div class="page-break" id="arch"></div>
@@ -139,9 +147,9 @@
 </table>
 
 <h3>Provider tree (startup)</h3>
-<pre>ThemePreferenceProvider → I18nProvider → AppDialogProvider → ShopCatalogProvider
+<pre>ThemePreferenceProvider → I18nProvider → AppDialogProvider → CustomConfirmProvider → ShopCatalogProvider
   → CustomerAuthProvider → ShopAuthProvider → AppBootstrap → Root Stack</pre>
-<p class="small">There is no separate AuthProvider. AppBootstrap blocks navigation until auth is resolved and routes users by role.</p>
+<p class="small">There is no separate AuthProvider. AppBootstrap blocks navigation until auth is resolved and routes users by role. <code>CustomConfirmProvider</code> mounts <code>CustomConfirmModal</code> for destructive merchant confirms (no-show override) on web and native.</p>
 
 <h3>Data flow (hybrid)</h3>
 <div class="flow">Customer action (book, order)
@@ -406,16 +414,21 @@ maintenance/winch  → Generic owner UI (profile + bookings + PDF)</pre>
 
 <h3>End-to-end workflow</h3>
 <div class="flow">Home / Nearby / Favorites
-    → Shop profile (/shop-profile/[shopId])
+    → Shop profile (/shop-profile/[shopId]) — promo banner if active campaign
     → [Guest?] → /auth-required → /welcome login
     → Book (/book/[shopId]?serviceId=...)
+    → Active campaign banner + dynamic price (%, flat, buy-X-get-Y)
     → Select date + time slot + car + phone + notes
-    → createBooking() → status: pending
-    → Owner notification (+ optional push)
+    → createBooking(offerId?) → status: pending
+    → Owner notification (+ optional push + Supabase Realtime)
     → Owner: confirm → confirmed | decline → cancelled
     → Customer notification + reminders (60 min, 30 min before)
-    → Owner: Complete → done (or no_show)
+    → [Auto lifecycle] confirmed + scheduled_at &gt; 1h ago → virtual done at read time
+    → Owner: Complete → done | No-show override → no_show (CustomConfirmModal)
     → Customer: optional 5-star rating on My Bookings (one per shop)</div>
+
+<h3>Virtual auto-done lifecycle (<code>lib/booking/storage.ts</code>)</h3>
+<p>If a booking is <code>confirmed</code> or <code>in_progress</code> and its <code>scheduled_at</code> is more than <strong>1 hour</strong> in the past, read-time helpers treat it as <code>done</code> with flag <code>lifecycleAutoCompleted: true</code>. This prevents stale confirmed rows from blocking merchant history. Merchants can override auto-completed rows to <code>no_show</code> via <code>promptMerchantNoShowOverride()</code>. See §43.</p>
 
 <h3>Booking statuses (UI)</h3>
 <p><code>pending</code> → <code>confirmed</code> → <code>done</code> | <code>cancelled</code> | <code>no_show</code></p>
@@ -482,7 +495,8 @@ shop_push_tokens · garage_snapshots (legacy) · areas</div>
   <tr><td>shop_branches</td><td>Physical branches: profile, weekly_hours, vacation_mode, branch GPS <code>latitude</code>/<code>longitude</code></td></tr>
   <tr><td>branch_employees</td><td>Staff roster (full_name, phone, job_title, notes)</td></tr>
   <tr><td>branch_services</td><td>Per-branch service menu</td></tr>
-  <tr><td>bookings</td><td>Appointments; <code>booking_type</code> app|walk_in; status, pricing, branch_id</td></tr>
+  <tr><td>bookings</td><td>Appointments; <code>booking_type</code> app|walk_in; status, pricing, branch_id, <code>offer_id</code></td></tr>
+  <tr><td>offers</td><td>Marketing campaigns: <code>offer_type</code> percentage|flat_amount|buy_x_get_y; <code>discount_value</code>; <code>required_wash_count</code>; <code>expires_at</code>; Realtime enabled</td></tr>
   <tr><td>shop_reviews</td><td>Customer reviews; owner_reply; hidden; reported flags</td></tr>
   <tr><td>posts · comments · post_votes · comment_likes</td><td>Driver Network community feed</td></tr>
   <tr><td>store</td><td>Parts/accessories SKUs with stock_qty</td></tr>
@@ -550,7 +564,19 @@ where email = 'wash@demo.com';</pre>
 
 <table>
   <tr><th>Module</th><th>Role</th></tr>
-  <tr><td>lib/booking/storage.ts</td><td>Bookings CRUD, Supabase + AsyncStorage merge</td></tr>
+  <tr><td>lib/booking/storage.ts</td><td>Bookings CRUD, virtual lifecycle (auto-done), Supabase + AsyncStorage merge, campaign pricing on create</td></tr>
+  <tr><td>lib/booking/offerRepository.ts</td><td>deployShopCampaign(), listActiveOffersForShop(), subscribeOffersRealtime(), countDoneBookingsForCustomerAtShop()</td></tr>
+  <tr><td>lib/booking/offerPricing.ts</td><td>applyCampaignPrice(), formatOfferBadge(), pickBestLiveOffer(), isOfferLive()</td></tr>
+  <tr><td>lib/booking/merchantBookingOverride.ts</td><td>promptMerchantNoShowOverride() → CustomConfirmProvider</td></tr>
+  <tr><td>lib/booking/bookingHistoryRepository.ts</td><td>Archived history for merchant; isFinalizedHistoryBooking filter</td></tr>
+  <tr><td>lib/notifications/notificationService.ts</td><td>Merchant booking Realtime channel, pending queue, mergeBookingList + lifecycle</td></tr>
+  <tr><td>components/merchant/OrderNotifier.tsx</td><td>useMerchantOrderNotifier hook — patchBookingLocally, pending count</td></tr>
+  <tr><td>components/merchant/MerchantCampaignsPanel.tsx</td><td>Deploy + list active campaigns (Form + List)</td></tr>
+  <tr><td>components/common/CustomConfirmModal.tsx</td><td>Themed destructive confirm dialog (replaces window.confirm)</td></tr>
+  <tr><td>lib/ui/CustomConfirmProvider.tsx</td><td>Global showCustomConfirm() imperative API</td></tr>
+  <tr><td>components/PremiumAnimatedSplash.tsx</td><td>Branded splash overlay (#080D1A / #00D4FF)</td></tr>
+  <tr><td>components/home/HomeHeroCarAnimation.tsx</td><td>Idle + drive SVG animation on customer Home</td></tr>
+  <tr><td>components/owner/OwnerHistoryPanel.tsx</td><td>History filters, PDF reports, no-show override on auto-completed rows</td></tr>
   <tr><td>lib/booking/catalogRepository.ts</td><td>Areas/shops from Supabase + cache</td></tr>
   <tr><td>lib/booking/shopExtrasStorage.ts</td><td>Owner profile, schedule, services, offers, washShopStatus sync</td></tr>
   <tr><td>lib/booking/loyaltyStampsStorage.ts</td><td>Offline loyalty stamps + reward coupons (@pitstop/loyalty_stamps)</td></tr>
@@ -610,6 +636,21 @@ where email = 'wash@demo.com';</pre>
   <li>Triggers: new booking, new parts order</li>
   <li>Via Expo Push API</li>
 </ul>
+
+<h3>Merchant booking Realtime (<code>lib/notifications/notificationService.ts</code>)</h3>
+<div class="flow">Supabase channel: public:bookings:{shopId}
+  INSERT pending booking → onPendingInsert → triggerMerchantOrderAlert + pending queue
+  UPDATE any status   → onBookingUpdate → mergeBookingList + applyVirtualBookingLifecycle
+  Teardown on unmount prevents double-subscribe crash
+  Integrated in: WashOwnerPanel, wash-owner-hub, shop.tsx via useMerchantOrderNotifier</div>
+<p><strong>Publication:</strong> <code>ALTER PUBLICATION supabase_realtime ADD TABLE public.bookings;</code> (applied on remote project)</p>
+
+<h3>Offers Realtime (<code>lib/booking/offerRepository.ts</code>)</h3>
+<div class="flow">Supabase channel: public:offers:customer
+  INSERT/UPDATE/DELETE on public.offers
+  → subscribeOffersRealtime(onChange)
+  → Home carousel (app/(tabs)/index.tsx) reloads liveOffers instantly</div>
+<p><strong>Publication:</strong> <code>apply-pitstop-2.0-step13-campaigns.sql</code> adds offers to Realtime.</p>
 
 <h3>Customer in-app notifications</h3>
 <p>Kinds: booking_approved, booking_declined, booking_reminder, parts_order_confirmed, parts_order_cancelled</p>
@@ -1813,22 +1854,36 @@ addShopImage() — appends gallery (skips profile URL duplicate)</div>
   <li>Run <code>apply-pitstop-2.0-step11-offers.sql</code> — <code>offers</code> table + booking offer linkage</li>
   <li>Run <code>apply-pitstop-2.0-step12-wash-loyalty.sql</code> — <code>customer_wash_loyalty</code> + Supabase stamp sync</li>
   <li>Run <code>apply-pitstop-2.0-step13-owner-register-ar-empty.sql</code> — merchant register keeps <code>name_ar</code>/<code>address_ar</code> empty unless provided</li>
+  <li>Run <code>apply-pitstop-2.0-step13-campaigns.sql</code> — extends <code>offers</code> with <code>offer_type</code>, <code>discount_value</code>, <code>required_wash_count</code>, <code>expires_at</code>; Realtime on offers</li>
+  <li>Enable Realtime on bookings (if not already): <code>ALTER PUBLICATION supabase_realtime ADD TABLE public.bookings;</code></li>
   <li>Verify bundle checks show <code>ok = true</code>; reload app → test POS, bookings, admin, register</li>
 </ol>
 <p>Full auth + demo setup: <code>supabase/SETUP-AUTH-CHECKLIST.md</code></p>
 
 <div class="page-break" id="web-dialogs"></div>
-<h2>39. Web Dialogs — userAlert &amp; userConfirm</h2>
-<p class="ar">حوارات الويب — تأكيد Premium والتسوية</p>
-<p>React Native <code>Alert.alert</code> with multiple buttons is <strong>unreliable on web</strong> (Expo web). PitStop uses a small helper module:</p>
+<h2>39. Web Dialogs — userAlert, userConfirm &amp; CustomConfirmModal</h2>
+<p class="ar">حوارات الويب — تأكيد Premium والتسوية وتأكيد No-Show</p>
+<p>React Native <code>Alert.alert</code> with multiple buttons is <strong>unreliable on web</strong> (Expo web). PitStop uses layered dialog helpers:</p>
 
 <div class="module-box">
-<h4><code>lib/ui/userAlert.ts</code></h4>
+<h4><code>lib/ui/userAlert.ts</code> → <code>AppDialogProvider</code></h4>
 <table>
   <tr><th>Function</th><th>Web</th><th>Native</th><th>Used for</th></tr>
-  <tr><td><code>userAlert(title, message?)</code></td><td><code>window.alert</code></td><td><code>Alert.alert</code></td><td>Success/error one-liners after actions</td></tr>
-  <tr><td><code>userConfirm(title, message, opts?)</code></td><td><code>window.confirm</code></td><td><code>Alert.alert</code> + Cancel/OK</td><td>Premium toggle, Settle Balance, destructive confirms</td></tr>
+  <tr><td><code>userAlert(title, message?)</code></td><td>Custom modal via AppDialogProvider</td><td><code>Alert.alert</code> (patched)</td><td>Success/error one-liners after actions</td></tr>
+  <tr><td><code>userConfirm(title, message, opts?)</code></td><td>Custom modal via AppDialogProvider</td><td><code>Alert.alert</code> + Cancel/OK</td><td>Premium toggle, Settle Balance, destructive confirms</td></tr>
 </table>
+</div>
+
+<div class="module-box">
+<h4><code>lib/ui/CustomConfirmProvider.tsx</code> + <code>components/common/CustomConfirmModal.tsx</code></h4>
+<p>High-fidelity destructive confirms — especially merchant <strong>Mark as No-Show / Decline</strong>. Replaces ugly <code>window.confirm</code> on web.</p>
+<table>
+  <tr><th>API</th><th>Behavior</th></tr>
+  <tr><td><code>showCustomConfirm({ title, message, confirmLabel, cancelLabel, destructive, onConfirm })</code></td><td>Opens themed modal; async onConfirm with loading spinner</td></tr>
+  <tr><td><code>promptMerchantNoShowOverride()</code></td><td>Wrapper in <code>lib/booking/merchantBookingOverride.ts</code></td></tr>
+</table>
+<p><strong>Mounted in:</strong> <code>app/_layout.tsx</code> inside <code>AppDialogProvider</code></p>
+<p><strong>Call sites:</strong> <code>components/owner/OwnerHistoryPanel.tsx</code> · <code>components/owner/wash/WashOwnerPanel.tsx</code> · <code>app/shop/wash-owner-hub.tsx</code></p>
 </div>
 
 <div class="flow">AdminPanel.onTogglePremium(row)
@@ -1924,21 +1979,25 @@ flowchart TD
 <div class="mermaid-wrap">
 <pre class="mermaid">
 flowchart TD
-  H[Home / Nearby / Favorites] --> SP[Shop profile]
+  H[Home / Nearby / Favorites] --> SP[Shop profile + promo banner]
   SP --> G{Logged in?}
   G -->|no| AR[/auth-required/]
   AR --> W[/welcome login/]
   G -->|yes| BK[/book/shopId?serviceId/]
-  BK --> F[Date + slot + vehicle + phone]
-  F --> CB[createBooking → pending]
-  CB --> ON[Owner notification]
+  BK --> OF[pickBestLiveOffer + applyCampaignPrice]
+  OF --> F[Date + slot + vehicle + phone]
+  F --> CB[createBooking offer_id → pending]
+  CB --> RT[Supabase Realtime INSERT]
+  RT --> ON[OrderNotifier pending badge]
   ON --> OC{Owner action}
   OC -->|Accept| CF[confirmed]
   OC -->|Reject| CX[cancelled]
   CF --> RM[Reminders 60m / 30m]
   RM --> CP[Owner: Complete]
-  CP --> DN[done]
-  DN --> RT[My Bookings: Rate stars optional]
+  CP --> DN[done persisted]
+  CF --> AD[Auto-done virtual after 1h past slot]
+  AD --> DN2[effective done lifecycleAutoCompleted]
+  DN --> RT2[My Bookings: Rate optional]
   DN --> LOY[recordWashBookingDone → loyalty stamps]
 </pre>
 </div>
@@ -1951,15 +2010,17 @@ stateDiagram-v2
   pending --> confirmed: owner Accept
   pending --> cancelled: owner Reject OR customer cancel
   confirmed --> done: owner Complete
-  confirmed --> no_show: owner No-show
+  confirmed --> done: virtual auto-done 1h past slot
+  confirmed --> no_show: CustomConfirmModal override
+  done --> no_show: override on auto-completed row
   confirmed --> cancelled: customer cancel
   done --> [*]
   cancelled --> [*]
   no_show --> [*]
   note right of confirmed
-    Legacy DB in_progress
-    displays as Confirmed
-    timeline step 2
+    Virtual done: lifecycleAutoCompleted
+    excluded from PDF revenue
+    Legacy in_progress → Confirmed UI
   end note
 </pre>
 </div>
@@ -1989,12 +2050,17 @@ flowchart TD
   WP --> BR[Branch switcher — Premium multi-branch]
   WP --> ST[Branch status open/closed/busy/vacation]
   WP --> SV[Services CRUD — empty until owner adds]
-  WP --> BK[Bookings list]
+  WP --> MC[Operations: MerchantCampaignsPanel]
+  MC --> DS[deployShopCampaign → public.offers]
+  WP --> BK[Bookings + OrderNotifier Realtime]
   BK --> P[pending → Accept / Reject]
   P -->|Accept| C[confirmed]
   C --> D[Complete → done]
-  C --> NS[No-show]
+  C --> NS[No-show via CustomConfirmModal]
+  C --> AD[Auto-done after 1h → virtual done]
+  AD --> NS2[Override to no_show]
   WP --> RV[Reviews tab — listShopReviews]
+  WP --> HIST[OwnerHistoryPanel + PDF revenue filter]
   WP --> HUB[/shop/wash-owner-hub orders tab/]
   ST --> CAT[shopExtrasStorage washShopStatus → customer busy badge]
 </pre>
@@ -2053,13 +2119,249 @@ flowchart LR
 </div>
 
 <h3>40.11 Provider &amp; screen map (summary)</h3>
-<div class="flow">ThemePreference → I18n → AppDialog → ShopCatalog → CustomerAuth → ShopAuth → AppBootstrap
+<div class="flow">ThemePreference → I18n → AppDialog → CustomConfirm → ShopCatalog → CustomerAuth → ShopAuth → AppBootstrap
   |
   +-- Customer tabs: Home | Bookings | Favorites | Assistant | Settings(My account)
   +-- Stack: shop-profile, book, booking/[id], points-marketplace, admin, shop/*
-  +-- Owner: /shop (panel by type) + wash-owner-hub + merchant-settings stack</div>
+  +-- Owner: /shop (panel by type) + wash-owner-hub + merchant-settings stack + wash-history</div>
 
-<p class="footer">PitStop Master System Documentation · car-care-eg · Jul 2026 · migrations 1–13 · §40 system flowcharts</p>
+<div class="page-break" id="splash-home"></div>
+<h2>41. Premium Splash &amp; Home Hero Animation</h2>
+<p class="ar">شاشة البداية المتحركة ورسوم السيارة في الصفحة الرئيسية</p>
+
+<h3>41.1 Premium animated splash</h3>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>app/_layout.tsx</code></td><td><code>SplashScreen.preventAutoHideAsync()</code>; overlay state <code>showAnimatedSplash</code>; hides native splash after fonts load</td></tr>
+  <tr><td><code>components/PremiumAnimatedSplash.tsx</code></td><td>Full-screen overlay bg <code>#080D1A</code>, accent <code>#00D4FF</code>, 1000ms hold + 500ms fade-out</td></tr>
+  <tr><td><code>components/AppBootstrap.tsx</code></td><td>Removed duplicate <code>SplashScreen.hideAsync()</code> — single hide path in layout</td></tr>
+</table>
+<div class="flow">App launch → fonts load → SplashScreen.hideAsync (native)
+  → PremiumAnimatedSplash visible 1.5s total
+  → onFinish() → showAnimatedSplash = false
+  → AppBootstrap routing proceeds</div>
+
+<h3>41.2 Home hero car animation</h3>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>components/home/HomeHeroCarAnimation.tsx</code></td><td>SVG car: idle translateY loop + periodic translateX drive; cleanup on blur via useFocusEffect</td></tr>
+  <tr><td><code>app/(tabs)/index.tsx</code></td><td>Hero row beside greeting for logged-in customers; offers carousel below service cards</td></tr>
+</table>
+
+<div class="page-break" id="merchant-realtime"></div>
+<h2>42. Merchant Realtime &amp; Order Notifier</h2>
+<p class="ar">إشعارات الطلبات الفورية للتاجر عبر Supabase Realtime</p>
+
+<h3>42.1 Architecture</h3>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>lib/notifications/notificationService.ts</code></td><td>Channel <code>public:bookings:{shopId}</code>; mapBookingRowFromRemote; mergeBookingList; applyVirtualBookingLifecycleBatch</td></tr>
+  <tr><td><code>components/merchant/OrderNotifier.tsx</code></td><td>Hook <code>useMerchantOrderNotifier</code>: pendingBookings, pendingCount, patchBookingLocally, refresh</td></tr>
+  <tr><td><code>components/owner/wash/WashOwnerPanel.tsx</code></td><td>orderNotifier integrated; notification badge on dashboard shortcuts</td></tr>
+  <tr><td><code>app/shop/wash-owner-hub.tsx</code></td><td>Orders tab uses orderNotifier.pendingBookings</td></tr>
+  <tr><td><code>app/(tabs)/shop.tsx</code></td><td>Generic shop owner pending count via orderNotifier</td></tr>
+</table>
+
+<h3>42.2 Realtime flow</h3>
+<div class="flow">Customer createBooking() → Supabase INSERT bookings (status=pending)
+  |
+  v
+postgres_changes INSERT on public.bookings filter shop_id=eq.{shopId}
+  |
+  v
+notificationService.handleRow → bookingEligibleForStaffAlert?
+  |-- branch_manager: only matching branch_id
+  |-- owner: all shop pending
+  v
+onPendingInsert → triggerMerchantOrderAlert (Vibration + userAlert)
+  → upsertPendingBookingSorted → pendingCount badge updates
+  |
+  v
+Owner Accept/Complete → UPDATE bookings
+  → onBookingUpdate → mergeBookingList + patchBookingLocally clears pending</div>
+
+<h3>42.3 Sorting fix (display order)</h3>
+<p><code>lib/booking/storage.ts</code> → <code>sortBookingsByScheduledAtDesc()</code>: Tier 1 active (pending/confirmed/in_progress) above Tier 2 finalized; within tier newest <code>scheduled_at</code> first. Applied in listBookingsForShop, notification merges, customer My Bookings.</p>
+
+<div class="page-break" id="booking-lifecycle"></div>
+<h2>43. Smart Booking Lifecycle &amp; No-Show Override</h2>
+<p class="ar">محرك دورة حياة الحجز التلقائي وتجاوز عدم الحضور</p>
+
+<h3>43.1 Virtual auto-done (read-time, not persisted)</h3>
+<table>
+  <tr><th>Function</th><th>File</th><th>Behavior</th></tr>
+  <tr><td><code>AUTO_DONE_AFTER_MS</code></td><td>lib/booking/storage.ts</td><td>3600000 ms (1 hour grace after scheduled_at)</td></tr>
+  <tr><td><code>resolveEffectiveBookingStatus()</code></td><td>lib/booking/storage.ts</td><td>confirmed/in_progress + past window → effective status <code>done</code></td></tr>
+  <tr><td><code>applyVirtualBookingLifecycle()</code></td><td>lib/booking/storage.ts</td><td>Sets <code>lifecycleAutoCompleted: true</code> on virtual transition</td></tr>
+  <tr><td><code>isAutoCompletedBooking()</code></td><td>lib/booking/storage.ts</td><td>Checks lifecycleAutoCompleted flag</td></tr>
+  <tr><td><code>isFinalizedHistoryBooking()</code></td><td>lib/booking/storage.ts</td><td>done | cancelled | no_show | auto-completed</td></tr>
+  <tr><td><code>countsAsRevenueBooking()</code></td><td>lib/booking/storage.ts</td><td>Only persisted <code>done</code> without lifecycleAutoCompleted</td></tr>
+</table>
+
+<h3>43.2 Merchant no-show override flow</h3>
+<div class="flow">OwnerHistoryPanel / WashOwnerPanel / wash-owner-hub
+  → row has lifecycleAutoCompleted OR manual no-show action
+  → promptMerchantNoShowOverride() [CustomConfirmModal]
+  → onConfirm:
+      updateBookingStatus(id, 'no_show')  // persists to Supabase
+      patchBookingLocally(id, 'no_show')  // OrderNotifier instant UI
+      setRows / refreshAll              // history list updates
+  → filterRevenueBookings excludes no_show from PDF totals immediately</div>
+
+<h3>43.3 Files</h3>
+<ul>
+  <li><code>lib/booking/merchantBookingOverride.ts</code> — promptMerchantNoShowOverride</li>
+  <li><code>components/owner/OwnerHistoryPanel.tsx</code> — history filters, override button, reportBookings revenue filter</li>
+  <li><code>lib/booking/bookingHistoryRepository.ts</code> — listArchivedBookingsForStaff + sortArchivedBookingsForDisplay</li>
+  <li><code>app/shop/wash-history.tsx</code> — OwnerHistoryPanel mode=history</li>
+  <li><code>lib/booking/reporting.ts</code> — filterRevenueBookings(); PDF only counts status=done without auto-completed flag</li>
+  <li><code>components/customer/OrderListCard.tsx</code> — status badges; book again hidden for pending/confirmed</li>
+  <li><code>lib/booking/customerOrderPresentation.ts</code> — in_progress normalized to confirmed for customer display</li>
+</ul>
+
+<h3>43.4 Lifecycle state diagram</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> confirmed: owner Accept
+  confirmed --> done: owner Complete OR auto-done (1h past slot)
+  confirmed --> no_show: merchant override (CustomConfirmModal)
+  done --> no_show: override on auto-completed row only
+  note right of confirmed
+    Virtual done at read time
+    lifecycleAutoCompleted=true
+    excluded from revenue until persisted
+  end note
+</pre>
+</div>
+
+<div class="page-break" id="custom-confirm"></div>
+<h2>44. Custom Confirm Modal (Web + Native)</h2>
+<p class="ar">نافذة تأكيد مخصصة بدلاً من window.confirm</p>
+
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>components/common/CustomConfirmModal.tsx</code></td><td>Presentational Modal: rgba(0,0,0,0.7) backdrop, navy card, muted Cancel + solid red Confirm</td></tr>
+  <tr><td><code>lib/ui/CustomConfirmProvider.tsx</code></td><td>Global queue; showCustomConfirm(); mounted in app/_layout.tsx</td></tr>
+  <tr><td><code>lib/booking/merchantBookingOverride.ts</code></td><td>promptMerchantNoShowOverride → showCustomConfirm(destructive: true)</td></tr>
+</table>
+
+<div class="flow">User taps "Mark as No-Show / Decline"
+  → showCustomConfirm({ title: merchant_noshow_override_title, ... })
+  → CustomConfirmModal visible (fade animation)
+  → Cancel → close modal, no DB write
+  → Confirm → await onConfirm() → updateBookingStatus('no_show') → close modal</div>
+
+<p><strong>i18n keys:</strong> <code>merchant_noshow_override_title</code>, <code>merchant_noshow_override_body</code>, <code>merchant_noshow_override_btn</code> (EN + AR in <code>lib/i18n/strings.ts</code>)</p>
+
+<div class="page-break" id="marketing-campaigns"></div>
+<h2>45. Marketing Offers &amp; Campaigns Engine</h2>
+<p class="ar">محرك العروض والحملات التسويقية</p>
+
+<h3>45.1 Database — <code>public.offers</code> (extended Step 13)</h3>
+<p>Migration: <code>supabase/apply-pitstop-2.0-step13-campaigns.sql</code></p>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Purpose</th></tr>
+  <tr><td>id</td><td>uuid PK</td><td>Offer identity; linked from bookings.offer_id</td></tr>
+  <tr><td>shop_id</td><td>text FK → shops.id</td><td>Merchant scope</td></tr>
+  <tr><td>title, description</td><td>text</td><td>Campaign copy</td></tr>
+  <tr><td>offer_type</td><td>text</td><td>percentage | flat_amount | buy_x_get_y</td></tr>
+  <tr><td>discount_value</td><td>numeric</td><td>20 = 20% or 50 EGP</td></tr>
+  <tr><td>required_wash_count</td><td>int</td><td>Buy-X threshold (e.g. 2 for buy 2 get 1 free)</td></tr>
+  <tr><td>is_active</td><td>boolean</td><td>Merchant toggle via deactivateShopOffer</td></tr>
+  <tr><td>expires_at</td><td>timestamptz</td><td>Campaign end; nullable = open-ended</td></tr>
+  <tr><td>discount_percentage, start_date, end_date</td><td>legacy</td><td>Backward compatibility; synced on deploy</td></tr>
+</table>
+<p><strong>RLS:</strong> Anyone read live offers; shop staff CRUD via can_manage_shop(shop_id). <strong>Realtime:</strong> publication supabase_realtime includes offers.</p>
+
+<h3>45.2 Merchant deploy flow</h3>
+<div class="flow">WashOwnerPanel Operations tab OR shop.tsx workspace
+  → MerchantCampaignsPanel
+      MerchantCampaignForm: title, description, offer_type chips, value fields, valid days
+      → deployShopCampaign() in lib/booking/offerRepository.ts
+      → Supabase INSERT public.offers
+      → Realtime broadcast
+  MerchantCampaignList: active rows + "End campaign" → deactivateShopOffer()</div>
+
+<table>
+  <tr><th>Component</th><th>Path</th></tr>
+  <tr><td>MerchantCampaignForm</td><td>components/merchant/MerchantCampaignForm.tsx</td></tr>
+  <tr><td>MerchantCampaignList</td><td>components/merchant/MerchantCampaignList.tsx</td></tr>
+  <tr><td>MerchantCampaignsPanel</td><td>components/merchant/MerchantCampaignsPanel.tsx</td></tr>
+  <tr><td>Wash mount</td><td>components/owner/wash/WashOwnerPanel.tsx (adminTab=operations)</td></tr>
+  <tr><td>Shop mount</td><td>app/(tabs)/shop.tsx (workspace tab)</td></tr>
+</table>
+
+<h3>45.3 Customer discovery surfaces</h3>
+<table>
+  <tr><th>Surface</th><th>File</th><th>Behavior</th></tr>
+  <tr><td>Home offers carousel</td><td>app/(tabs)/index.tsx</td><td>listAllActiveOffers + formatOfferBadge; subscribeOffersRealtime refresh</td></tr>
+  <tr><td>Shop list cards</td><td>components/ui/ShopListCard.tsx</td><td>pickBestLiveOffer + warmSoft promo capsule</td></tr>
+  <tr><td>Shop profile header</td><td>app/shop-profile/[shopId].tsx</td><td>promoBanner with badge + title + description</td></tr>
+  <tr><td>Shop extras cache</td><td>lib/booking/shopExtrasStorage.ts</td><td>getShopExtras merges listActiveOffersForShop from Supabase</td></tr>
+</table>
+
+<h3>45.4 Checkout pricing (<code>app/book/[shopId].tsx</code>)</h3>
+<div class="flow">pickBestLiveOffer(shopExtras.offers)
+  |
+  +-- percentage → applyCampaignPrice: base * (1 - value/100)
+  +-- flat_amount → base - value (min 0)
+  +-- buy_x_get_y → countDoneBookingsForCustomerAtShop(status=done)
+        cycle = required_wash_count + 1
+        if (doneCount + 1) % cycle === 0 → price = 0 EGP (FREE wash banner)
+  |
+  v
+createBooking({ offerId, servicePriceEgp: final }) via lib/booking/storage.ts
+  → validateOfferForBooking + applyCampaignPrice on server path too</div>
+
+<p><strong>Pricing lib:</strong> <code>lib/booking/offerPricing.ts</code> — applyCampaignPrice, formatOfferBadge, buildOfferBadgeMessages, isBuyXGetYFreeNext</p>
+
+<h3>45.5 Campaign deploy diagram</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+  MF[MerchantCampaignForm] --> DS[deployShopCampaign]
+  DS --> DB[(public.offers)]
+  DB --> RT[Supabase Realtime]
+  RT --> HI[Home index.tsx carousel]
+  RT --> SL[ShopListCard badge]
+  RT --> SP[shop-profile banner]
+  DB --> BK[book/shopId checkout]
+  BK --> CB[createBooking offer_id]
+</pre>
+</div>
+
+<div class="page-break" id="merchant-history"></div>
+<h2>46. Merchant History, Reports &amp; Financial Integrity</h2>
+<p class="ar">سجل التاجر والتقارير المالية وسلامة الإيرادات</p>
+
+<h3>46.1 History panel</h3>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>components/owner/OwnerHistoryPanel.tsx</code></td><td>Filters: All / Completed / Cancelled; PDF date range; financial totals</td></tr>
+  <tr><td><code>lib/booking/bookingHistoryRepository.ts</code></td><td>listArchivedBookingsForStaff; only finalized + auto-completed</td></tr>
+  <tr><td><code>app/shop/wash-history.tsx</code></td><td>Wash history screen wrapper</td></tr>
+  <tr><td><code>app/(tabs)/shop.tsx</code></td><td>History tab via OwnerHistoryPanel variant=shop</td></tr>
+  <tr><td><code>app/shop/wash-reports.tsx</code></td><td>Reports-only mode</td></tr>
+</table>
+
+<h3>46.2 Financial integrity rules</h3>
+<ul>
+  <li><code>filterRevenueBookings()</code> in <code>lib/booking/reporting.ts</code> — only <code>status === 'done'</code> without <code>lifecycleAutoCompleted</code></li>
+  <li>Auto-completed virtual rows excluded from PDF gross/fee/net until merchant confirms or overrides</li>
+  <li><code>no_show</code> and <code>cancelled</code> never count toward revenue</li>
+  <li>On no-show override: instant local state via <code>patchBookingLocally</code> + <code>setRows</code> — no manual refresh required</li>
+</ul>
+
+<h3>46.3 Customer My Bookings UX</h3>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>app/(tabs)/bookings.tsx</code></td><td>Uses OrderListCard with status-colored badges</td></tr>
+  <tr><td><code>components/customer/OrderListCard.tsx</code></td><td>Rate block only for done; book again hidden for pending/confirmed</td></tr>
+  <tr><td><code>lib/booking/storage.ts</code></td><td>sortBookingsByScheduledAtDesc on customer fetch paths</td></tr>
+</table>
+
+<p class="footer">PitStop Master System Documentation · car-care-eg · Jul 2026 · migrations 1–13 + campaigns · §40–§46 system flowcharts · GitHub commit 4170195</p>
 
 </body>
 </html>
