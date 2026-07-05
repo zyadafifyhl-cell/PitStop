@@ -1,23 +1,23 @@
-import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AreaCard } from '@/components/ui/AreaCard';
+import { CategoryShopsMap } from '@/components/maps/CategoryShopsMap';
 import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listAreas } from '@/lib/booking/areas';
 import { countShopsByTypeAndArea, listAreasWithShops } from '@/lib/booking/catalogRepository';
 import { shopTypeLabel } from '@/lib/booking/format';
-import {
-  isDiscoverableShopType,
-  listDiscoverableSortedByDistance,
-} from '@/lib/booking/nearbyDiscovery';
 import { listRecentAreaIds, rememberAreaSelection } from '@/lib/booking/recentLocationStorage';
 import { parseShopType } from '@/lib/booking/serviceType';
-import { openListingsInMaps } from '@/lib/linking/contact';
+import {
+  fetchRegisteredShopsForMap,
+  subscribeRegisteredShopsMapRealtime,
+  type ShopMapPin,
+} from '@/lib/booking/shopMapDiscovery';
 
 type LocationViewMode = 'list' | 'map';
 
@@ -30,6 +30,31 @@ export default function PickAreaScreen() {
   const [areaSearch, setAreaSearch] = useState('');
   const [viewMode, setViewMode] = useState<LocationViewMode>('list');
   const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [mapShops, setMapShops] = useState<ShopMapPin[]>([]);
+  const [mapLoading, setMapLoading] = useState(false);
+
+  const loadMapShops = useCallback(async () => {
+    if (!type) return;
+    setMapLoading(true);
+    try {
+      const rows = await fetchRegisteredShopsForMap(type);
+      setMapShops(rows);
+    } finally {
+      setMapLoading(false);
+    }
+  }, [type]);
+
+  useEffect(() => {
+    if (viewMode !== 'map' || !type || !catalogReady) return;
+    void loadMapShops();
+  }, [viewMode, type, catalogReady, catalogVersion, loadMapShops]);
+
+  useEffect(() => {
+    if (viewMode !== 'map' || !type || !catalogReady) return;
+    return subscribeRegisteredShopsMapRealtime(() => {
+      void loadMapShops();
+    });
+  }, [viewMode, type, catalogReady, loadMapShops]);
 
   const loadRecent = useCallback(async () => {
     if (!type) return;
@@ -39,7 +64,10 @@ export default function PickAreaScreen() {
   useFocusEffect(
     useCallback(() => {
       loadRecent();
-    }, [loadRecent]),
+      if (viewMode === 'map' && type && catalogReady) {
+        void loadMapShops();
+      }
+    }, [loadRecent, viewMode, type, catalogReady, loadMapShops]),
   );
 
   const areas = useMemo(() => {
@@ -83,6 +111,13 @@ export default function PickAreaScreen() {
     if (areaSearch.trim()) return areas;
     return areas.filter((a) => !highlightedIds.has(a.id));
   }, [areas, areaSearch, highlightedIds]);
+
+  function openShopProfile(shopId: string) {
+    router.push({
+      pathname: '/shop-profile/[shopId]',
+      params: { shopId },
+    });
+  }
 
   function goToArea(areaId: string) {
     if (!type) return;
@@ -159,33 +194,7 @@ export default function PickAreaScreen() {
           </Text>
         </Pressable>
         <Pressable
-          onPress={async () => {
-            setViewMode('map');
-            if (!isDiscoverableShopType(type)) {
-              Alert.alert(t('settings_link_fail_title'), t('nearby_discoverable_only'));
-              return;
-            }
-            let lat: number | null = null;
-            let lng: number | null = null;
-            try {
-              const { status } = await Location.requestForegroundPermissionsAsync();
-              if (status === 'granted') {
-                const pos = await Location.getCurrentPositionAsync({
-                  accuracy: Location.Accuracy.Balanced,
-                });
-                lat = pos.coords.latitude;
-                lng = pos.coords.longitude;
-              }
-            } catch {
-              /* list without GPS */
-            }
-            try {
-              const listings = await listDiscoverableSortedByDistance(type, lat, lng);
-              await openListingsInMaps(listings, shopTypeLabel(type, locale), locale);
-            } catch {
-              Alert.alert(t('settings_link_fail_title'), t('nearby_map_no_coords'));
-            }
-          }}
+          onPress={() => setViewMode('map')}
           style={[
             styles.viewToggleBtn,
             { borderColor: theme.border, backgroundColor: theme.bgElevated },
@@ -197,11 +206,26 @@ export default function PickAreaScreen() {
         </Pressable>
       </View>
 
-      {!catalogReady || (catalogRefreshing && areas.length === 0) ? (
+      {viewMode === 'map' ? (
+        mapLoading ? (
+          <ActivityIndicator color={theme.accent} style={{ marginTop: 24, marginBottom: 16 }} />
+        ) : mapShops.length === 0 ? (
+          <Text style={[styles.empty, { color: theme.textMuted }]}>{t('nearby_map_no_coords')}</Text>
+        ) : (
+          <CategoryShopsMap
+            shops={mapShops}
+            shopType={type}
+            locale={locale}
+            onShopPress={openShopProfile}
+          />
+        )
+      ) : null}
+
+      {viewMode === 'list' && (!catalogReady || (catalogRefreshing && areas.length === 0)) ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       ) : areas.length === 0 ? (
         <Text style={[styles.empty, { color: theme.textMuted }]}>{t('area_no_shops')}</Text>
-      ) : (
+      ) : viewMode === 'list' ? (
         <>
           {recentAreas.length > 0 && !areaSearch.trim() ? (
             <>
@@ -227,7 +251,7 @@ export default function PickAreaScreen() {
           ) : null}
           {areaSearch.trim() ? areas.map((area) => renderAreaCard(area)) : null}
         </>
-      )}
+      ) : null}
     </ScrollView>
   );
 }
