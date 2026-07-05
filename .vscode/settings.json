@@ -3,5 +3,13 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
-  }
+  },
+  "window.zoomLevel": -1,
+  "editor.fontSize": 13,
+  "editor.minimap.enabled": false,
+  "editor.glyphMargin": false,
+  "workbench.editor.tabSizing": "shrink",
+  "workbench.tree.indent": 12,
+  "terminal.integrated.fontSize": 12,
+  "breadcrumbs.enabled": false
 }
