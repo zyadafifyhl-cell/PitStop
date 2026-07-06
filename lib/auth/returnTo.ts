@@ -2,10 +2,11 @@ import type { Href } from 'expo-router';
 
 const ALLOWED_RETURN = /^\/(book|parts-shop|shop-profile)\/[A-Za-z0-9-]+(\?[^#]*)?$/;
 
-export function buildBookReturnTo(shopId: string, serviceIds?: string[]): string {
+export function buildBookReturnTo(shopId: string, serviceIds?: string[], offerId?: string): string {
   const base = `/book/${shopId}`;
   const params = new URLSearchParams();
   if (serviceIds?.length) params.set('serviceIds', serviceIds.join(','));
+  if (offerId?.trim()) params.set('offerId', offerId.trim());
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }

@@ -1,6 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -28,9 +28,12 @@ import { validateCouponForCheckout } from '@/lib/booking/couponRepository';
 import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
 import {
   applyCampaignPrice,
+  buildCartLineItemsFromServiceIds,
+  computeBogoCartPrice,
   computePlatformFee,
   formatOfferBadge,
   isBuyXGetYFreeNext,
+  isOfferLive,
   pickBestLiveOffer,
   resolveOfferType,
   buildOfferBadgeMessages,
@@ -79,13 +82,16 @@ export default function BookShopScreen() {
     shopId,
     serviceId: rawServiceId,
     serviceIds: rawServiceIds,
+    offerId: rawOfferId,
   } = useLocalSearchParams<{
     shopId: string;
     serviceId?: string;
     serviceIds?: string;
+    offerId?: string;
   }>();
   const legacyServiceId = Array.isArray(rawServiceId) ? rawServiceId[0] : rawServiceId;
   const serviceIdsParam = Array.isArray(rawServiceIds) ? rawServiceIds[0] : rawServiceIds;
+  const offerIdParam = Array.isArray(rawOfferId) ? rawOfferId[0] : rawOfferId;
   const initialServiceIds = useMemo(() => {
     if (serviceIdsParam) {
       return serviceIdsParam.split(',').map((s: string) => s.trim()).filter(Boolean);
@@ -141,6 +147,9 @@ export default function BookShopScreen() {
   const [loyaltyValidation, setLoyaltyValidation] = useState<PointsRedemptionValidation | null>(null);
   const [validatingPoints, setValidatingPoints] = useState(false);
   const [doneBookingCount, setDoneBookingCount] = useState(0);
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(offerIdParam ?? null);
+  const [offerPickerOpen, setOfferPickerOpen] = useState(false);
+  const userPickedOfferRef = useRef(false);
 
   const CHECKOUT_CYAN = '#00D4FF';
   const CHECKOUT_CARD = '#121826';
@@ -256,10 +265,38 @@ export default function BookShopScreen() {
     }, [refreshLoyaltyBalance]),
   );
 
-  const activeCampaignOffer = useMemo(
-    () => pickBestLiveOffer(shopExtras?.offers ?? []),
+  const liveOffers = useMemo(
+    () => (shopExtras?.offers ?? []).filter((offer) => isOfferLive(offer)),
     [shopExtras?.offers],
   );
+
+  useEffect(() => {
+    userPickedOfferRef.current = false;
+  }, [offerIdParam]);
+
+  useEffect(() => {
+    if (!liveOffers.length) {
+      setSelectedOfferId(null);
+      return;
+    }
+    if (
+      !userPickedOfferRef.current &&
+      offerIdParam &&
+      liveOffers.some((offer) => offer.id === offerIdParam)
+    ) {
+      setSelectedOfferId(offerIdParam);
+      return;
+    }
+    setSelectedOfferId((current) => {
+      if (current && liveOffers.some((offer) => offer.id === current)) return current;
+      return pickBestLiveOffer(liveOffers)?.id ?? null;
+    });
+  }, [offerIdParam, liveOffers]);
+
+  const activeCampaignOffer = useMemo(() => {
+    if (!selectedOfferId) return null;
+    return liveOffers.find((offer) => offer.id === selectedOfferId) ?? null;
+  }, [selectedOfferId, liveOffers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,10 +330,26 @@ export default function BookShopScreen() {
     );
   }, [shop, selectedServices, activeServices, shopExtras?.servicePriceEgp]);
 
+  const cartLineItems = useMemo(() => {
+    const priceByServiceId = Object.fromEntries(activeServices.map((s) => [s.id, s.priceEgp]));
+    return buildCartLineItemsFromServiceIds(selectedServiceIds, priceByServiceId);
+  }, [selectedServiceIds, activeServices]);
+
+  const activeOfferType = activeCampaignOffer ? resolveOfferType(activeCampaignOffer) : null;
+  const isBogoOffer = activeOfferType === 'bogo';
+
+  const bogoPricing = useMemo(() => {
+    if (!activeCampaignOffer || !isBogoOffer) return null;
+    return computeBogoCartPrice(cartLineItems, activeCampaignOffer);
+  }, [activeCampaignOffer, cartLineItems, isBogoOffer]);
+
   const campaignAdjustedTotal = useMemo(() => {
     if (!activeCampaignOffer) return rawServiceTotal;
+    if (isBogoOffer) {
+      return bogoPricing?.discountedEgp ?? rawServiceTotal;
+    }
     return applyCampaignPrice(rawServiceTotal, activeCampaignOffer, doneBookingCount);
-  }, [rawServiceTotal, activeCampaignOffer, doneBookingCount]);
+  }, [rawServiceTotal, activeCampaignOffer, doneBookingCount, isBogoOffer, bogoPricing]);
 
   const checkoutOriginalPriceEgp = useMemo(() => {
     if (showCoupons && appliedCoupon) {
@@ -500,6 +553,8 @@ export default function BookShopScreen() {
         appliedCouponId: showCoupons ? appliedCoupon?.couponId : undefined,
         couponUsageUserId: showCoupons ? customer.id : undefined,
         loyaltyCheckout,
+        cartLineItems: isBogoOffer ? cartLineItems : undefined,
+        rawServicesTotalEgp: rawServiceTotal,
       });
       await saveCustomerPhone(normalizedPhone);
       await refreshLoyaltyBalance();
@@ -560,6 +615,41 @@ export default function BookShopScreen() {
   const campaignSavingsEgp = Math.max(0, Math.round((rawServiceTotal - campaignAdjustedTotal) * 100) / 100);
   const qualifiesForFreeWash =
     !!activeCampaignOffer && isBuyXGetYFreeNext(activeCampaignOffer, doneBookingCount);
+  const activeOfferSummary = useMemo(() => {
+    if (!activeCampaignOffer) return null;
+    const name =
+      locale === 'ar'
+        ? activeCampaignOffer.titleAr || activeCampaignOffer.title
+        : activeCampaignOffer.title;
+    const badge = formatOfferBadge(activeCampaignOffer, offerBadgeMessages);
+    return { name, badge, label: `${badge} · ${name}` };
+  }, [activeCampaignOffer, locale, offerBadgeMessages]);
+  const campaignPricing = useMemo(() => {
+    if (!activeOfferSummary) return null;
+    if (isBogoOffer && bogoPricing?.applied) {
+      return {
+        originalEgp: bogoPricing.originalEgp,
+        discountedEgp: bogoPricing.discountedEgp,
+        offerLabel: activeOfferSummary.label,
+        savingsEgp: bogoPricing.savingsEgp,
+        isBogo: true,
+      };
+    }
+    if (campaignSavingsEgp <= 0) return null;
+    return {
+      originalEgp: rawServiceTotal,
+      discountedEgp: campaignAdjustedTotal,
+      offerLabel: activeOfferSummary.label,
+      savingsEgp: campaignSavingsEgp,
+    };
+  }, [
+    activeOfferSummary,
+    campaignSavingsEgp,
+    rawServiceTotal,
+    campaignAdjustedTotal,
+    isBogoOffer,
+    bogoPricing,
+  ]);
   const estimatedPlatformFee = computePlatformFee(checkoutFinalAmountEgp);
 
   const selectedSlot = timeSlots.find((s) => s.time === timeSlot);
@@ -626,20 +716,69 @@ export default function BookShopScreen() {
         </Text>
 
         {activeCampaignOffer ? (
-          <View style={[styles.offerBanner, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
-            <Text style={[styles.offerBannerTitle, { color: theme.warm }]}>{t('book_offer_banner_title')}</Text>
-            <Text style={[styles.offerBannerBody, { color: theme.text }]}>
-              {formatOfferBadge(activeCampaignOffer, offerBadgeMessages)} ·{' '}
-              {locale === 'ar'
-                ? activeCampaignOffer.titleAr || activeCampaignOffer.title
-                : activeCampaignOffer.title}
-            </Text>
-            {qualifiesForFreeWash ? (
-              <Text style={[styles.offerBannerMeta, { color: theme.green }]}>{t('book_offer_free_wash')}</Text>
-            ) : campaignSavingsEgp > 0 ? (
-              <Text style={[styles.offerBannerMeta, { color: theme.danger }]}>
-                {t('book_offer_savings').replace('{amount}', formatEgp(campaignSavingsEgp, locale))}
+          <View style={styles.offerSection}>
+            <Pressable
+              onPress={() => {
+                if (liveOffers.length > 1) setOfferPickerOpen((open) => !open);
+              }}
+              style={[styles.offerBanner, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
+              <View style={styles.offerBannerHeader}>
+                <Text style={[styles.offerBannerTitle, { color: theme.warm }]}>{t('book_offer_banner_title')}</Text>
+                {liveOffers.length > 1 ? (
+                  <FontAwesome
+                    name={offerPickerOpen ? 'chevron-up' : 'chevron-down'}
+                    size={12}
+                    color={theme.warm}
+                  />
+                ) : null}
+              </View>
+              <Text style={[styles.offerBannerBody, { color: theme.text }]}>
+                {formatOfferBadge(activeCampaignOffer, offerBadgeMessages)} ·{' '}
+                {locale === 'ar'
+                  ? activeCampaignOffer.titleAr || activeCampaignOffer.title
+                  : activeCampaignOffer.title}
               </Text>
+              {qualifiesForFreeWash ? (
+                <Text style={[styles.offerBannerMeta, { color: theme.green }]}>{t('book_offer_free_wash')}</Text>
+              ) : campaignSavingsEgp > 0 ? (
+                <Text style={[styles.offerBannerMeta, { color: theme.danger }]}>
+                  {t('book_offer_savings').replace('{amount}', formatEgp(campaignSavingsEgp, locale))}
+                </Text>
+              ) : null}
+              {liveOffers.length > 1 ? (
+                <Text style={[styles.offerPickerHint, { color: theme.textMuted }]}>{t('book_offer_picker_hint')}</Text>
+              ) : null}
+            </Pressable>
+
+            {offerPickerOpen && liveOffers.length > 1 ? (
+              <View style={[styles.offerPickerList, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                {liveOffers.map((offer) => {
+                  const selected = offer.id === selectedOfferId;
+                  return (
+                    <Pressable
+                      key={offer.id}
+                      onPress={() => {
+                        userPickedOfferRef.current = true;
+                        setSelectedOfferId(offer.id);
+                        setOfferPickerOpen(false);
+                      }}
+                      style={[
+                        styles.offerPickerRow,
+                        {
+                          borderColor: selected ? theme.warm : theme.border,
+                          backgroundColor: selected ? theme.warmSoft : theme.bgElevated,
+                        },
+                      ]}>
+                      <Text style={[styles.offerPickerBadge, { color: theme.warm }]}>
+                        {formatOfferBadge(offer, offerBadgeMessages)}
+                      </Text>
+                      <Text style={[styles.offerPickerTitle, { color: theme.text }]}>
+                        {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             ) : null}
           </View>
         ) : null}
@@ -650,6 +789,9 @@ export default function BookShopScreen() {
             selectedIds={selectedServiceIds}
             onChange={setSelectedServiceIds}
             disabled={saving}
+            campaignPricing={campaignPricing}
+            allowDuplicateServices={isBogoOffer}
+            bogoPricing={bogoPricing}
           />
         ) : null}
 
@@ -830,10 +972,33 @@ export default function BookShopScreen() {
               ))
             ) : null}
             {baseTotalPrice > 0 ? (
-              <Text style={[styles.summaryLine, { color: theme.accent }]}>
-                {formatEgp(baseTotalPrice, locale)}
-                {totalMinutes > 0 ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}` : ''}
-              </Text>
+              <>
+                <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
+                  {t('book_invoice_services_total')}: {formatEgp(baseTotalPrice, locale)}
+                </Text>
+                {campaignPricing ? (
+                  <>
+                    <Text style={[styles.summaryLine, { color: theme.warm }]}>
+                      {campaignPricing.isBogo
+                        ? t('book_invoice_bogo_discount')
+                        : t('book_invoice_offer_discount').replace('{offer}', campaignPricing.offerLabel)}
+                    </Text>
+                    <Text style={[styles.summaryLine, { color: theme.danger }]}>
+                      -{formatEgp(campaignPricing.savingsEgp, locale)}
+                      {qualifiesForFreeWash ? ` · ${t('book_offer_free_wash')}` : ''}
+                    </Text>
+                    <Text style={[styles.summaryLine, { color: theme.accent, fontWeight: '800' }]}>
+                      {t('book_invoice_after_offer')}: {formatEgp(campaignPricing.discountedEgp, locale)}
+                      {totalMinutes > 0 ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}` : ''}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={[styles.summaryLine, { color: theme.accent }]}>
+                    {formatEgp(baseTotalPrice, locale)}
+                    {totalMinutes > 0 ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}` : ''}
+                  </Text>
+                )}
+              </>
             ) : null}
             <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
               {carType.trim() || '—'}
@@ -925,6 +1090,28 @@ export default function BookShopScreen() {
               <Text style={[styles.checkoutSectionTitle, { color: theme.text }]}>
                 {t('book_summary_title')}
               </Text>
+
+              <View style={styles.invoiceRow}>
+                <Text style={[styles.invoiceLabel, { color: theme.textMuted }]}>
+                  {t('book_invoice_services_total')}
+                </Text>
+                <Text style={[styles.invoiceValue, { color: theme.text }]}>
+                  {formatEgp(rawServiceTotal, locale)}
+                </Text>
+              </View>
+
+              {campaignPricing ? (
+                <View style={styles.invoiceRow}>
+                  <Text style={[styles.invoiceLabel, { color: theme.textMuted }]} numberOfLines={2}>
+                    {campaignPricing.isBogo
+                      ? t('book_invoice_bogo_discount')
+                      : t('book_invoice_offer_discount').replace('{offer}', campaignPricing.offerLabel)}
+                  </Text>
+                  <Text style={[styles.invoiceValue, { color: theme.danger }]}>
+                    -{formatEgp(campaignPricing.savingsEgp, locale)}
+                  </Text>
+                </View>
+              ) : null}
 
               <View style={styles.invoiceRow}>
                 <Text style={[styles.invoiceLabel, { color: theme.textMuted }]}>
@@ -1129,10 +1316,17 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   shopName: { fontSize: 24, fontWeight: '900', marginBottom: 4, letterSpacing: -0.3 },
   meta: { fontSize: 14, marginBottom: 12 },
-  offerBanner: { borderWidth: 1, borderRadius: 20, padding: 14, marginBottom: 14 },
-  offerBannerTitle: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 },
+  offerBanner: { borderWidth: 1, borderRadius: 20, padding: 14, marginBottom: 0 },
+  offerSection: { marginBottom: 14, gap: 8 },
+  offerBannerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  offerBannerTitle: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   offerBannerBody: { fontSize: 15, fontWeight: '800' },
   offerBannerMeta: { fontSize: 13, fontWeight: '800', marginTop: 6 },
+  offerPickerHint: { fontSize: 12, fontWeight: '600', marginTop: 8 },
+  offerPickerList: { borderWidth: 1, borderRadius: 16, overflow: 'hidden', gap: 8, padding: 8 },
+  offerPickerRow: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 4 },
+  offerPickerBadge: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  offerPickerTitle: { fontSize: 14, fontWeight: '700' },
   offerActionBtn: {
     marginTop: 12,
     borderWidth: 1,

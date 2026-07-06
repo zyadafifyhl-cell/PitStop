@@ -214,22 +214,22 @@ export default function ShopProfileScreen() {
 
   function goToBook(serviceId?: string) {
     const id = String(shopId);
+    const bookParams: Record<string, string> = { shopId: id };
+    if (serviceId) bookParams.serviceIds = serviceId;
+    if (offerId) bookParams.offerId = offerId;
     if (isGuest || !customer) {
       router.push({
         pathname: '/auth-required',
         params: {
           intent: 'booking',
-          returnTo: buildBookReturnTo(id, serviceId ? [serviceId] : undefined),
+          returnTo: buildBookReturnTo(id, serviceId ? [serviceId] : undefined, offerId),
         },
       });
       return;
     }
     router.push({
       pathname: '/book/[shopId]',
-      params: {
-        shopId: id,
-        ...(serviceId ? { serviceIds: serviceId } : {}),
-      },
+      params: bookParams as { shopId: string; serviceIds?: string; offerId?: string },
     });
   }
 

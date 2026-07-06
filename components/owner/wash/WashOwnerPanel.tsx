@@ -27,6 +27,7 @@ import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
 import { OsmLocationPicker } from '@/components/maps/OsmLocationPicker';
+import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -682,11 +683,14 @@ export function WashOwnerPanel({ shop }: Props) {
     }
     setMapLocating(true);
     try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setMapDraftLatitude(pos.coords.latitude);
-      setMapDraftLongitude(pos.coords.longitude);
+      const coords = await getFastCurrentPosition();
+      setMapDraftLatitude(coords.latitude);
+      setMapDraftLongitude(coords.longitude);
     } catch {
-      Alert.alert(t('wash_branch_gps_fail_title'), t('wash_branch_gps_fail_body'));
+      Alert.alert(
+        t('wash_branch_gps_fail_title'),
+        Platform.OS === 'web' ? t('wash_branch_gps_fail_body_web') : t('wash_branch_gps_fail_body'),
+      );
     } finally {
       setMapLocating(false);
     }
@@ -712,12 +716,13 @@ export function WashOwnerPanel({ shop }: Props) {
     }
     setCapturingGps(true);
     try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-      await persistBranchCoordinates(lat, lng);
+      const coords = await getFastCurrentPosition();
+      await persistBranchCoordinates(coords.latitude, coords.longitude);
     } catch {
-      Alert.alert(t('wash_branch_gps_fail_title'), t('wash_branch_gps_fail_body'));
+      Alert.alert(
+        t('wash_branch_gps_fail_title'),
+        Platform.OS === 'web' ? t('wash_branch_gps_fail_body_web') : t('wash_branch_gps_fail_body'),
+      );
     } finally {
       setCapturingGps(false);
     }

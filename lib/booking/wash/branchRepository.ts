@@ -296,12 +296,25 @@ export async function updateShopLocationRemote(
 ): Promise<boolean> {
   const supabase = getSupabase();
   if (!supabase) return false;
+
+  const { data: rpcOk, error: rpcError } = await supabase.rpc('upsert_shop_map_location', {
+    p_shop_id: shopId,
+    p_latitude: latitude,
+    p_longitude: longitude,
+  });
+
+  if (!rpcError && rpcOk === true) return true;
+
   const { error } = await supabase
     .from('shops')
     .update({ latitude, longitude, updated_at: new Date().toISOString() })
     .eq('id', shopId);
-  if (error) console.warn('updateShopLocationRemote:', error.message);
-  return !error;
+
+  if (error) {
+    console.warn('updateShopLocationRemote:', rpcError?.message ?? error.message);
+    return false;
+  }
+  return true;
 }
 
 export async function saveBranchServicesRemote(

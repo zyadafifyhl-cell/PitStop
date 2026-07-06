@@ -247,7 +247,8 @@ export function CategoryShopsMap({
   const markerData = useMemo(
     () =>
       shops.map((shop) => ({
-        id: shop.id,
+        pinId: shop.pinId,
+        shopId: shop.id,
         lat: shop.latitude,
         lng: shop.longitude,
         label: locale === 'ar' ? shop.nameAr || shop.name : shop.name,
@@ -327,7 +328,7 @@ export function CategoryShopsMap({
           </div>`;
 
         marker.bindPopup(popupHtml);
-        marker.on('click', () => onShopPressRef.current(shop.id));
+        marker.on('click', () => onShopPressRef.current(shop.shopId));
         marker.addTo(layerGroup);
         bounds.extend([shop.lat, shop.lng]);
       }

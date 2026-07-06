@@ -12,6 +12,9 @@ import { handleBookingConfirmed } from '@/lib/booking/bookingLifecycle';
 import {
   applyCampaignPrice,
   computePlatformFee,
+  type CartLineItem,
+  computeBogoCartPrice,
+  resolveOfferType,
   PLATFORM_FEE_RATE,
 } from '@/lib/booking/offerPricing';
 import {
@@ -211,6 +214,10 @@ export type CreateBookingOptions = {
     discountAppliedEgp: number;
     finalAmountPaidEgp: number;
   };
+  /** Cart lines for same-cart BOGO re-validation on submit. */
+  cartLineItems?: CartLineItem[];
+  /** Pre-loyalty services subtotal before campaign discount. */
+  rawServicesTotalEgp?: number;
 };
 
 export type WalkInBookingInput = {
@@ -482,7 +489,12 @@ export async function createBooking(
   const branchId = input.branchId ? await resolveBranchIdForRemote(input.shopId, input.branchId) : undefined;
   const baseServicePriceEgp = Math.max(
     0,
-    Math.round((input.servicePriceEgp ?? defaultServicePriceEgp(input.shopType)) * 100) / 100,
+    Math.round(
+      (options?.rawServicesTotalEgp ??
+        input.servicePriceEgp ??
+        defaultServicePriceEgp(input.shopType)) *
+        100,
+    ) / 100,
   );
   let servicePriceEgp = baseServicePriceEgp;
   let resolvedOfferId = input.offerId;
@@ -490,15 +502,19 @@ export async function createBooking(
   if (input.offerId) {
     try {
       const offer = await validateOfferForBooking(input.shopId, input.offerId);
-      const doneCount =
-        offer.offerType === 'buy_x_get_y'
-          ? await countDoneBookingsForCustomerAtShop({
-              shopId: input.shopId,
-              customerId: input.customerId,
-              customerPhone: input.customerPhone,
-            })
-          : 0;
-      servicePriceEgp = applyCampaignPrice(baseServicePriceEgp, offer, doneCount);
+      const offerType = resolveOfferType(offer);
+      if (offerType === 'bogo' && options?.cartLineItems?.length) {
+        servicePriceEgp = computeBogoCartPrice(options.cartLineItems, offer).discountedEgp;
+      } else if (offerType === 'buy_x_get_y') {
+        const doneCount = await countDoneBookingsForCustomerAtShop({
+          shopId: input.shopId,
+          customerId: input.customerId,
+          customerPhone: input.customerPhone,
+        });
+        servicePriceEgp = applyCampaignPrice(baseServicePriceEgp, offer, doneCount);
+      } else {
+        servicePriceEgp = applyCampaignPrice(baseServicePriceEgp, offer, 0);
+      }
       resolvedOfferId = offer.id;
     } catch (error) {
       if (error instanceof OfferValidationError) {

@@ -12,7 +12,7 @@ type Props = {
   onDeployed?: () => void | Promise<void>;
 };
 
-const OFFER_TYPES: OfferType[] = ['percentage', 'flat_amount', 'buy_x_get_y'];
+const OFFER_TYPES: OfferType[] = ['percentage', 'flat_amount', 'buy_x_get_y', 'bogo'];
 
 export function MerchantCampaignForm({ shopId, onDeployed }: Props) {
   const theme = useAppTheme();
@@ -22,6 +22,8 @@ export function MerchantCampaignForm({ shopId, onDeployed }: Props) {
   const [offerType, setOfferType] = useState<OfferType>('percentage');
   const [discountValue, setDiscountValue] = useState('20');
   const [requiredWashCount, setRequiredWashCount] = useState('2');
+  const [buyQuantity, setBuyQuantity] = useState('1');
+  const [getFreeQuantity, setGetFreeQuantity] = useState('1');
   const [validDays, setValidDays] = useState('30');
   const [deploying, setDeploying] = useState(false);
 
@@ -42,7 +44,9 @@ export function MerchantCampaignForm({ shopId, onDeployed }: Props) {
             ? t('campaign_type_percentage')
             : type === 'flat_amount'
               ? t('campaign_type_flat')
-              : t('campaign_type_buy_x'),
+              : type === 'bogo'
+                ? t('campaign_type_bogo')
+                : t('campaign_type_buy_x'),
       })),
     [t],
   );
@@ -56,8 +60,10 @@ export function MerchantCampaignForm({ shopId, onDeployed }: Props) {
     const value = Number(discountValue);
     const days = Number(validDays);
     const buyCount = Number(requiredWashCount);
+    const buyQty = Number(buyQuantity);
+    const freeQty = Number(getFreeQuantity);
 
-    if (offerType !== 'buy_x_get_y' && (Number.isNaN(value) || value <= 0)) {
+    if (offerType !== 'buy_x_get_y' && offerType !== 'bogo' && (Number.isNaN(value) || value <= 0)) {
       userAlert(t('campaign_invalid_title'), t('campaign_invalid_body'));
       return;
     }
@@ -66,6 +72,13 @@ export function MerchantCampaignForm({ shopId, onDeployed }: Props) {
       return;
     }
     if (offerType === 'buy_x_get_y' && (Number.isNaN(buyCount) || buyCount < 1)) {
+      userAlert(t('campaign_invalid_title'), t('campaign_invalid_body'));
+      return;
+    }
+    if (
+      offerType === 'bogo' &&
+      (Number.isNaN(buyQty) || buyQty < 1 || Number.isNaN(freeQty) || freeQty < 1)
+    ) {
       userAlert(t('campaign_invalid_title'), t('campaign_invalid_body'));
       return;
     }
@@ -81,14 +94,18 @@ export function MerchantCampaignForm({ shopId, onDeployed }: Props) {
         title: title.trim(),
         description: description.trim(),
         offerType,
-        discountValue: offerType === 'buy_x_get_y' ? 0 : value,
+        discountValue: offerType === 'buy_x_get_y' || offerType === 'bogo' ? 0 : value,
         requiredWashCount: offerType === 'buy_x_get_y' ? buyCount : 0,
+        buyQuantity: offerType === 'bogo' ? buyQty : undefined,
+        getFreeQuantity: offerType === 'bogo' ? freeQty : undefined,
         validDays: days,
       });
       setTitle('');
       setDescription('');
       setDiscountValue('20');
       setRequiredWashCount('2');
+      setBuyQuantity('1');
+      setGetFreeQuantity('1');
       setValidDays('30');
       await onDeployed?.();
       userAlert(t('campaign_deploy_success_title'), t('campaign_deploy_success_body'));
@@ -171,6 +188,27 @@ export function MerchantCampaignForm({ shopId, onDeployed }: Props) {
           keyboardType="numeric"
           style={fieldStyle}
         />
+      ) : null}
+
+      {offerType === 'bogo' ? (
+        <>
+          <TextInput
+            value={buyQuantity}
+            onChangeText={setBuyQuantity}
+            placeholder={t('campaign_bogo_buy_placeholder')}
+            placeholderTextColor={theme.textDim}
+            keyboardType="numeric"
+            style={fieldStyle}
+          />
+          <TextInput
+            value={getFreeQuantity}
+            onChangeText={setGetFreeQuantity}
+            placeholder={t('campaign_bogo_free_placeholder')}
+            placeholderTextColor={theme.textDim}
+            keyboardType="numeric"
+            style={fieldStyle}
+          />
+        </>
       ) : null}
 
       <TextInput

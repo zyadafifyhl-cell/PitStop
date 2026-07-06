@@ -110,7 +110,7 @@ export type PartsOrder = {
   createdAt: string;
 };
 
-export type OfferType = 'percentage' | 'flat_amount' | 'buy_x_get_y';
+export type OfferType = 'percentage' | 'flat_amount' | 'buy_x_get_y' | 'bogo';
 
 export type ShopOffer = {
   id: string;
@@ -121,6 +121,10 @@ export type ShopOffer = {
   offerType: OfferType;
   discountValue: number;
   requiredWashCount: number;
+  /** Same-cart BOGO: paid units per promo group (e.g. 2 for Buy 2 Get 1). */
+  buyQuantity: number;
+  /** Same-cart BOGO: free units per complete group (e.g. 1). */
+  getFreeQuantity: number;
   expiresAt?: string | null;
   /** Legacy percentage field — kept for backward compatibility. */
   discountPercentage: number;

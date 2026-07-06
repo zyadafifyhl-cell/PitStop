@@ -25,7 +25,7 @@ export function CategoryShopsMap({ shops, locale, onShopPress }: Props) {
         const label = locale === 'ar' ? shop.nameAr || shop.name : shop.name;
         return (
           <Pressable
-            key={shop.id}
+            key={shop.pinId}
             onPress={() => onShopPress(shop.id)}
             style={[styles.row, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
             <Text style={[styles.title, { color: theme.text }]}>{label}</Text>

@@ -24,6 +24,8 @@ type DbOfferRow = {
   offer_type?: OfferType | null;
   discount_value?: number | string | null;
   required_wash_count?: number | null;
+  buy_quantity?: number | null;
+  get_free_quantity?: number | null;
   discount_percentage: number | string;
   start_date: string;
   end_date: string;
@@ -53,6 +55,8 @@ function mapDbOfferRow(row: DbOfferRow): ShopOffer {
     offerType,
     discountValue,
     requiredWashCount: Math.max(0, Number(row.required_wash_count ?? 0)),
+    buyQuantity: Math.max(0, Number(row.buy_quantity ?? 0)),
+    getFreeQuantity: Math.max(0, Number(row.get_free_quantity ?? 0)),
     expiresAt: row.expires_at ?? endDate,
     discountPercentage: normalizeOfferDiscount(Number(row.discount_percentage ?? discountValue)),
     startDate: row.start_date,
@@ -74,6 +78,8 @@ function normalizeCachedOffer(shopId: string, offer: ShopOffer): ShopOffer {
     offerType,
     discountValue,
     requiredWashCount: offer.requiredWashCount ?? 0,
+    buyQuantity: offer.buyQuantity ?? 0,
+    getFreeQuantity: offer.getFreeQuantity ?? 0,
     expiresAt: offer.expiresAt ?? endDate,
     discountPercentage:
       offerType === 'percentage'
@@ -276,6 +282,8 @@ export async function deployShopCampaign(input: {
   offerType: OfferType;
   discountValue: number;
   requiredWashCount?: number;
+  buyQuantity?: number;
+  getFreeQuantity?: number;
   validDays?: number;
   expiresAt?: string | null;
 }): Promise<ShopOffer> {
@@ -288,6 +296,10 @@ export async function deployShopCampaign(input: {
   const discountValue = Math.max(0, Number(input.discountValue) || 0);
   const requiredWashCount =
     offerType === 'buy_x_get_y' ? Math.max(1, Math.floor(input.requiredWashCount ?? 2)) : 0;
+  const buyQuantity =
+    offerType === 'bogo' ? Math.max(1, Math.floor(input.buyQuantity ?? 1)) : null;
+  const getFreeQuantity =
+    offerType === 'bogo' ? Math.max(1, Math.floor(input.getFreeQuantity ?? 1)) : null;
   const legacyDiscountPct = offerType === 'percentage' ? normalizeOfferDiscount(discountValue) : 0;
 
   const payload = {
@@ -298,6 +310,8 @@ export async function deployShopCampaign(input: {
     offer_type: offerType,
     discount_value: discountValue,
     required_wash_count: requiredWashCount,
+    buy_quantity: buyQuantity,
+    get_free_quantity: getFreeQuantity,
     discount_percentage: legacyDiscountPct,
     start_date: startDate,
     end_date: expiresAt,
@@ -325,6 +339,8 @@ export async function deployShopCampaign(input: {
     offerType,
     discountValue,
     requiredWashCount,
+    buyQuantity: buyQuantity ?? 0,
+    getFreeQuantity: getFreeQuantity ?? 0,
     expiresAt,
     discountPercentage: legacyDiscountPct,
     startDate,
