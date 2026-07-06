@@ -16,6 +16,8 @@ import {
   translate,
   tp,
 } from '@/lib/i18n/strings';
+import { syncCustomerPreferredLocaleRemote } from '@/lib/booking/customerLocaleRepository';
+import { getSupabase } from '@/lib/supabase/client';
 
 const STORAGE_KEY = '@pitstop/locale';
 
@@ -79,6 +81,15 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem(STORAGE_KEY, next);
     } catch {
       /* ignore */
+    }
+
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data } = await supabase.auth.getSession();
+      const userId = data.session?.user?.id;
+      if (userId) {
+        void syncCustomerPreferredLocaleRemote(userId, next);
+      }
     }
   }, []);
 

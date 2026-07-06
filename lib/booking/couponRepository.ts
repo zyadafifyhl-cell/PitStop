@@ -76,6 +76,19 @@ function isMissingColumnError(error: unknown, columnName: string): boolean {
   );
 }
 
+function isMissingCouponsTableError(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 404) return true;
+  const code = lowerText((error as { code?: string } | null)?.code);
+  const message = lowerText((error as { message?: string } | null)?.message);
+  return (
+    code === '42p01' ||
+    code === 'pgrst205' ||
+    message.includes('could not find the table') ||
+    (message.includes('relation') && message.includes('coupons'))
+  );
+}
+
 function isUniqueConstraintError(error: unknown): boolean {
   const message = lowerText((error as { message?: string } | null)?.message);
   const code = lowerText((error as { code?: string } | null)?.code);
@@ -119,7 +132,10 @@ async function couponUsageCount(couponId: string, userId?: string): Promise<numb
     .eq('coupon_id', couponId);
   if (userId) query = query.eq('user_id', userId);
   const { count, error } = await query;
-  if (error) return 0;
+  if (error) {
+    if (isMissingCouponsTableError(error)) return 0;
+    return 0;
+  }
   return count ?? 0;
 }
 
@@ -132,7 +148,13 @@ export async function listActiveCouponsForShop(shopId: string): Promise<WashCoup
     .eq('shop_id', shopId)
     .eq('is_active', true)
     .order('created_at', { ascending: false });
-  if (error || !data?.length) return [];
+  if (error) {
+    if (!isMissingCouponsTableError(error)) {
+      console.warn('[coupon.list]', error);
+    }
+    return [];
+  }
+  if (!data?.length) return [];
   const mapped = (data as CouponRow[]).map(mapCouponRow);
   const usageCounts = await Promise.all(mapped.map((row) => couponUsageCount(row.id)));
   return mapped.map((row, index) => ({ ...row, usageCount: usageCounts[index] ?? 0 }));
@@ -206,9 +228,12 @@ export async function saveCouponForShopRemote(input: {
         .eq('shop_id', input.shopId));
     }
     if (error) {
-      console.error('[coupon.update]', error);
+      if (!isMissingCouponsTableError(error)) {
+        console.error('[coupon.update]', error);
+      }
+      return false;
     }
-    return !error;
+    return true;
   }
 
   let { error } = await supabase.from('coupons').insert(payloadWithMin);
@@ -227,7 +252,10 @@ export async function saveCouponForShopRemote(input: {
       .eq('code', payloadBase.code));
   }
   if (error) {
-    console.error('[coupon.insert]', error);
+    if (isMissingCouponsTableError(error)) return false;
+    if (!isMissingCouponsTableError(error)) {
+      console.error('[coupon.insert]', error);
+    }
   }
   return !error;
 }
@@ -240,6 +268,7 @@ export async function setCouponActiveRemote(couponId: string, shopId: string, ac
     .update({ is_active: active, updated_at: new Date().toISOString() })
     .eq('id', couponId)
     .eq('shop_id', shopId);
+  if (error && isMissingCouponsTableError(error)) return false;
   return !error;
 }
 
@@ -247,6 +276,7 @@ export async function deleteCouponRemote(couponId: string, shopId: string): Prom
   const supabase = getSupabase();
   if (!supabase) return false;
   const { error } = await supabase.from('coupons').delete().eq('id', couponId).eq('shop_id', shopId);
+  if (error && isMissingCouponsTableError(error)) return false;
   return !error;
 }
 
@@ -267,7 +297,11 @@ export async function validateCouponForCheckout(input: {
     .eq('code', code)
     .eq('is_active', true)
     .maybeSingle();
-  if (error || !data) return { ok: false, reason: 'invalid_or_expired' };
+  if (error) {
+    if (isMissingCouponsTableError(error)) return { ok: false, reason: 'invalid_or_expired' };
+    return { ok: false, reason: 'invalid_or_expired' };
+  }
+  if (!data) return { ok: false, reason: 'invalid_or_expired' };
 
   const row = data as CouponRow;
   const today = nowYmd();
@@ -320,5 +354,6 @@ export async function registerCouponUsageRemote(input: {
     user_id: input.userId,
     booking_id: input.bookingId,
   });
+  if (error && isMissingCouponsTableError(error)) return false;
   return !error;
 }

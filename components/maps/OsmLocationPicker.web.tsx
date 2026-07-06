@@ -1,6 +1,8 @@
 import 'leaflet/dist/leaflet.css';
 import React, { useEffect, useMemo, useRef } from 'react';
 
+import { isMapAlive, safeRemoveMap } from '@/components/maps/leafletMapLifecycle';
+
 type Props = {
   initialLatitude: number;
   initialLongitude: number;
@@ -14,24 +16,27 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange,
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any | null>(null);
   const markerRef = useRef<any | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   const center = useMemo(() => ({ lat: initialLatitude, lng: initialLongitude }), [initialLatitude, initialLongitude]);
 
   useEffect(() => {
     const node = mapNodeRef.current;
-    if (!node || mapRef.current || typeof window === 'undefined') return;
+    if (!node || typeof window === 'undefined') return;
 
     let disposed = false;
     let localMap: any | null = null;
     let localOnMapClick: ((event: any) => void) | null = null;
+    const initialCenter = { lat: center.lat, lng: center.lng };
 
     void (async () => {
       const leaflet = await import('leaflet');
       const L = leaflet.default;
-      if (!L || disposed) return;
+      if (!L || disposed || !mapNodeRef.current) return;
 
       const map = L.map(node, {
-        center,
+        center: [initialCenter.lat, initialCenter.lng],
         zoom: 14,
         zoomControl: true,
         attributionControl: true,
@@ -44,7 +49,7 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange,
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(map);
 
-      const marker = L.circleMarker(center, {
+      const marker = L.circleMarker([initialCenter.lat, initialCenter.lng], {
         radius: 8,
         color: '#F97316',
         fillColor: '#F97316',
@@ -54,9 +59,10 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange,
       markerRef.current = marker;
 
       const onMapClick = (event: any) => {
+        if (!isMapAlive(map)) return;
         const { lat, lng } = event.latlng;
         marker.setLatLng([lat, lng]);
-        onChange(lat, lng);
+        onChangeRef.current(lat, lng);
       };
       localOnMapClick = onMapClick;
       map.on('click', onMapClick);
@@ -65,20 +71,29 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange,
     return () => {
       disposed = true;
       if (localMap && localOnMapClick) {
-        localMap.off('click', localOnMapClick);
+        try {
+          localMap.off('click', localOnMapClick);
+        } catch {
+          // Ignore listener cleanup races.
+        }
       }
-      if (localMap) {
-        localMap.remove();
-      }
+      safeRemoveMap(localMap);
       mapRef.current = null;
       markerRef.current = null;
     };
-  }, [center, onChange]);
+  }, []);
 
   useEffect(() => {
-    if (!mapRef.current || !markerRef.current) return;
-    mapRef.current.setView([center.lat, center.lng], mapRef.current.getZoom(), { animate: false });
-    markerRef.current.setLatLng([center.lat, center.lng]);
+    const map = mapRef.current;
+    const marker = markerRef.current;
+    if (!isMapAlive(map) || !marker) return;
+
+    try {
+      map.setView([center.lat, center.lng], map.getZoom(), { animate: false });
+      marker.setLatLng([center.lat, center.lng]);
+    } catch {
+      // Ignore updates if Leaflet is mid-teardown.
+    }
   }, [center]);
 
   return (

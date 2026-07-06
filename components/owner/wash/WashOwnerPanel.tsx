@@ -3,7 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -67,8 +67,13 @@ import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopReview, ShopService } from '@/lib/booking/types';
 import { computeWashAnalytics } from '@/lib/booking/wash/washAnalytics';
 import {
+  getBranchWorkspaceCache,
+  getShopWorkspaceCache,
+  setBranchWorkspaceCache,
+  setShopWorkspaceCache,
+} from '@/lib/booking/wash/washBranchWorkspaceCache';
+import {
   addWashBranch,
-  getActiveWashBranch,
   getWashBranchState,
   saveWashBranchServices,
   saveWashBranchStatus,
@@ -323,9 +328,21 @@ export function WashOwnerPanel({ shop }: Props) {
   const [managerPassword, setManagerPassword] = useState('');
   const [managerBusy, setManagerBusy] = useState(false);
   const [managerResolved, setManagerResolved] = useState(false);
-  const [branchSwitching, setBranchSwitching] = useState(false);
   const [pendingBranchSyncId, setPendingBranchSyncId] = useState<string | null>(null);
   const [branchMetaLoading, setBranchMetaLoading] = useState(false);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const hasHydratedWorkspaceRef = useRef(false);
+  const branchStateRef = useRef<WashBranchState | null>(null);
+  const pendingBranchSyncRef = useRef<string | null>(null);
+  const workspaceInitInFlightRef = useRef(false);
+
+  useEffect(() => {
+    branchStateRef.current = branchState;
+  }, [branchState]);
+
+  useEffect(() => {
+    pendingBranchSyncRef.current = pendingBranchSyncId;
+  }, [pendingBranchSyncId]);
   const [walkInModalVisible, setWalkInModalVisible] = useState(false);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
   const [adminTab, setAdminTab] = useState<'dashboard' | 'profile' | 'operations' | 'management'>('dashboard');
@@ -367,43 +384,116 @@ export function WashOwnerPanel({ shop }: Props) {
     [formSetters],
   );
 
-  const refreshAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [state, branch, bookingRows, reviewRows, couponRows] = await Promise.all([
-        getWashBranchState(shop, branchCtx),
-        getActiveWashBranch(shop, branchCtx),
-        listBookingsForShop(shop.id),
-        listShopReviews(shop.id),
-        listActiveCouponsForShop(shop.id),
+  const fetchBranchManagementMeta = useCallback(
+    async (branchId: string) => {
+      const employeePromise = isUuid(branchId) ? listBranchEmployeesRemote(branchId) : Promise.resolve([]);
+      const [employeeRows, dedicatedManagerRow, anyManagerExists] = await Promise.all([
+        employeePromise,
+        fetchBranchManagerRemote(branchId, shop.id),
+        isOwner ? hasAnyBranchManagerRemote(shop.id) : Promise.resolve(false),
       ]);
-      const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
-      const branchWithCoupons = { ...branch, coupons: couponRows };
-      const stateWithCoupons = {
-        ...state,
-        branches: state.branches.map((row) =>
-          row.id === branch.id ? { ...row, coupons: couponRows } : row,
-        ),
+      return {
+        employees: employeeRows,
+        branchManager: dedicatedManagerRow,
+        hasDedicatedBranchManager: !!dedicatedManagerRow,
+        hasAnyBranchManager: anyManagerExists,
       };
-      setBranchState(stateWithCoupons);
-      syncBranchForms(branchWithCoupons);
-      setBookings(scopedBookings);
-      setReviews(reviewRows);
-      await orderNotifier.refresh();
-      const stats = await computeWashAnalytics(shop.id, scopedBookings, {
-        branchId: branch?.id,
-        branchServices: branch?.services ?? [],
-        locale,
-        noServiceDataLabel: t('wash_analytics_no_service_data'),
-      });
-      setAnalytics(stats);
-    } finally {
-      setLoading(false);
-    }
-  }, [shop, branchCtx, shopStaff, syncBranchForms, locale, t, orderNotifier.refresh]);
+    },
+    [isOwner, shop.id],
+  );
+
+  const applyBranchWorkspaceCache = useCallback(
+    (branchId: string): boolean => {
+      const cached = getBranchWorkspaceCache(shop.id, branchId);
+      if (!cached) return false;
+
+      const shopCached = getShopWorkspaceCache(shop.id);
+      setBranchState((prev) => (prev ? { ...prev, activeBranchId: branchId } : prev));
+      syncBranchForms(cached.branch);
+      setAnalytics(cached.analytics);
+      if (shopCached) {
+        setBookings(shopCached.bookings);
+        setReviews(shopCached.reviews);
+      }
+      setEmployees(cached.employees);
+      setBranchManager(cached.branchManager);
+      setHasDedicatedBranchManager(cached.hasDedicatedBranchManager);
+      setHasAnyBranchManager(cached.hasAnyBranchManager);
+      setManagerResolved(true);
+      setBranchMetaLoading(false);
+      return true;
+    },
+    [shop.id, syncBranchForms],
+  );
+
+  const refreshAll = useCallback(
+    async (options?: { silent?: boolean; branchId?: string }) => {
+      const silent = options?.silent ?? false;
+      const targetBranchId =
+        options?.branchId ?? branchStateRef.current?.activeBranchId ?? activeBranch?.id ?? undefined;
+      if (!silent) setLoading(true);
+      try {
+        const [state, bookingRows, reviewRows, couponRows] = await Promise.all([
+          getWashBranchState(shop, branchCtx, { preferredActiveBranchId: targetBranchId }),
+          listBookingsForShop(shop.id),
+          listShopReviews(shop.id),
+          listActiveCouponsForShop(shop.id),
+        ]);
+        const resolvedBranchId = targetBranchId ?? state.activeBranchId;
+        const branch = state.branches.find((b) => b.id === resolvedBranchId);
+        if (!branch) return;
+
+        const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
+        const branchWithCoupons = { ...branch, coupons: couponRows };
+        const stateWithCoupons = {
+          ...state,
+          activeBranchId: resolvedBranchId,
+          branches: state.branches.map((row) =>
+            row.id === branch.id ? { ...row, coupons: couponRows } : row,
+          ),
+        };
+
+        const stats = await computeWashAnalytics(shop.id, scopedBookings, {
+          branchId: branch.id,
+          branchServices: branch.services ?? [],
+          locale,
+          noServiceDataLabel: t('wash_analytics_no_service_data'),
+        });
+        const meta = await fetchBranchManagementMeta(branch.id);
+
+        setBranchState(stateWithCoupons);
+        syncBranchForms(branchWithCoupons);
+        setBookings(scopedBookings);
+        setReviews(reviewRows);
+        setAnalytics(stats);
+        setEmployees(meta.employees);
+        setBranchManager(meta.branchManager);
+        setHasDedicatedBranchManager(meta.hasDedicatedBranchManager);
+        setHasAnyBranchManager(meta.hasAnyBranchManager);
+        setManagerResolved(true);
+        setBranchMetaLoading(false);
+
+        setShopWorkspaceCache(shop.id, { bookings: scopedBookings, reviews: reviewRows });
+        setBranchWorkspaceCache(shop.id, branch.id, {
+          branch: branchWithCoupons,
+          analytics: stats,
+          employees: meta.employees,
+          branchManager: meta.branchManager,
+          hasDedicatedBranchManager: meta.hasDedicatedBranchManager,
+          hasAnyBranchManager: meta.hasAnyBranchManager,
+        });
+
+        await orderNotifier.refresh();
+        setWorkspaceReady(true);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [shop, branchCtx, shopStaff, syncBranchForms, locale, t, orderNotifier.refresh, fetchBranchManagementMeta, activeBranch?.id],
+  );
 
   useEffect(() => {
-    if (!activeBranch) {
+    if (!activeBranch?.id) {
       setEmployees([]);
       setBranchManager(null);
       setHasDedicatedBranchManager(false);
@@ -412,24 +502,28 @@ export function WashOwnerPanel({ shop }: Props) {
       setBranchMetaLoading(false);
       return;
     }
+
+    const cached = getBranchWorkspaceCache(shop.id, activeBranch.id);
+    if (cached) {
+      setEmployees(cached.employees);
+      setBranchManager(cached.branchManager);
+      setHasDedicatedBranchManager(cached.hasDedicatedBranchManager);
+      setHasAnyBranchManager(cached.hasAnyBranchManager);
+      setManagerResolved(true);
+      setBranchMetaLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setBranchMetaLoading(true);
     (async () => {
       try {
-        const employeePromise = isUuid(activeBranch.id)
-          ? listBranchEmployeesRemote(activeBranch.id)
-          : Promise.resolve([]);
-        const [employeeRows, dedicatedManagerRow, anyManagerExists] = await Promise.all([
-          employeePromise,
-          fetchBranchManagerRemote(activeBranch.id, shop.id),
-          isOwner ? hasAnyBranchManagerRemote(shop.id) : Promise.resolve(false),
-        ]);
+        const meta = await fetchBranchManagementMeta(activeBranch.id);
         if (cancelled) return;
-        setEmployees(employeeRows);
-        setHasDedicatedBranchManager(!!dedicatedManagerRow);
-        setHasAnyBranchManager(anyManagerExists);
-        // Management UI must show only a dedicated branch manager (never owner fallback).
-        setBranchManager(dedicatedManagerRow);
+        setEmployees(meta.employees);
+        setHasDedicatedBranchManager(meta.hasDedicatedBranchManager);
+        setHasAnyBranchManager(meta.hasAnyBranchManager);
+        setBranchManager(meta.branchManager);
         setManagerResolved(true);
       } finally {
         if (!cancelled) setBranchMetaLoading(false);
@@ -438,24 +532,46 @@ export function WashOwnerPanel({ shop }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [activeBranch?.id, isOwner, shop.id]);
+  }, [activeBranch?.id, isOwner, shop.id, fetchBranchManagementMeta]);
 
   useFocusEffect(
     useCallback(() => {
-      refreshAll();
-    }, [refreshAll]),
+      if (workspaceInitInFlightRef.current) return;
+      workspaceInitInFlightRef.current = true;
+      const branchId = branchStateRef.current?.activeBranchId;
+      const hasCache = branchId ? !!getBranchWorkspaceCache(shop.id, branchId) : false;
+      void refreshAll({
+        silent: hasHydratedWorkspaceRef.current || hasCache,
+        branchId,
+      }).finally(() => {
+        workspaceInitInFlightRef.current = false;
+        hasHydratedWorkspaceRef.current = true;
+      });
+    }, [refreshAll, shop.id]),
   );
 
   useEffect(() => {
     if (!pendingBranchSyncId) return;
+    if (
+      pendingBranchSyncId === branchState?.activeBranchId &&
+      pendingBranchSyncId === activeBranch?.id
+    ) {
+      setPendingBranchSyncId(null);
+      return;
+    }
+
     let cancelled = false;
+    const branchId = pendingBranchSyncId;
     (async () => {
       try {
-        await setActiveWashBranch(shop, pendingBranchSyncId, branchCtx);
-        await refreshAll();
+        const nextState = await setActiveWashBranch(shop, branchId, branchCtx);
+        if (cancelled) return;
+        setBranchState(nextState);
+        const branch = nextState.branches.find((row) => row.id === branchId);
+        if (branch) syncBranchForms(branch);
+        await refreshAll({ silent: true, branchId });
       } finally {
         if (!cancelled) {
-          setBranchSwitching(false);
           setPendingBranchSyncId(null);
         }
       }
@@ -463,7 +579,7 @@ export function WashOwnerPanel({ shop }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [pendingBranchSyncId, shop, branchCtx, refreshAll]);
+  }, [pendingBranchSyncId, shop, branchCtx, refreshAll, syncBranchForms]);
 
   const fieldStyle = [styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }];
 
@@ -615,9 +731,8 @@ export function WashOwnerPanel({ shop }: Props) {
   }
 
   async function onSelectBranch(branchId: string) {
-    if (branchId === branchState?.activeBranchId) return;
-    setManagerResolved(false);
-    setBranchSwitching(true);
+    if (branchId === branchState?.activeBranchId && branchId === activeBranch?.id) return;
+    if (pendingBranchSyncRef.current === branchId) return;
 
     const optimisticBranch = branchState?.branches.find((branch) => branch.id === branchId);
     if (optimisticBranch) {
@@ -629,6 +744,10 @@ export function WashOwnerPanel({ shop }: Props) {
             }
           : prev,
       );
+    }
+
+    const cacheHit = applyBranchWorkspaceCache(branchId);
+    if (!cacheHit && optimisticBranch) {
       syncBranchForms(optimisticBranch);
       void computeWashAnalytics(shop.id, bookings, {
         branchId: optimisticBranch.id,
@@ -638,6 +757,10 @@ export function WashOwnerPanel({ shop }: Props) {
       }).then((stats) => {
         setAnalytics(stats);
       });
+      if (isUuid(branchId)) {
+        setBranchMetaLoading(true);
+        setManagerResolved(false);
+      }
     }
 
     setPendingBranchSyncId(branchId);
@@ -1462,6 +1585,14 @@ export function WashOwnerPanel({ shop }: Props) {
     { id: 'management' as const, labelKey: 'wash_tab_management' as const, icon: 'users' as const },
   ];
 
+  if (!workspaceReady) {
+    return (
+      <View style={[styles.container, styles.workspaceBoot, { backgroundColor: theme.bg }]}>
+        <ActivityIndicator color={theme.accent} size="large" />
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
@@ -1566,14 +1697,6 @@ export function WashOwnerPanel({ shop }: Props) {
                         <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
                       </Pressable>
                     </ScrollView>
-                    {branchSwitching ? (
-                      <View style={styles.inlineLoadingRow}>
-                        <ActivityIndicator size="small" color={theme.accent} />
-                        <Text style={[styles.inlineLoadingText, { color: theme.textMuted }]}>
-                          {t('wash_branch_select_title')}...
-                        </Text>
-                      </View>
-                    ) : null}
                   </View>
                 ) : null}
 
@@ -2821,6 +2944,10 @@ const styles = StyleSheet.create({
   reportIframeWrap: { flex: 1, minHeight: 0 },
   container: {
     flex: 1,
+  },
+  workspaceBoot: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContainer: {
     flex: 1,

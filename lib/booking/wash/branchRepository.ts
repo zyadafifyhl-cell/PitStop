@@ -171,6 +171,7 @@ async function fetchServicesForBranches(branchIds: string[]): Promise<Map<string
 export async function fetchWashBranchStateFromRemote(
   shop: Shop,
   staff: ShopStaffUser,
+  preferredActiveBranchId?: string,
 ): Promise<WashBranchState | null> {
   if (!isSupabaseConfigured()) return null;
   const supabase = getSupabase();
@@ -197,14 +198,12 @@ export async function fetchWashBranchStateFromRemote(
   let activeBranchId =
     staff.role === 'branch_manager' && staff.branchId
       ? staff.branchId
-      : (await getPersistedActiveBranchId(shop.id)) ?? branches.find((b) => b.id)?.id ?? branches[0].id;
+      : preferredActiveBranchId && branches.some((b) => b.id === preferredActiveBranchId)
+        ? preferredActiveBranchId
+        : (await getPersistedActiveBranchId(shop.id)) ?? branches.find((b) => b.id)?.id ?? branches[0].id;
 
   if (!branches.some((b) => b.id === activeBranchId)) {
     activeBranchId = branches[0]?.id ?? activeBranchId;
-  }
-
-  if (staff.role === 'owner') {
-    await writeActiveBranchId(shop.id, activeBranchId);
   }
 
   return {
@@ -499,26 +498,46 @@ export async function fetchDefaultBranchCoordinates(
 
 /** Default branch profile for customer-facing shop pages (wash). */
 export async function fetchDefaultBranchProfile(shopId: string): Promise<WashBranch | null> {
+  const grouped = await fetchDefaultBranchProfilesForShops([shopId]);
+  return grouped[shopId] ?? null;
+}
+
+/** Default branch profiles for many wash shops in one Supabase round-trip. */
+export async function fetchDefaultBranchProfilesForShops(
+  shopIds: string[],
+): Promise<Record<string, WashBranch>> {
+  const unique = [...new Set(shopIds.filter(Boolean))];
+  const result: Record<string, WashBranch> = {};
+  if (!unique.length) return result;
+
   const supabase = getSupabase();
-  if (!supabase) return null;
+  if (!supabase) return result;
 
   const response = await withTimeout(
     supabase
       .from('shop_branches')
       .select('*')
-      .eq('shop_id', shopId)
+      .in('shop_id', unique)
       .eq('is_active', true)
       .order('is_default', { ascending: false })
-      .order('sort_order', { ascending: true })
-      .limit(1)
-      .maybeSingle(),
+      .order('sort_order', { ascending: true }),
     null,
   );
 
-  if (!response || response.error || !response.data) return null;
-  const row = response.data as BranchRow;
-  const serviceMap = await fetchServicesForBranches([row.id]);
-  return mapBranchRow(row, serviceMap.get(row.id) ?? []);
+  if (!response || response.error || !response.data?.length) return result;
+
+  const rowByShop = new Map<string, BranchRow>();
+  for (const row of response.data as BranchRow[]) {
+    if (!rowByShop.has(row.shop_id)) rowByShop.set(row.shop_id, row);
+  }
+
+  const branchIds = [...rowByShop.values()].map((row) => row.id);
+  const serviceMap = await fetchServicesForBranches(branchIds);
+
+  for (const [shopId, row] of rowByShop) {
+    result[shopId] = mapBranchRow(row, serviceMap.get(row.id) ?? []);
+  }
+  return result;
 }
 
 /** Specific branch profile for customer-facing pages (wash). */

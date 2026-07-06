@@ -1,8 +1,15 @@
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
+import {
+  inferLocaleFromPhone,
+  resolveCustomerLocalesBatch,
+} from '@/lib/booking/customerLocaleRepository';
+import { getShopById } from '@/lib/booking/catalogRepository';
+import { formatBookingDateTime } from '@/lib/booking/format';
 import { mapBookingRowFromRemote } from '@/lib/notifications/notificationService';
 import { syncLocalBookingsFromRemote } from '@/lib/booking/storage';
 import type { Booking } from '@/lib/booking/types';
 import type { WashShopStatus } from '@/lib/booking/wash/types';
+import { tp, translate, type Locale } from '@/lib/i18n/strings';
 import { getSupabase } from '@/lib/supabase/client';
 
 type BookingClosureRow = {
@@ -27,6 +34,25 @@ type BookingClosureRow = {
 
 function mapClosureRow(row: BookingClosureRow): Booking {
   return mapBookingRowFromRemote(row);
+}
+
+function customerLookupKey(booking: Booking): string {
+  return booking.customerId?.trim() || `phone:${booking.customerPhone.trim()}`;
+}
+
+function buildShopReopenedNotificationContent(booking: Booking, locale: Locale) {
+  const shop = getShopById(booking.shopId);
+  const shopName = shop ? (locale === 'ar' ? shop.nameAr : shop.name) : booking.shopId;
+  const when = formatBookingDateTime(booking.scheduledAt, locale);
+
+  return {
+    locale,
+    message: tp(locale, 'customer_notification_booking_shop_reopened', {
+      shop: shopName,
+      when,
+    }),
+    statusLabel: translate(locale, 'customer_notification_status_reopened'),
+  };
 }
 
 /** Suspend future confirmed bookings for a branch entering closed/vacation. */
@@ -94,14 +120,25 @@ export async function notifyCustomersShopReopened(bookings: Booking[]): Promise<
 
   const deduped = new Map<string, Booking>();
   for (const booking of bookings) {
-    const key = booking.customerId?.trim() || booking.customerPhone.trim();
-    if (!key) continue;
+    const key = customerLookupKey(booking);
+    if (!key || key === 'phone:') continue;
     if (!deduped.has(key)) deduped.set(key, booking);
   }
 
+  const localeMap = await resolveCustomerLocalesBatch(
+    [...deduped.values()].map((booking) => ({
+      customerId: booking.customerId,
+      customerPhone: booking.customerPhone,
+    })),
+  );
+
   await Promise.all(
-    [...deduped.values()].map((booking) =>
-      pushCustomerNotification({
+    [...deduped.values()].map((booking) => {
+      const key = customerLookupKey(booking);
+      const locale = localeMap.get(key) ?? inferLocaleFromPhone(booking.customerPhone);
+      const content = buildShopReopenedNotificationContent(booking, locale);
+
+      return pushCustomerNotification({
         customerId: booking.customerId,
         customerPhone: booking.customerPhone,
         kind: 'booking_shop_reopened',
@@ -109,8 +146,11 @@ export async function notifyCustomersShopReopened(bookings: Booking[]): Promise<
         bookingId: booking.id,
         scheduledAt: booking.scheduledAt,
         highPriority: true,
-      }),
-    ),
+        locale: content.locale,
+        message: content.message,
+        statusLabel: content.statusLabel,
+      });
+    }),
   );
 }
 

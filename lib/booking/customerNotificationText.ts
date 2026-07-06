@@ -20,11 +20,22 @@ export function formatCustomerNotificationLine(
   locale: Locale,
   messages: NotificationMessages,
 ): string {
+  if (notification.message?.trim()) {
+    return notification.message;
+  }
+
+  const effectiveLocale = notification.locale ?? locale;
   const shop = getShopById(notification.shopId);
-  const shopName = shop ? (locale === 'ar' ? shop.nameAr : shop.name) : notification.shopId;
+  const shopName = shop
+    ? effectiveLocale === 'ar'
+      ? shop.nameAr
+      : shop.name
+    : notification.shopId;
   const when = notification.scheduledAt
-    ? formatBookingDateTime(notification.scheduledAt, locale)
-    : new Date(notification.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG');
+    ? formatBookingDateTime(notification.scheduledAt, effectiveLocale)
+    : new Date(notification.createdAt).toLocaleString(
+        effectiveLocale === 'ar' ? 'ar-EG' : 'en-EG',
+      );
 
   if (notification.kind === 'booking_approved') {
     return messages.bookingApproved.replace('{shop}', shopName).replace('{when}', when);

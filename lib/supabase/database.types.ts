@@ -20,6 +20,7 @@ export type DbUser = {
   role: DbUserRole;
   shop_id?: string | null;
   branch_id?: string | null;
+  preferred_locale?: 'en' | 'ar' | null;
   is_active: boolean;
   created_by?: string | null;
   created_at: string;

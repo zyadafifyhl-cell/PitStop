@@ -1,6 +1,7 @@
 import type { ShopReview } from '@/lib/booking/types';
 import {
   addShopReviewSynced,
+  fetchShopRatingSummariesRemote,
   getCustomerShopReviewSynced,
   listShopReviewsSynced,
   setReviewHiddenSynced,
@@ -68,8 +69,32 @@ export async function getShopAverageRating(shopId: string): Promise<ShopRatingSu
 
 export async function getShopAverageRatings(shopIds: string[]): Promise<Record<string, ShopRatingSummary>> {
   const unique = [...new Set(shopIds.filter(Boolean))];
-  const entries = await Promise.all(
-    unique.map(async (shopId) => [shopId, await getShopAverageRating(shopId)] as const),
-  );
-  return Object.fromEntries(entries);
+  const summaries: Record<string, ShopRatingSummary> = {};
+  for (const shopId of unique) summaries[shopId] = { average: null, count: 0 };
+  if (!unique.length) return summaries;
+
+  const remote = await fetchShopRatingSummariesRemote(unique);
+  const missing: string[] = [];
+  for (const shopId of unique) {
+    const hit = remote[shopId];
+    if (hit && hit.count > 0) {
+      summaries[shopId] = hit;
+    } else {
+      missing.push(shopId);
+    }
+  }
+
+  if (missing.length) {
+    const localEntries = await Promise.all(
+      missing.map(async (shopId) => {
+        const reviews = await listShopReviews(shopId);
+        return [shopId, computeShopRatingSummary(reviews)] as const;
+      }),
+    );
+    for (const [shopId, summary] of localEntries) {
+      if (summary.count > 0) summaries[shopId] = summary;
+    }
+  }
+
+  return summaries;
 }

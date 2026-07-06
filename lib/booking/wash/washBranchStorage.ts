@@ -119,9 +119,13 @@ async function syncActiveBranchExtras(shop: Shop, state: WashBranchState): Promi
   if (branch) await syncWashBranchToShopExtras(shop.id, branch);
 }
 
-export async function getWashBranchState(shop: Shop, ctx?: WashBranchContext): Promise<WashBranchState> {
+export async function getWashBranchState(
+  shop: Shop,
+  ctx?: WashBranchContext,
+  options?: { preferredActiveBranchId?: string },
+): Promise<WashBranchState> {
   if (ctx?.staff) {
-    const remote = await fetchWashBranchStateFromRemote(shop, ctx.staff);
+    const remote = await fetchWashBranchStateFromRemote(shop, ctx.staff, options?.preferredActiveBranchId);
     if (remote) {
       await cacheState(shop.id, remote);
       return remote;
@@ -154,14 +158,25 @@ export async function setActiveWashBranch(
   branchId: string,
   ctx?: WashBranchContext,
 ): Promise<WashBranchState> {
-  const state = await getWashBranchState(shop, ctx);
-  if (!state.branches.some((b) => b.id === branchId)) return state;
-  state.activeBranchId = branchId;
-  state.updatedAt = nowIso();
-  await cacheState(shop.id, state);
   if (ctx?.staff.role === 'owner') {
     await persistActiveBranchRemote(shop.id, branchId);
   }
+
+  const map = await readMap();
+  const existing = map[shop.id];
+  const base =
+    existing?.branches?.length
+      ? existing
+      : await getWashBranchState(shop, ctx, { preferredActiveBranchId: branchId });
+
+  if (!base.branches.some((b) => b.id === branchId)) return base;
+
+  const state: WashBranchState = {
+    ...base,
+    activeBranchId: branchId,
+    updatedAt: nowIso(),
+  };
+  await cacheState(shop.id, state);
   await syncActiveBranchExtras(shop, state);
   return state;
 }

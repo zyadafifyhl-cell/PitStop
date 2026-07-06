@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +18,7 @@ import {
 
 import { AppTheme } from '@/constants/Theme';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
+import { MerchantTermsBody } from '@/components/legal/MerchantTermsBody';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -49,7 +51,7 @@ const OWNER_SHOP_TYPES: ShopType[] = ['wash', 'maintenance', 'parts', 'accessori
 export default function WelcomeScreen() {
   const { focus, returnTo, pending } = useLocalSearchParams<{ focus?: string; returnTo?: string; pending?: string }>();
   const router = useRouter();
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale, setLocale, isRTL } = useI18n();
   const theme = useAppTheme();
   const { login: loginCustomer, register, resetPassword, continueAsGuest, busy: customerBusy } = useCustomerAuth();
   const {
@@ -73,6 +75,8 @@ export default function WelcomeScreen() {
   const [shopAddress, setShopAddress] = useState('');
   const [shopType, setShopType] = useState<ShopType>('wash');
   const [shopAreaId, setShopAreaId] = useState('maadi');
+  const [ownerTermsAccepted, setOwnerTermsAccepted] = useState(false);
+  const [ownerTermsModalOpen, setOwnerTermsModalOpen] = useState(false);
   const [formMessage, setFormMessage] = useState('');
   const [submitPhase, setSubmitPhase] = useState<SubmitPhase>('idle');
   const [registerVehicles, setRegisterVehicles] = useState<RegisterVehicleDraft[]>([newVehicleDraft()]);
@@ -200,6 +204,11 @@ export default function WelcomeScreen() {
           userAlert(t('merchant_password_mismatch_title'), t('merchant_password_mismatch_body'));
           return;
         }
+        if (!ownerTermsAccepted) {
+          setFormMessage(t('owner_register_terms_required_body'));
+          userAlert(t('owner_register_terms_required_title'), t('owner_register_terms_required_body'));
+          return;
+        }
         if (!shopName.trim() || !shopAddress.trim() || !name.trim()) {
           setFormMessage(t('owner_register_invalid'));
           userAlert(t('owner_register_fail_title'), t('owner_register_invalid'));
@@ -284,6 +293,7 @@ export default function WelcomeScreen() {
     setConfirmPassword('');
     setShopType('wash');
     setShopAreaId('maadi');
+    setOwnerTermsAccepted(false);
   }
 
   function finishOwnerRegistration() {
@@ -298,6 +308,7 @@ export default function WelcomeScreen() {
   function toggleOwnerRegister() {
     setFormMessage('');
     setConfirmPassword('');
+    setOwnerTermsAccepted(false);
     setIsOwnerRegister((value) => !value);
   }
 
@@ -625,6 +636,26 @@ export default function WelcomeScreen() {
                       onChangeText={setConfirmPassword}
                       style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
                     />
+                    <Pressable
+                      onPress={() => setOwnerTermsAccepted((value) => !value)}
+                      style={[styles.termsRow, isRTL && styles.termsRowRtl]}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: ownerTermsAccepted }}>
+                      <View
+                        style={[
+                          styles.termsCheckbox,
+                          { borderColor: theme.border, backgroundColor: theme.bgElevated },
+                          ownerTermsAccepted && { backgroundColor: ownerAccent, borderColor: ownerAccent },
+                        ]}>
+                        {ownerTermsAccepted ? <FontAwesome name="check" size={12} color={theme.onAccent} /> : null}
+                      </View>
+                      <Text style={[styles.termsLabel, { color: theme.text }, isRTL && styles.textRtl]}>
+                        {t('owner_register_terms_checkbox')}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => setOwnerTermsModalOpen(true)} style={styles.termsViewLink}>
+                      <Text style={[styles.termsViewText, { color: theme.warm }]}>{t('owner_register_terms_view')}</Text>
+                    </Pressable>
                   </>
                 ) : null}
                 <Pressable
@@ -676,6 +707,24 @@ export default function WelcomeScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        visible={ownerTermsModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setOwnerTermsModalOpen(false)}>
+        <View style={styles.termsModalOverlay}>
+          <View style={[styles.termsModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ScrollView contentContainerStyle={styles.termsModalScroll}>
+              <MerchantTermsBody theme={theme} t={t} isRTL={isRTL} />
+            </ScrollView>
+            <Pressable
+              onPress={() => setOwnerTermsModalOpen(false)}
+              style={[styles.termsModalCloseBtn, { backgroundColor: ownerAccent }]}>
+              <Text style={[styles.termsModalCloseText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -814,4 +863,40 @@ const styles = StyleSheet.create({
   vehicleRemoveBtn: { padding: 4 },
   addVehicleBtn: { alignSelf: 'flex-start', paddingVertical: 4 },
   addVehicleText: { fontSize: 13, fontWeight: '700' },
+  termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
+  termsRowRtl: { flexDirection: 'row-reverse' },
+  termsCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  termsLabel: { flex: 1, fontSize: 13, lineHeight: 20, fontWeight: '600' },
+  textRtl: { textAlign: 'right' },
+  termsViewLink: { alignSelf: 'flex-start', marginBottom: 8, paddingVertical: 2 },
+  termsViewText: { fontSize: 13, fontWeight: '800' },
+  termsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+    padding: 16,
+  },
+  termsModalCard: {
+    borderWidth: 1,
+    borderRadius: 20,
+    maxHeight: '82%',
+    overflow: 'hidden',
+  },
+  termsModalScroll: { padding: 18, paddingBottom: 8 },
+  termsModalCloseBtn: {
+    margin: 16,
+    marginTop: 8,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  termsModalCloseText: { fontSize: 15, fontWeight: '800' },
 });

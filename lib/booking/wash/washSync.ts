@@ -28,6 +28,45 @@ export function resolveCustomerWashShopStatus(branch: WashBranch): WashShopStatu
   return 'open';
 }
 
+/** In-memory merge for list screens — avoids per-shop AsyncStorage writes. */
+export function mergeWashBranchIntoExtras(extras: ShopExtras, branch: WashBranch): ShopExtras {
+  const washShopStatus = resolveCustomerWashShopStatus(branch);
+  const customerServices: ShopService[] = (branch.services ?? [])
+    .filter((service) => service.active !== false && service.visible !== false)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  return {
+    ...extras,
+    profileName: branch.profileName ?? extras.profileName,
+    profileNameAr: branch.profileNameAr ?? extras.profileNameAr,
+    profileAddress: branch.profileAddress ?? extras.profileAddress,
+    profileAddressAr: branch.profileAddressAr ?? extras.profileAddressAr,
+    profilePhone: branch.profilePhone ?? extras.profilePhone,
+    profileEmail: branch.profileEmail ?? extras.profileEmail,
+    moreInfo: branch.moreInfo ?? extras.moreInfo,
+    moreInfoAr: branch.moreInfoAr ?? extras.moreInfoAr,
+    profileImageUrl: branch.profileImageUrl ?? extras.profileImageUrl,
+    imageUrls: branch.imageUrls?.length ? branch.imageUrls : extras.imageUrls,
+    servicePriceEgp: branch.servicePriceEgp ?? extras.servicePriceEgp,
+    workOpenTime: branch.workOpenTime ?? extras.workOpenTime,
+    workCloseTime: branch.workCloseTime ?? extras.workCloseTime,
+    serviceDurationMinutes: branch.serviceDurationMinutes ?? extras.serviceDurationMinutes,
+    weeklyHours: branch.weeklyHours?.length ? branch.weeklyHours : extras.weeklyHours,
+    services: customerServices.length ? customerServices : extras.services,
+    washShopStatus,
+    vacationReturnDate:
+      washShopStatus === 'vacation' ? branch.vacationMode.returnDate ?? extras.vacationReturnDate : undefined,
+    vacationMessage:
+      washShopStatus === 'vacation' ? branch.vacationMode.customerMessage ?? extras.vacationMessage : undefined,
+    vacationMessageAr:
+      washShopStatus === 'vacation'
+        ? branch.vacationMode.customerMessageAr ?? extras.vacationMessageAr
+        : undefined,
+    activeBranchId: branch.id,
+    updatedAt: branch.updatedAt ?? extras.updatedAt,
+  };
+}
+
 /** Push wash branch data into shared shop extras for customer-facing screens. */
 export async function syncWashBranchToShopExtras(shopId: string, branch: WashBranch): Promise<void> {
   const shop = getShopById(shopId);

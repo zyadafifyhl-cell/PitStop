@@ -1,6 +1,7 @@
 import 'leaflet/dist/leaflet.css';
 import React, { useEffect, useMemo, useRef } from 'react';
 
+import { isMapAlive, safeRemoveMap } from '@/components/maps/leafletMapLifecycle';
 import type { ShopMapPin } from '@/lib/booking/shopMapDiscovery';
 import type { ShopType } from '@/lib/booking/types';
 
@@ -262,11 +263,12 @@ export function CategoryShopsMap({
 
     ensureMarkerStyles();
     let disposed = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     void (async () => {
       const leaflet = await import('leaflet');
       const L = leaflet.default;
-      if (!L || disposed) return;
+      if (!L || disposed || !mapNodeRef.current) return;
 
       if (!mapRef.current) {
         const map = L.map(node, {
@@ -287,12 +289,12 @@ export function CategoryShopsMap({
 
       const map = mapRef.current;
       const layerGroup = layerGroupRef.current;
-      if (!map || !layerGroup) return;
+      if (!isMapAlive(map) || !layerGroup) return;
 
       layerGroup.clearLayers();
 
       const userLocation = await readUserLocation();
-      if (disposed) return;
+      if (disposed || !isMapAlive(map) || !layerGroupRef.current) return;
 
       const bounds = L.latLngBounds([]);
       const userIcon = buildUserLocationDivIcon(L, locale);
@@ -330,38 +332,49 @@ export function CategoryShopsMap({
         bounds.extend([shop.lat, shop.lng]);
       }
 
-      window.setTimeout(() => {
-        if (disposed || !mapRef.current) return;
-        map.invalidateSize();
+      timeoutId = window.setTimeout(() => {
+        const activeMap = mapRef.current;
+        if (disposed || !isMapAlive(activeMap)) return;
 
-        if (bounds.isValid() && (markerData.length > 0 || userLocation)) {
-          if (markerData.length > 0) {
-            map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
-          } else if (userLocation) {
-            map.setView([userLocation.lat, userLocation.lng], USER_ZOOM, { animate: false });
+        try {
+          activeMap.invalidateSize();
+
+          if (bounds.isValid() && (markerData.length > 0 || userLocation)) {
+            if (markerData.length > 0) {
+              activeMap.fitBounds(bounds, { padding: [36, 36], maxZoom: 15, animate: false });
+            } else if (userLocation) {
+              activeMap.setView([userLocation.lat, userLocation.lng], USER_ZOOM, { animate: false });
+            }
+            return;
           }
-          return;
-        }
 
-        map.setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lng], 11, { animate: false });
+          activeMap.setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lng], 11, { animate: false });
+        } catch {
+          // Ignore map updates if Leaflet is mid-teardown.
+        }
       }, 120);
     })();
 
     return () => {
       disposed = true;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [markerData, locale, height, shopType]);
 
   useEffect(() => {
     return () => {
       if (layerGroupRef.current) {
-        layerGroupRef.current.clearLayers();
+        try {
+          layerGroupRef.current.clearLayers();
+        } catch {
+          // Ignore layer cleanup races.
+        }
         layerGroupRef.current = null;
       }
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      safeRemoveMap(mapRef.current);
+      mapRef.current = null;
     };
   }, []);
 

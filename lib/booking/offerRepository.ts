@@ -111,29 +111,52 @@ function liveOffersForShop(map: OfferMap, shopId: string): ShopOffer[] {
     .filter((offer) => isOfferLive(offer));
 }
 
-export async function listActiveOffersForShop(shopId: string): Promise<ShopOffer[]> {
-  const supabase = getSupabase();
-  if (supabase) {
-    const now = nowIso();
-    const { data, error } = await supabase
-      .from('offers')
-      .select('*')
-      .eq('shop_id', shopId)
-      .eq('is_active', true)
-      .lte('start_date', now)
-      .or(`expires_at.is.null,expires_at.gt.${now}`)
-      .gt('end_date', now)
-      .order('created_at', { ascending: false });
+function activeOffersQuery(supabase: NonNullable<ReturnType<typeof getSupabase>>) {
+  const now = nowIso();
+  return supabase
+    .from('offers')
+    .select('*')
+    .eq('is_active', true)
+    .lte('start_date', now)
+    .or(`expires_at.is.null,expires_at.gt.${now}`)
+    .gt('end_date', now)
+    .order('created_at', { ascending: false });
+}
 
+export async function listActiveOffersForShop(shopId: string): Promise<ShopOffer[]> {
+  const grouped = await listActiveOffersForShops([shopId]);
+  return grouped[shopId] ?? [];
+}
+
+/** Single Supabase round-trip for all shops on a list screen. */
+export async function listActiveOffersForShops(shopIds: string[]): Promise<Record<string, ShopOffer[]>> {
+  const unique = [...new Set(shopIds.filter(Boolean))];
+  const grouped: Record<string, ShopOffer[]> = {};
+  for (const shopId of unique) grouped[shopId] = [];
+
+  const supabase = getSupabase();
+  if (supabase && unique.length) {
+    const { data, error } = await activeOffersQuery(supabase).in('shop_id', unique);
     if (!error && data) {
-      const offers = (data as DbOfferRow[]).map(mapDbOfferRow).filter((offer) => isOfferLive(offer));
-      await writeShopOffersCache(shopId, offers);
-      return offers;
+      for (const row of data as DbOfferRow[]) {
+        const offer = mapDbOfferRow(row);
+        if (!isOfferLive(offer)) continue;
+        const shopId = offer.shopId ?? row.shop_id;
+        if (!shopId || !grouped[shopId]) continue;
+        grouped[shopId].push(offer);
+      }
+      await Promise.all(
+        Object.entries(grouped).map(([shopId, offers]) => writeShopOffersCache(shopId, offers)),
+      );
+      return grouped;
     }
   }
 
   const map = await readCache();
-  return liveOffersForShop(map, shopId);
+  for (const shopId of unique) {
+    grouped[shopId] = liveOffersForShop(map, shopId);
+  }
+  return grouped;
 }
 
 export async function listAllActiveOffers(): Promise<ShopOffer[]> {

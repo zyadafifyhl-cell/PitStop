@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   Modal,
   Platform,
   Pressable,
@@ -280,7 +281,36 @@ export default function ShopProfileScreen() {
     }
   }
 
+  function closeImageViewer() {
+    setViewerOpen(false);
+    setViewerUri(null);
+  }
+
+  function renderImageViewerModal() {
+    const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+    const viewerWidth = Math.min(screenWidth * 0.92, screenWidth - 32);
+    const viewerHeight = screenHeight * 0.8;
+
+    return (
+      <Modal visible={viewerOpen} transparent animationType="fade" onRequestClose={closeImageViewer}>
+        <View style={styles.viewerRoot}>
+          <Pressable style={styles.viewerBackdropPressable} onPress={closeImageViewer} accessibilityRole="button" />
+          {viewerUri ? (
+            <View style={styles.viewerImageWrap} pointerEvents="box-none">
+              <ShopMediaImage
+                uri={viewerUri}
+                style={[styles.viewerImage, { width: viewerWidth, height: viewerHeight }]}
+                contentFit="contain"
+              />
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+    );
+  }
+
   return (
+    <>
     <ScrollView style={{ flex: 1, backgroundColor: theme.bg }} contentContainerStyle={styles.content}>
       <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Pressable onPress={() => openViewer(coverImage || profileImage)} disabled={!coverImage && !profileImage}>
@@ -504,14 +534,9 @@ export default function ShopProfileScreen() {
         ) : null}
       </View>
 
-      <Modal visible={viewerOpen} transparent animationType="fade" onRequestClose={() => setViewerOpen(false)}>
-        <View style={styles.viewerBackdrop}>
-          <Pressable style={styles.viewerBackdrop} onPress={() => setViewerOpen(false)}>
-            {viewerUri ? <ShopMediaImage uri={viewerUri} style={styles.viewerImage} contentFit="contain" /> : null}
-          </Pressable>
-        </View>
-      </Modal>
     </ScrollView>
+    {renderImageViewerModal()}
+    </>
   );
 }
 
@@ -577,6 +602,25 @@ const styles = StyleSheet.create({
   offerText: { fontSize: 12, fontWeight: '700' },
   offerPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   strikePrice: { textDecorationLine: 'line-through' },
-  viewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.86)', alignItems: 'center', justifyContent: 'center' },
-  viewerImage: { width: '92%', height: '78%' },
+  viewerRoot: {
+    flex: 1,
+    position: 'relative',
+  },
+  viewerBackdropPressable: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.86)',
+    zIndex: 1,
+  },
+  viewerImageWrap: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+  },
+  viewerImage: {
+    maxWidth: '100%',
+    ...(Platform.OS === 'web' ? ({ objectFit: 'contain' } as Record<string, string>) : null),
+  },
 });

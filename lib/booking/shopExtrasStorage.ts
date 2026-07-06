@@ -103,6 +103,34 @@ export async function getShopExtrasCached(shopId: string): Promise<ShopExtras> {
   return normalizeExtras(shopId, map[shopId]);
 }
 
+/** Read cached extras for many shops with a single AsyncStorage read. */
+export async function getShopExtrasCachedBatch(shopIds: string[]): Promise<Record<string, ShopExtras>> {
+  const unique = [...new Set(shopIds.filter(Boolean))];
+  const map = await readMap();
+  const result: Record<string, ShopExtras> = {};
+  for (const shopId of unique) {
+    result[shopId] = normalizeExtras(shopId, map[shopId]);
+  }
+  return result;
+}
+
+/** Persist many shop extras rows in one AsyncStorage write. */
+export async function persistShopExtrasBatch(rows: Record<string, ShopExtras>): Promise<void> {
+  const shopIds = Object.keys(rows);
+  if (!shopIds.length) return;
+  const map = await readMap();
+  let changed = false;
+  for (const shopId of shopIds) {
+    const next = rows[shopId];
+    if (!next) continue;
+    if (JSON.stringify(map[shopId]) !== JSON.stringify(next)) {
+      map[shopId] = next;
+      changed = true;
+    }
+  }
+  if (changed) await writeMap(map);
+}
+
 export async function setShopProfileInfo(
   shopId: string,
   input: {

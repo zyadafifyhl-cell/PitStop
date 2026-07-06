@@ -1021,7 +1021,18 @@ export const EN = {
   merchant_settings_language_current_ar: 'Current: Arabic (tap to switch)',
   merchant_settings_support_legal_title: 'Support & Legal',
   merchant_settings_terms_row: 'Terms & Conditions',
-  merchant_settings_terms_subtitle: 'Read merchant platform usage terms.',
+  merchant_settings_terms_subtitle: 'Merchant obligations, commission settlement, and registration acceptance.',
+  merchant_settings_terms_intro:
+    'These Terms & Conditions govern your use of the PitStop EG merchant panel and your registration as a Shop Owner on the platform.',
+  merchant_settings_terms_section_general_title: 'General merchant obligations',
+  merchant_settings_terms_section_general_body:
+    'You agree to provide accurate business details, keep customer data secure, and avoid abuse of notifications, discounts, or booking records. PitStop EG may suspend or revoke merchant access for policy violations.',
+  merchant_settings_terms_section_payment_title: 'Payment & commission settlement',
+  merchant_settings_terms_section_payment_body:
+    'PitStop EG does not process customer payments directly. Customers pay service fees to your shop at the workshop. Platform commission fees owed to PitStop EG must be settled separately by Shop Owners using instant personal transfer services such as InstaPay, or by cash transfer to the platform\'s designated collection accounts. Outstanding commission balances may be tracked in your merchant dashboard and reviewed by PitStop EG administrators.',
+  merchant_settings_terms_section_acceptance_title: 'Registration acceptance',
+  merchant_settings_terms_section_acceptance_body:
+    'By registering as a merchant on PitStop EG and continuing to use the merchant panel, you explicitly accept these Terms & Conditions and agree to settle all applicable platform commission fees through the settlement methods described above.',
   merchant_settings_privacy_row: 'Privacy Policy',
   merchant_settings_privacy_subtitle: 'How data is protected and processed.',
   merchant_settings_support_contact_row: 'Contact Support',
@@ -1029,7 +1040,13 @@ export const EN = {
   merchant_settings_support_email_action: 'Email support',
   merchant_settings_support_call_action: 'Call support',
   merchant_settings_terms_content:
-    'By using the merchant panel, you agree to provide accurate business details, keep customer data secure, and avoid abuse of notifications, discounts, or booking records. PitStop EG may suspend access for policy violations.',
+    'These Terms & Conditions govern your use of the PitStop EG merchant panel. PitStop EG does not process customer payments directly; platform commission fees must be settled by Shop Owners via InstaPay, other instant personal transfers, or cash to designated accounts. By registering as a merchant, you explicitly accept these commission settlement terms.',
+  owner_register_terms_checkbox:
+    'I accept the Terms & Conditions, including settlement of platform commission fees via InstaPay or cash transfer to PitStop EG designated accounts.',
+  owner_register_terms_view: 'View full terms',
+  owner_register_terms_required_title: 'Terms acceptance required',
+  owner_register_terms_required_body:
+    'You must accept the merchant Terms & Conditions, including the commission settlement policy, before submitting your registration.',
   merchant_settings_privacy_content:
     'PitStop EG processes merchant account, booking, and operational data to provide services, security, and support. We do not expose sensitive merchant data publicly. Contact support for data access or correction requests.',
   merchant_settings_sign_out: 'Sign out',
@@ -2541,7 +2558,18 @@ export const AR: Record<TranslationKey, string> = {
   merchant_settings_language_current_ar: 'الحالي: العربية (اضغط للتبديل)',
   merchant_settings_support_legal_title: 'الدعم والشروط',
   merchant_settings_terms_row: 'الشروط والأحكام',
-  merchant_settings_terms_subtitle: 'قراءة شروط استخدام منصة التاجر.',
+  merchant_settings_terms_subtitle: 'التزامات التاجر وتسوية العمولة وقبول التسجيل.',
+  merchant_settings_terms_intro:
+    'تحكم هذه الشروط والأحكام استخدامك لوحة التاجر في PitStop EG وتسجيلك كمالك محل على المنصة.',
+  merchant_settings_terms_section_general_title: 'التزامات التاجر العامة',
+  merchant_settings_terms_section_general_body:
+    'توافق على تقديم بيانات نشاط دقيقة، وحماية بيانات العملاء، وعدم إساءة استخدام الإشعارات أو الخصومات أو سجلات الحجز. يحق لـ PitStop EG تعليق أو إلغاء وصول التاجر عند مخالفة السياسات.',
+  merchant_settings_terms_section_payment_title: 'الدفع وتسوية العمولة',
+  merchant_settings_terms_section_payment_body:
+    'لا تقوم PitStop EG بمعالجة مدفوعات العملاء مباشرة. يدفع العملاء رسوم الخدمة لمحلك في الورشة. يجب على مالكي المحلات تسوية عمولة المنصة المستحقة لـ PitStop EG بشكل منفصل عبر خدمات التحويل الفوري الشخصي مثل InstaPay، أو عبر تحويل نقدي إلى حسابات التحصيل المعتمدة للمنصة. قد تُتابَع أرصدة العمولة المستحقة من لوحة التاجر ومن إدارة PitStop EG.',
+  merchant_settings_terms_section_acceptance_title: 'قبول التسجيل',
+  merchant_settings_terms_section_acceptance_body:
+    'بتسجيلك كتاجر على PitStop EG واستمرارك في استخدام لوحة التاجر، فإنك تقبل صراحةً هذه الشروط والأحكام وتوافق على تسوية جميع عمولات المنصة المستحقة عبر وسائل التسوية الموضحة أعلاه.',
   merchant_settings_privacy_row: 'سياسة الخصوصية',
   merchant_settings_privacy_subtitle: 'كيف نحمي ونعالج البيانات.',
   merchant_settings_support_contact_row: 'تواصل مع الدعم الفني',
@@ -2549,7 +2577,13 @@ export const AR: Record<TranslationKey, string> = {
   merchant_settings_support_email_action: 'إرسال بريد للدعم',
   merchant_settings_support_call_action: 'اتصال بالدعم',
   merchant_settings_terms_content:
-    'باستخدام لوحة التاجر، فإنك توافق على تقديم بيانات نشاط دقيقة، وحماية بيانات العملاء، وعدم إساءة استخدام الإشعارات أو الخصومات أو سجلات الحجز. يحق لـ PitStop EG تعليق الوصول عند مخالفة السياسات.',
+    'تحكم هذه الشروط والأحكام استخدام لوحة التاجر في PitStop EG. لا تعالج PitStop EG مدفوعات العملاء مباشرة؛ يجب على مالكي المحلات تسوية عمولة المنصة عبر InstaPay أو تحويلات فورية أخرى أو نقدًا إلى الحسابات المعتمدة. بتسجيلك كتاجر، فإنك تقبل صراحةً شروط تسوية العمولة هذه.',
+  owner_register_terms_checkbox:
+    'أوافق على الشروط والأحكام، بما في ذلك تسوية عمولة المنصة عبر InstaPay أو تحويل نقدي إلى حسابات PitStop EG المعتمدة.',
+  owner_register_terms_view: 'عرض الشروط كاملة',
+  owner_register_terms_required_title: 'مطلوب قبول الشروط',
+  owner_register_terms_required_body:
+    'يجب قبول شروط وأحكام التاجر، بما في ذلك سياسة تسوية العمولة، قبل إرسال طلب التسجيل.',
   merchant_settings_privacy_content:
     'تعالج PitStop EG بيانات حساب التاجر والحجوزات والتشغيل لتقديم الخدمة والأمان والدعم. لا نقوم بنشر البيانات الحساسة علنًا. يمكنك التواصل مع الدعم لطلبات الوصول أو التصحيح.',
   merchant_settings_sign_out: 'تسجيل الخروج',

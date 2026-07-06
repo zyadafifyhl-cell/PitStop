@@ -95,8 +95,34 @@ export function normalizeCustomerOrderStatus(status: Booking['status']): Booking
   return status;
 }
 
+const CUSTOMER_PAST_BOOKING_ACTIVE_STATUSES: Booking['status'][] = ['pending', 'confirmed', 'in_progress'];
+
+/**
+ * Virtual status for customer-facing booking UI. Past pending/confirmed/in_progress rows render as done
+ * unless the merchant finalized them as cancelled or no_show.
+ */
+export function resolveCustomerDisplayStatus(booking: Booking, now = Date.now()): Booking['status'] {
+  const raw = booking.status;
+  if (raw === 'cancelled' || raw === 'no_show' || raw === 'suspended_by_shop' || raw === 'done') {
+    return normalizeCustomerOrderStatus(raw);
+  }
+  const scheduledMs = new Date(booking.scheduledAt).getTime();
+  if (!Number.isNaN(scheduledMs) && now > scheduledMs && CUSTOMER_PAST_BOOKING_ACTIVE_STATUSES.includes(raw)) {
+    return 'done';
+  }
+  return normalizeCustomerOrderStatus(raw);
+}
+
 export function canBookAgainFromOrder(status: Booking['status']): boolean {
   return status === 'done' || status === 'cancelled';
+}
+
+/** Customer may cancel only while pending/confirmed and before the scheduled slot opens. */
+export function canCustomerCancelBooking(booking: Booking, now = Date.now()): boolean {
+  if (booking.status !== 'pending' && booking.status !== 'confirmed') return false;
+  const scheduledMs = new Date(booking.scheduledAt).getTime();
+  if (Number.isNaN(scheduledMs)) return false;
+  return now < scheduledMs;
 }
 
 export function canRateCompletedOrder(status: Booking['status']): boolean {

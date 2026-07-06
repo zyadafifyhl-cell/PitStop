@@ -19,6 +19,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import {
+  canCustomerCancelBooking,
   computeCustomerOrderBreakdown,
   formatBookingIdLabel,
   formatOrderCardDateTime,
@@ -26,6 +27,7 @@ import {
   formatVehicleLine,
   orderLineItems,
   orderStatusLabel,
+  resolveCustomerDisplayStatus,
   resolveShopAddress,
   resolveShopDisplayName,
   serviceIconName,
@@ -49,6 +51,7 @@ export default function OrderDetailsScreen() {
   const [busy, setBusy] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [cancelVisible, setCancelVisible] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const loadBooking = useCallback(async () => {
     if (!bookingId || !customer?.phone) {
@@ -76,14 +79,24 @@ export default function OrderDetailsScreen() {
     loadBooking();
   }, [authReady, loadBooking]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const shop = useMemo(() => (booking ? getShopById(booking.shopId) : undefined), [booking]);
   const shopName = booking ? resolveShopDisplayName(shop, booking.shopId, locale) : '';
   const breakdown = booking ? computeCustomerOrderBreakdown(booking) : null;
   const lineItems = booking ? orderLineItems(booking, locale) : [];
-  const canCancel = booking?.status === 'pending' || booking?.status === 'confirmed';
+  const displayStatus = booking ? resolveCustomerDisplayStatus(booking, nowMs) : null;
+  const canCancel = booking ? canCustomerCancelBooking(booking, nowMs) : false;
+
+  useEffect(() => {
+    if (!canCancel) setCancelVisible(false);
+  }, [canCancel]);
 
   async function onCancelBooking() {
-    if (!booking) return;
+    if (!booking || !canCustomerCancelBooking(booking, Date.now())) return;
     setCancelling(true);
     try {
       const updated = await updateBookingStatus(booking.id, 'cancelled', booking);
@@ -133,7 +146,7 @@ export default function OrderDetailsScreen() {
         <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.summaryTopRow}>
             <Text style={[styles.summaryStatus, { color: theme.textMuted }]}>
-              {orderStatusLabel(booking.status, locale)}
+              {displayStatus ? orderStatusLabel(displayStatus, locale) : ''}
             </Text>
             <Text style={[styles.summaryDate, { color: theme.textMuted }]}>
               {formatOrderCardDateTime(booking.scheduledAt, locale)}

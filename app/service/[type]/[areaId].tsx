@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ShopListCard } from '@/components/ui/ShopListCard';
@@ -11,7 +11,12 @@ import { getAreaById } from '@/lib/booking/areas';
 import { listShopsByTypeAndArea } from '@/lib/booking/catalogRepository';
 import { toggleFavoriteShop } from '@/lib/booking/favoritesStorage';
 import { shopTypeLabel } from '@/lib/booking/format';
-import { getShopAverageRatings, type ShopRatingSummary } from '@/lib/booking/reviewsStorage';
+import {
+  hydrateShopListBundle,
+  loadShopListBundle,
+  peekShopListBundle,
+  type ShopListBundle,
+} from '@/lib/booking/shopListBundleRepository';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { openListingsInMaps, openPhone } from '@/lib/linking/contact';
 import { parseShopType } from '@/lib/booking/serviceType';
@@ -25,7 +30,10 @@ export default function ShopsInAreaScreen() {
   const type = parseShopType(rawType);
   const area = areaId && catalogReady ? getAreaById(areaId) : undefined;
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [ratingsMap, setRatingsMap] = useState<Record<string, ShopRatingSummary>>({});
+  const [bundle, setBundle] = useState<ShopListBundle | null>(() =>
+    type && areaId ? peekShopListBundle(type, areaId) : null,
+  );
+  const [bundleHydrating, setBundleHydrating] = useState(!bundle);
 
   const shops = useMemo(() => {
     if (!catalogReady || !type || !areaId) return [];
@@ -42,13 +50,52 @@ export default function ShopsInAreaScreen() {
     setFavoriteIds(new Set(ids));
   }, [customer]);
 
+  const refreshBundle = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!type || !areaId || !shops.length) {
+        setBundle(null);
+        setBundleHydrating(false);
+        return;
+      }
+
+      const next = await loadShopListBundle(shops, {
+        type,
+        areaId,
+        force: options?.force,
+      });
+      setBundle(next);
+      setBundleHydrating(false);
+    },
+    [areaId, shops, type],
+  );
+
+  useEffect(() => {
+    if (!type || !areaId) return;
+    let cancelled = false;
+    (async () => {
+      const cached = await hydrateShopListBundle(type, areaId);
+      if (!cancelled && cached) {
+        setBundle(cached);
+        setBundleHydrating(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [areaId, type]);
+
+  useEffect(() => {
+    if (!catalogReady || !shops.length || !type || !areaId) return;
+    void refreshBundle();
+  }, [catalogReady, catalogVersion, shops, type, areaId, refreshBundle]);
+
   useFocusEffect(
     useCallback(() => {
       loadFavorites();
-      if (shops.length) {
-        getShopAverageRatings(shops.map((shop) => shop.id)).then(setRatingsMap);
+      if (shops.length && type && areaId) {
+        void refreshBundle();
       }
-    }, [loadFavorites, shops]),
+    }, [areaId, loadFavorites, refreshBundle, shops.length, type]),
   );
 
   function linkFail() {
@@ -103,30 +150,36 @@ export default function ShopsInAreaScreen() {
             </Text>
           </Pressable>
 
-          {shops.map((shop) => (
-            <ShopListCard
-              key={shop.id}
-              shopId={shop.id}
-              name={locale === 'ar' ? shop.nameAr : shop.name}
-              address={locale === 'ar' ? shop.addressAr : shop.address}
-              type={shop.type}
-              typeLabel={shopTypeLabel(shop.type, locale)}
-              averageRating={ratingsMap[shop.id]?.average ?? null}
-              reviewCount={ratingsMap[shop.id]?.count}
-              latitude={shop.latitude}
-              longitude={shop.longitude}
-              phone={shop.phone}
-              bookLabel={t('shop_card_view_details')}
-              isFavorite={favoriteIds.has(shop.id)}
-              onToggleFavorite={() => onToggleFavorite(shop.id)}
-              onCall={() => openPhone(shop.phone).catch(linkFail)}
-              onPress={() =>
-                isStoreShopType(shop.type)
-                  ? router.push(`/parts-shop/${shop.id}` as any)
-                  : router.push(`/shop-profile/${shop.id}` as any)
-              }
-            />
-          ))}
+          {shops.map((shop) => {
+            const extras = bundle?.extrasByShopId[shop.id] ?? null;
+            const rating = bundle?.ratingsByShopId[shop.id];
+            return (
+              <ShopListCard
+                key={shop.id}
+                shopId={shop.id}
+                name={locale === 'ar' ? shop.nameAr : shop.name}
+                address={locale === 'ar' ? shop.addressAr : shop.address}
+                type={shop.type}
+                typeLabel={shopTypeLabel(shop.type, locale)}
+                averageRating={rating?.average ?? null}
+                reviewCount={rating?.count}
+                latitude={shop.latitude}
+                longitude={shop.longitude}
+                phone={shop.phone}
+                bookLabel={t('shop_card_view_details')}
+                isFavorite={favoriteIds.has(shop.id)}
+                onToggleFavorite={() => onToggleFavorite(shop.id)}
+                onCall={() => openPhone(shop.phone).catch(linkFail)}
+                extras={extras}
+                extrasLoading={bundleHydrating && !extras}
+                onPress={() =>
+                  isStoreShopType(shop.type)
+                    ? router.push(`/parts-shop/${shop.id}` as any)
+                    : router.push(`/shop-profile/${shop.id}` as any)
+                }
+              />
+            );
+          })}
         </>
       )}
     </ScrollView>

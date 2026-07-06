@@ -115,6 +115,43 @@ async function patchLocalReview(
   await writeMap(map);
 }
 
+type RatingSummaryRow = { shop_id: string; rating: number; hidden?: boolean | null };
+
+/** Aggregate visible review ratings for many shops in one Supabase query. */
+export async function fetchShopRatingSummariesRemote(
+  shopIds: string[],
+): Promise<Record<string, { average: number | null; count: number }>> {
+  const unique = [...new Set(shopIds.filter(Boolean))];
+  const summaries: Record<string, { average: number | null; count: number }> = {};
+  for (const shopId of unique) summaries[shopId] = { average: null, count: 0 };
+  if (!unique.length) return summaries;
+
+  const supabase = getSupabase();
+  if (!supabase) return summaries;
+
+  const { data, error } = await supabase
+    .from('shop_reviews')
+    .select('shop_id, rating, hidden')
+    .in('shop_id', unique);
+
+  if (error || !data) return summaries;
+
+  const buckets = new Map<string, number[]>();
+  for (const row of data as RatingSummaryRow[]) {
+    if (row.hidden) continue;
+    const ratings = buckets.get(row.shop_id) ?? [];
+    ratings.push(Number(row.rating));
+    buckets.set(row.shop_id, ratings);
+  }
+
+  for (const [shopId, ratings] of buckets) {
+    if (!ratings.length) continue;
+    const sum = ratings.reduce((total, rating) => total + rating, 0);
+    summaries[shopId] = { average: sum / ratings.length, count: ratings.length };
+  }
+  return summaries;
+}
+
 export async function listShopReviewsSynced(shopId: string): Promise<ShopReview[]> {
   const local = (await readMap())[shopId] ?? [];
   const remote = await fetchReviewsRemote(shopId);

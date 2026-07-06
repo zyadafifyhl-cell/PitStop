@@ -1,5 +1,5 @@
 import { router, useFocusEffect, type Href } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -41,6 +41,12 @@ export default function MyBookingsScreen() {
   const [eraseConfirmVisible, setEraseConfirmVisible] = useState(false);
   const [erasing, setErasing] = useState(false);
   const [eraseSuccessVisible, setEraseSuccessVisible] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const refreshBookings = useCallback(async () => {
     if (!customer?.phone) {
@@ -179,6 +185,7 @@ export default function MyBookingsScreen() {
               alreadyRated={ratedShopIds.has(item.shopId)}
               savedRating={shopRatings[item.shopId]}
               ratingBusy={ratingShopId === item.shopId}
+              nowMs={nowMs}
               onViewDetails={() => onViewDetails(item)}
               onBookAgain={() => onBookAgain(item)}
               onRate={(rating) => onRate(item, rating)}

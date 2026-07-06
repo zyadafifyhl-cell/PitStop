@@ -1,13 +1,12 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import { router } from 'expo-router';
+import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ShopMediaImage } from '@/components/ui/ShopMediaImage';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useI18n } from '@/context/I18nContext';
-import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras } from '@/lib/booking/types';
 import { formatEgp } from '@/lib/booking/reporting';
 import { formatOfferBadge, pickBestLiveOffer, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
@@ -38,6 +37,8 @@ type Props = {
   onPress: () => void;
   hasActiveOffer?: boolean;
   offerDiscountPercent?: number;
+  extras?: ShopExtras | null;
+  extrasLoading?: boolean;
 };
 
 export function ShopListCard({
@@ -60,22 +61,12 @@ export function ShopListCard({
   onPress,
   hasActiveOffer = false,
   offerDiscountPercent = 0,
+  extras = null,
+  extrasLoading = false,
 }: Props) {
   const theme = useAppTheme();
   const { locale, t } = useI18n();
   const accent = theme.accent;
-  const [extras, setExtras] = useState<ShopExtras | null>(null);
-
-  const refreshExtras = useCallback(async () => {
-    const row = await getShopExtras(shopId);
-    setExtras(row);
-  }, [shopId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshExtras();
-    }, [refreshExtras]),
-  );
 
   const activeOffers = (extras?.offers ?? []).filter((offer) => offer.active);
   const topOffer = pickBestLiveOffer(activeOffers);
@@ -105,6 +96,7 @@ export function ShopListCard({
 
   const mapLat = latitude ?? null;
   const mapLng = longitude ?? null;
+  const showCoverFrame = extrasLoading || !!coverImage;
 
   function handleOpenMaps() {
     if (mapLat != null && mapLng != null && Number.isFinite(mapLat) && Number.isFinite(mapLng)) {
@@ -175,7 +167,16 @@ export function ShopListCard({
           </View>
         </View>
         <View style={styles.identityRow}>
-          {profileImage ? <Image source={{ uri: profileImage }} style={styles.avatar} contentFit="cover" /> : null}
+          {profileImage || extrasLoading ? (
+            <ShopMediaImage
+              uri={profileImage}
+              style={styles.avatar}
+              contentFit="cover"
+              showSkeleton={extrasLoading && !profileImage}
+              fallbackIcon="user"
+              recyclingKey={`${shopId}-avatar`}
+            />
+          ) : null}
           <View style={{ flex: 1 }}>
             <Text style={[styles.name, { color: theme.text }]}>{resolvedName}</Text>
             <Text style={[styles.address, { color: theme.textMuted }]}>{resolvedAddress}</Text>
@@ -221,9 +222,15 @@ export function ShopListCard({
             <Text style={[styles.offerChipText, { color: theme.accent }]}>{t('shop_profile_winch_available')}</Text>
           </View>
         ) : null}
-        {coverImage ? (
+        {showCoverFrame ? (
           <View style={[styles.coverFrame, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-            <Image source={{ uri: coverImage }} style={styles.coverImage} contentFit="cover" />
+            <ShopMediaImage
+              uri={coverImage}
+              style={styles.coverImage}
+              contentFit="cover"
+              showSkeleton={extrasLoading || !coverImage}
+              recyclingKey={`${shopId}-cover`}
+            />
           </View>
         ) : null}
 

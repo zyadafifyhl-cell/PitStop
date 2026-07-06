@@ -153,6 +153,9 @@ export async function pushCustomerNotification(input: {
   ownerNote?: string;
   reminderMinutesBefore?: number;
   highPriority?: boolean;
+  locale?: 'en' | 'ar';
+  message?: string;
+  statusLabel?: string;
 }): Promise<CustomerNotification> {
   const map = await readCustomerNotificationMap();
   const bucket = customerBucket(input.customerId, input.customerPhone);
@@ -170,6 +173,9 @@ export async function pushCustomerNotification(input: {
     ownerNote: input.ownerNote?.trim() || undefined,
     reminderMinutesBefore: input.reminderMinutesBefore,
     highPriority: input.highPriority,
+    locale: input.locale,
+    message: input.message?.trim() || undefined,
+    statusLabel: input.statusLabel?.trim() || undefined,
   };
   map[bucket] = [row, ...(map[bucket] ?? [])];
   await writeCustomerNotificationMap(map);

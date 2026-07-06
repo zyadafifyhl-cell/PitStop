@@ -273,6 +273,12 @@ export type CustomerNotification = {
   reminderMinutesBefore?: number;
   /** High-priority flag for confirmed booking alerts. */
   highPriority?: boolean;
+  /** Customer language used when the notification was created. */
+  locale?: 'en' | 'ar';
+  /** Pre-resolved notification body for the customer's locale. */
+  message?: string;
+  /** Pre-resolved status pill label for the customer's locale. */
+  statusLabel?: string;
 };
 
 export type CustomerInvoice = {

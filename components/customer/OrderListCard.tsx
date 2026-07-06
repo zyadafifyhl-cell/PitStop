@@ -10,10 +10,10 @@ import {
   canRateCompletedOrder,
   formatBookingIdLabel,
   formatOrderCardDateTime,
-  normalizeCustomerOrderStatus,
   orderStatusBadgeTone,
   orderStatusLabel,
   orderTotalLabel,
+  resolveCustomerDisplayStatus,
   resolveShopDisplayName,
   serviceIconName,
 } from '@/lib/booking/customerOrderPresentation';
@@ -30,6 +30,7 @@ type Props = {
   alreadyRated: boolean;
   savedRating?: number;
   ratingBusy: boolean;
+  nowMs?: number;
   onViewDetails: () => void;
   onBookAgain: () => void;
   onRate: (rating: number) => void;
@@ -43,16 +44,17 @@ export function OrderListCard({
   alreadyRated,
   savedRating = 0,
   ratingBusy,
+  nowMs = Date.now(),
   onViewDetails,
   onBookAgain,
   onRate,
 }: Props) {
   const shop = getShopById(booking.shopId);
   const shopName = resolveShopDisplayName(shop, booking.shopId, locale);
-  const displayStatus = normalizeCustomerOrderStatus(booking.status);
-  const statusTone = orderStatusBadgeTone(booking.status);
-  const showBookAgain = canBookAgainFromOrder(booking.status);
-  const showRatingFooter = canRateCompletedOrder(booking.status);
+  const displayStatus = resolveCustomerDisplayStatus(booking, nowMs);
+  const statusTone = orderStatusBadgeTone(displayStatus);
+  const showBookAgain = canBookAgainFromOrder(displayStatus);
+  const showRatingFooter = canRateCompletedOrder(displayStatus);
   const [selectedRating, setSelectedRating] = useState(savedRating);
 
   useEffect(() => {

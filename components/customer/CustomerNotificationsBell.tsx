@@ -125,15 +125,17 @@ export function CustomerNotificationsBell({ embedded = false }: { embedded?: boo
                               fontSize: 11,
                               fontWeight: '800',
                             }}>
-                            {isReminder
-                              ? t('customer_notification_status_reminder')
-                              : isReviewReply
-                                ? t('customer_notification_status_reply')
-                                : isShopReopened
-                                  ? t('customer_notification_status_reopened')
-                                  : approved
-                                    ? t('customer_notification_status_approved')
-                                    : t('customer_notification_status_declined')}
+                            {notification.statusLabel
+                              ? notification.statusLabel
+                              : isReminder
+                                ? t('customer_notification_status_reminder')
+                                : isReviewReply
+                                  ? t('customer_notification_status_reply')
+                                  : isShopReopened
+                                    ? t('customer_notification_status_reopened')
+                                    : approved
+                                      ? t('customer_notification_status_approved')
+                                      : t('customer_notification_status_declined')}
                           </Text>
                         </View>
                       </View>
