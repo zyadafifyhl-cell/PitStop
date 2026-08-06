@@ -21,6 +21,8 @@ type Props = {
   onEditCover: () => void;
   onEditProfile: () => void;
   onOpenNotifications?: () => void;
+  onOpenSettings?: () => void;
+  settingsLabel?: string;
 };
 
 export function OwnerProfileHeader({
@@ -39,6 +41,8 @@ export function OwnerProfileHeader({
   onEditCover,
   onEditProfile,
   onOpenNotifications,
+  onOpenSettings,
+  settingsLabel,
 }: Props) {
   return (
     <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -48,6 +52,14 @@ export function OwnerProfileHeader({
         ) : (
           <View style={[styles.coverImage, { backgroundColor: theme.bgElevated }]} />
         )}
+        {onOpenSettings ? (
+          <Pressable
+            onPress={onOpenSettings}
+            style={[styles.notifBtn, styles.settingsBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+            accessibilityLabel={settingsLabel}>
+            <FontAwesome name="cog" size={16} color={theme.text} />
+          </Pressable>
+        ) : null}
         {onOpenNotifications ? (
           <Pressable
             onPress={onOpenNotifications}
@@ -135,6 +147,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  settingsBtn: { right: 62 },
   notifBadge: {
     position: 'absolute',
     top: -4,

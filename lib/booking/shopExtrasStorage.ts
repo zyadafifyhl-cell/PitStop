@@ -74,6 +74,10 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     vacationMessageAr:
       washShopStatus === 'vacation' ? row?.vacationMessageAr?.trim() || undefined : undefined,
     activeBranchId: row?.activeBranchId,
+    storeGlobalDiscountPercent:
+      row?.storeGlobalDiscountPercent != null
+        ? Math.max(0, Math.min(100, Number(row.storeGlobalDiscountPercent)))
+        : undefined,
     updatedAt: row?.updatedAt ?? nowIso(),
   };
 }
@@ -339,6 +343,16 @@ export async function setWashShopStatus(
     vacationMessageAr: input.washShopStatus === 'vacation' ? input.vacationMessageAr : undefined,
     activeBranchId: input.activeBranchId ?? map[shopId]?.activeBranchId,
   });
+  row.updatedAt = nowIso();
+  map[shopId] = row;
+  await writeMap(map);
+  return row;
+}
+
+export async function setShopStoreGlobalDiscount(shopId: string, percent: number): Promise<ShopExtras> {
+  const map = await readMap();
+  const row = normalizeExtras(shopId, map[shopId]);
+  row.storeGlobalDiscountPercent = Math.max(0, Math.min(100, Math.round(percent)));
   row.updatedAt = nowIso();
   map[shopId] = row;
   await writeMap(map);

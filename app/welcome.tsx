@@ -274,9 +274,8 @@ export default function WelcomeScreen() {
           userAlert(t('owner_register_fail_title'), t('owner_register_invalid'));
           return;
         }
-        Alert.alert(t('owner_register_success_title'), t('owner_register_success_body'), [
-          { text: t('welcome_ok'), onPress: finishOwnerRegistration },
-        ]);
+        userAlert(t('owner_register_success_title'), t('owner_register_success_body'));
+        finishOwnerRegistration();
         return;
       }
 

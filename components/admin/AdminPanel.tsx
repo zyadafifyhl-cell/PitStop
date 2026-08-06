@@ -317,6 +317,11 @@ export function AdminPanel() {
                 <Text style={[styles.feeNote, { color: theme.textDim }, isRTL && styles.textRtl]}>
                   {t('admin_platform_fee_note')}
                 </Text>
+                <Pressable
+                  onPress={() => router.push('/admin/store-products')}
+                  style={[styles.storeLinkBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
+                  <Text style={[styles.storeLinkText, { color: theme.onAccent }]}>{t('store_admin_open')}</Text>
+                </Pressable>
               </OwnerSectionCard>
 
               <OwnerSectionCard theme={theme} title={t('admin_ledger_title')} subtitle={t('admin_ledger_lead')}>
@@ -721,6 +726,8 @@ const styles = StyleSheet.create({
   dashboardStatLabel: { fontSize: 12, fontWeight: '700', marginTop: 6, lineHeight: 17 },
   skeletonBlock: { opacity: 0.45 },
   feeNote: { fontSize: 11, marginTop: 12, lineHeight: 16 },
+  storeLinkBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  storeLinkText: { fontSize: 14, fontWeight: '800' },
   textRtl: { writingDirection: 'rtl', textAlign: 'right' },
   rowCard: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 10 },
   rowTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },

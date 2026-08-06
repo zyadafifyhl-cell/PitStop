@@ -227,6 +227,8 @@ export type ShopExtras = {
   vacationMessage?: string;
   vacationMessageAr?: string;
   activeBranchId?: string;
+  /** Store retail: global % discount across category products. */
+  storeGlobalDiscountPercent?: number;
   updatedAt: string;
 };
 

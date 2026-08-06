@@ -158,15 +158,13 @@ export default function NearbyScreen() {
     );
   }
 
-  const serviceLabel = shopTypeLabel(type, locale);
-
   return (
     <ScrollView style={[styles.screen, { backgroundColor: '#080D1A' }]} contentContainerStyle={styles.content}>
       <Text style={[styles.title, { color: theme.text }]}>{t('nearby_title')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>
         {locationDenied ? t('nearby_no_location') : t('nearby_lead')}
       </Text>
-      <Text style={[styles.badge, { color: theme.accent }]}>{serviceLabel}</Text>
+      <Text style={[styles.badge, { color: theme.accent }]}>{shopTypeLabel(type, locale)}</Text>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.radiusRow}>
         {RADIUS_OPTIONS_KM.map((km) => {

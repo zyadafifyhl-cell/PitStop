@@ -11,6 +11,7 @@ import {
   upsertPendingBookingSorted,
   subscribeMerchantBookingRealtime,
   triggerMerchantOrderAlert,
+  handleMerchantBookingCancelledRealtime,
 } from '@/lib/notifications/notificationService';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 
@@ -46,6 +47,7 @@ export function useMerchantOrderNotifier({
   const [pendingBookings, setPendingBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const alertedIdsRef = useRef<Set<string>>(new Set());
+  const cancellationAlertedIdsRef = useRef<Set<string>>(new Set());
   const staffRef = useRef(staff);
   const localeRef = useRef(locale);
   staffRef.current = staff;
@@ -115,6 +117,23 @@ export function useMerchantOrderNotifier({
         },
         onBookingUpdate: (booking, previousStatus) => {
           setAllBookings((prev) => mergeBookingList(prev, booking));
+          if (
+            booking.status === 'cancelled' &&
+            previousStatus &&
+            previousStatus !== 'cancelled'
+          ) {
+            setPendingBookings((prev) => prev.filter((row) => row.id !== booking.id));
+            if (!cancellationAlertedIdsRef.current.has(booking.id)) {
+              cancellationAlertedIdsRef.current.add(booking.id);
+              void handleMerchantBookingCancelledRealtime(
+                booking,
+                staffRef.current,
+                localeRef.current,
+                activeBranchId,
+              );
+            }
+            return;
+          }
           if (isPendingBookingStatus(booking.status)) {
             void bookingEligibleForStaffAlert(staffRef.current, booking, activeBranchId).then((eligible) => {
               if (!eligible) {
@@ -143,6 +162,7 @@ export function useMerchantOrderNotifier({
 
   useEffect(() => {
     alertedIdsRef.current.clear();
+    cancellationAlertedIdsRef.current.clear();
   }, [shopId, activeBranchId]);
 
   return {

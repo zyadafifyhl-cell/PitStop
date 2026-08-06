@@ -16,7 +16,7 @@ import {
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { listArchivedBookingsForStaff } from '@/lib/booking/bookingHistoryRepository';
+import { listArchivedBookingsForStaff, sortArchivedBookingsForDisplay } from '@/lib/booking/bookingHistoryRepository';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { isAutoCompletedBooking, updateBookingStatus } from '@/lib/booking/storage';
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
@@ -37,6 +37,7 @@ import { insertShopReportHistory } from '@/lib/booking/reportHistoryRepository';
 import type { WashCenterNotification } from '@/lib/booking/wash/types';
 import { openReportPrintFrameWeb } from '@/lib/pdf/reportPrintWeb';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
+import { subscribeMerchantBookingRealtime } from '@/lib/notifications/notificationService';
 
 type HistoryFilter = 'all' | 'done' | 'cancelled';
 
@@ -111,6 +112,33 @@ export function OwnerHistoryPanel({
   useEffect(() => {
     void loadHistory();
   }, [loadHistory]);
+
+  useEffect(() => {
+    if (!shop.id) return;
+
+    const unsubscribe = subscribeMerchantBookingRealtime(
+      { shopId: shop.id, staff, activeBranchId: branchId ?? undefined },
+      {
+        onBookingUpdate: (booking, previousStatus) => {
+          if (booking.status !== 'cancelled' || previousStatus === 'cancelled') return;
+          const inScope =
+            staff?.role === 'branch_manager'
+              ? !branchId || !booking.branchId || booking.branchId === branchId
+              : !branchId || !booking.branchId || booking.branchId === branchId;
+          if (!inScope) return;
+          setRows((prev) => {
+            if (prev.some((row) => row.id === booking.id)) {
+              return prev.map((row) => (row.id === booking.id ? booking : row));
+            }
+            return sortArchivedBookingsForDisplay([booking, ...prev]);
+          });
+        },
+      },
+    );
+
+    return unsubscribe;
+  }, [shop.id, staff, branchId]);
+
   useEffect(() => {
     setBranchMenuOpen(false);
   }, [selectedBranchId]);
@@ -520,20 +548,32 @@ export function OwnerHistoryPanel({
             <Text style={[styles.meta, { color: theme.textMuted }]}>
               {booking.customerName || booking.customerPhone} · {booking.carType}
             </Text>
-            <Text
-              style={[
-                styles.status,
-                {
-                  color:
-                    booking.status === 'done'
-                      ? theme.green
-                      : booking.status === 'cancelled' || booking.status === 'no_show'
-                        ? theme.danger
-                        : theme.accent,
-                },
-              ]}>
-              {bookingStatusLabel(booking.status, locale)}
-            </Text>
+            {booking.status === 'cancelled' ? (
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: `${theme.danger}18`, borderColor: theme.danger },
+                ]}>
+                <Text style={[styles.statusBadgeText, { color: theme.danger }]}>
+                  {bookingStatusLabel('cancelled', locale)}
+                </Text>
+              </View>
+            ) : (
+              <Text
+                style={[
+                  styles.status,
+                  {
+                    color:
+                      booking.status === 'done'
+                        ? theme.green
+                        : booking.status === 'no_show'
+                          ? theme.danger
+                          : theme.accent,
+                  },
+                ]}>
+                {bookingStatusLabel(booking.status, locale)}
+              </Text>
+            )}
             {isAutoCompletedBooking(booking) ? (
               <>
                 <Text style={[styles.autoHint, { color: theme.textMuted }]}>
@@ -601,6 +641,15 @@ const styles = StyleSheet.create({
   when: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   meta: { fontSize: 14, lineHeight: 20 },
   status: { fontSize: 13, fontWeight: '800', marginTop: 6 },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusBadgeText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
   autoHint: { fontSize: 12, lineHeight: 18, marginTop: 6 },
   overrideBtn: {
     marginTop: 10,

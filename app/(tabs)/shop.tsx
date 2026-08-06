@@ -1,4 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,6 +22,7 @@ import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
+import { StoreOwnerAdminPanel } from '@/components/store/owner/StoreOwnerAdminPanel';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -91,6 +93,7 @@ export default function ShopScreen() {
   const [password, setPassword] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
+  const [storeAdminTab, setStoreAdminTab] = useState<'dashboard' | 'profile' | 'operations' | 'management'>('dashboard');
   const [loadingBookings, setLoadingBookings] = useState(false);
   const [inventory, setInventory] = useState<StoreItem[]>([]);
   const [partsOrders, setPartsOrders] = useState<PartsOrder[]>([]);
@@ -767,6 +770,8 @@ export default function ShopScreen() {
       notificationsLabel={t('shop_notifications_button')}
       notificationCount={pendingNotificationCount}
       onOpenNotifications={() => setNotificationsModalVisible(true)}
+      onOpenSettings={() => router.push('/shop/merchant-settings')}
+      settingsLabel={t('merchant_settings_open')}
     />
   );
 
@@ -988,85 +993,108 @@ export default function ShopScreen() {
   );
 
   if (isStoreShopType(shop.type)) {
+    const STORE_TABS = [
+      { id: 'dashboard' as const, labelKey: 'wash_tab_dashboard' as const, icon: 'dashboard' as const },
+      { id: 'profile' as const, labelKey: 'wash_tab_profile' as const, icon: 'id-card-o' as const },
+      { id: 'operations' as const, labelKey: 'wash_tab_operations' as const, icon: 'wrench' as const },
+      { id: 'management' as const, labelKey: 'wash_tab_management' as const, icon: 'users' as const },
+    ];
+
     return (
-      <>
-        <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.page}>
-        {ownerProfileHero}
-        {ownerManageSections}
+      <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+        <ScrollView
+          style={styles.screen}
+          contentContainerStyle={[styles.page, styles.pageWithBottomNav]}>
+          {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
 
-        <OwnerSectionCard theme={theme} title={t('parts_owner_inventory_title')} subtitle={t('parts_owner_dashboard_lead')}>
-          <TextInput placeholder={t('parts_owner_part_name_placeholder')} placeholderTextColor={theme.textDim} value={newPartName} onChangeText={setNewPartName} style={fieldStyle} />
-          <TextInput placeholder={t('parts_owner_part_price_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newPartPrice} onChangeText={setNewPartPrice} style={fieldStyle} />
-          <TextInput placeholder={t('parts_owner_part_stock_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newPartStock} onChangeText={setNewPartStock} style={fieldStyle} />
-          <TextInput placeholder={t('parts_owner_part_image_placeholder')} placeholderTextColor={theme.textDim} value={newPartImage} onChangeText={setNewPartImage} style={fieldStyle} />
-          <Pressable onPress={onAddPart} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('parts_owner_add_part_btn')}</Text>
-          </Pressable>
-          {loadingParts ? (
-            <ActivityIndicator style={{ marginTop: 12 }} color={theme.accent} />
-          ) : (
-            inventory.map((part) => (
-              <View key={part.id} style={[styles.partOwnerRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                {part.imageUrl ? <Image source={{ uri: part.imageUrl }} style={styles.partOwnerImage} /> : null}
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.metaStrong, { color: theme.text }]}>{part.name}</Text>
-                  <Text style={[styles.meta, { color: theme.textMuted }]}>
-                    {formatEgp(part.priceEgp, locale)} · {t('parts_stock')}: {part.stockQty}
-                  </Text>
-                </View>
-                <View style={styles.actions}>
-                  <Pressable onPress={() => onAdjustStock(part.id, -1)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                    <Text style={styles.actionText}>-1</Text>
+          {storeAdminTab === 'dashboard' ? (
+            <>
+              <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
+                {(
+                  [
+                    { id: 'workspace' as const, label: t('owner_panel_tab_workspace') },
+                    { id: 'history' as const, label: t('owner_panel_tab_history') },
+                  ] as const
+                ).map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => setPanelTab(item.id)}
+                    style={[
+                      styles.panelTabBtn,
+                      {
+                        backgroundColor: panelTab === item.id ? theme.accent : theme.bgElevated,
+                        borderColor: panelTab === item.id ? theme.accent : theme.border,
+                      },
+                    ]}>
+                    <Text style={[styles.panelTabText, { color: panelTab === item.id ? theme.onAccent : theme.text }]}>
+                      {item.label}
+                    </Text>
                   </Pressable>
-                  <Pressable onPress={() => onAdjustStock(part.id, 1)} style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                    <Text style={[styles.actionText, { color: theme.onAccent }]}>+1</Text>
-                  </Pressable>
-                </View>
+                ))}
               </View>
-            ))
-          )}
-        </OwnerSectionCard>
 
-        <OwnerSectionCard theme={theme} title={t('parts_owner_orders_title')}>
-          {partsOrders.length === 0 ? (
-            <Text style={[styles.empty, { color: theme.textMuted }]}>{t('parts_owner_no_orders')}</Text>
-          ) : (
-            partsOrders.map((order) => (
-              <View key={order.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <Text style={[styles.when, { color: theme.text }]}>{new Date(order.createdAt).toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG')}</Text>
-                <Text style={[styles.meta, { color: theme.textMuted }]}>{t('book_phone_label')}: {order.customerPhone}</Text>
-                <Text style={[styles.meta, { color: theme.textMuted }]}>{t('parts_shipping_address_label')}: {order.shippingAddress}</Text>
-                <Text style={[styles.meta, { color: theme.textMuted }]}>
-                  {t('parts_order_money_line')
-                    .replace('{subtotal}', formatEgp(order.subtotalEgp, locale))
-                    .replace('{fee}', formatEgp(order.platformFeeEgp, locale))
-                    .replace('{total}', formatEgp(order.totalEgp, locale))}
-                </Text>
-                <Text style={[styles.status, { color: theme.accent }]}>{partsStatusLabel(order.status)}</Text>
-                <View style={styles.actions}>
-                  {order.status === 'pending' ? (
-                    <Pressable onPress={() => onPartsOrderStatusChange(order.id, 'confirmed')} style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                      <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('shop_action_confirm')}</Text>
-                    </Pressable>
-                  ) : null}
-                  {order.status !== 'cancelled' ? (
-                    <Pressable onPress={() => onPartsOrderStatusChange(order.id, 'cancelled')} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                      <Text style={styles.actionText}>{t('shop_action_cancel')}</Text>
-                    </Pressable>
-                  ) : null}
-                  {order.status === 'confirmed' ? (
-                    <Pressable onPress={() => onPartsOrderStatusChange(order.id, 'shipped')} style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                      <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('parts_mark_shipped')}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
-            ))
-          )}
-        </OwnerSectionCard>
+              {panelTab === 'history' ? (
+                <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="shop" />
+              ) : (
+                <>
+                  {ownerManageSections}
+                  <StoreOwnerAdminPanel
+                    shop={shop}
+                    shopExtras={shopExtras}
+                    onExtrasChange={setShopExtras}
+                    mode="all"
+                  />
+                </>
+              )}
+            </>
+          ) : null}
+
+          {storeAdminTab === 'profile' ? ownerManageSections : null}
+
+          {storeAdminTab === 'operations' ? (
+            <StoreOwnerAdminPanel
+              shop={shop}
+              shopExtras={shopExtras}
+              onExtrasChange={setShopExtras}
+              mode="inventory"
+            />
+          ) : null}
+
+          {storeAdminTab === 'management' ? (
+            <>
+              <StoreOwnerAdminPanel
+                shop={shop}
+                shopExtras={shopExtras}
+                onExtrasChange={setShopExtras}
+                mode="discounts"
+              />
+              <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+                <MerchantCampaignsPanel shopId={shop.id} />
+              </OwnerSectionCard>
+            </>
+          ) : null}
         </ScrollView>
+
+        <View style={[styles.bottomTabBar, { backgroundColor: theme.bgElevated, borderTopColor: theme.border }]}>
+          {STORE_TABS.map((tabItem) => {
+            const active = storeAdminTab === tabItem.id;
+            return (
+              <Pressable key={tabItem.id} onPress={() => setStoreAdminTab(tabItem.id)} style={styles.bottomTabItem}>
+                <FontAwesome name={tabItem.icon} size={20} color={active ? theme.accent : theme.textDim} />
+                <Text style={[styles.bottomTabLabel, { color: active ? theme.accent : theme.textDim }]}>
+                  {t(tabItem.labelKey)}
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Pressable onPress={() => router.push('/shop/merchant-settings')} style={styles.bottomTabItem}>
+            <FontAwesome name="cog" size={20} color={theme.textDim} />
+            <Text style={[styles.bottomTabLabel, { color: theme.textDim }]}>{t('tab_settings')}</Text>
+          </Pressable>
+        </View>
+
         {ownerModals}
-      </>
+      </View>
     );
   }
 
@@ -1127,6 +1155,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loginContent: { padding: 20, paddingBottom: 40 },
   page: { padding: 16, paddingBottom: 40 },
+  pageWithBottomNav: { paddingBottom: 96 },
   panelTabRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1287,4 +1316,32 @@ const styles = StyleSheet.create({
   },
   chipBtnText: { fontSize: 13, fontWeight: '800' },
   actionText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  bottomTabBar: {
+    flexDirection: 'row',
+    height: 65,
+    borderTopWidth: 1,
+    paddingBottom: Platform.OS === 'ios' ? 15 : 0,
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  bottomTabItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    paddingVertical: 8,
+  },
+  bottomTabLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 4,
+  },
 });

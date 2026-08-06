@@ -55,13 +55,14 @@ import {
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
 import { createBooking, getSavedCustomerPhone, listBookingsForShop, saveCustomerPhone } from '@/lib/booking/storage';
+import { resolveDefaultBranchIdForShop } from '@/lib/booking/wash/branchRepository';
 import {
   getMerchantLoyaltyCheckoutState,
   MERCHANT_LOYALTY_REDEEM_POINTS_PER_EGP,
   validatePointsRedemptionRemote,
   type PointsRedemptionValidation,
 } from '@/lib/booking/merchantLoyaltyRepository';
-import { listCustomerVehicles } from '@/lib/booking/vehicleStorage';
+import { loadVehiclePickerState, updateCustomerVehicle } from '@/lib/booking/vehicleStorage';
 import { formatPhoneDisplay, openPhone, openShopInMaps } from '@/lib/linking/contact';
 import { buildBookReturnTo } from '@/lib/auth/returnTo';
 import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
@@ -83,15 +84,18 @@ export default function BookShopScreen() {
     serviceId: rawServiceId,
     serviceIds: rawServiceIds,
     offerId: rawOfferId,
+    branchId: rawBranchId,
   } = useLocalSearchParams<{
     shopId: string;
     serviceId?: string;
     serviceIds?: string;
     offerId?: string;
+    branchId?: string;
   }>();
   const legacyServiceId = Array.isArray(rawServiceId) ? rawServiceId[0] : rawServiceId;
   const serviceIdsParam = Array.isArray(rawServiceIds) ? rawServiceIds[0] : rawServiceIds;
   const offerIdParam = Array.isArray(rawOfferId) ? rawOfferId[0] : rawOfferId;
+  const branchIdParam = Array.isArray(rawBranchId) ? rawBranchId[0] : rawBranchId;
   const initialServiceIds = useMemo(() => {
     if (serviceIdsParam) {
       return serviceIdsParam.split(',').map((s: string) => s.trim()).filter(Boolean);
@@ -149,12 +153,24 @@ export default function BookShopScreen() {
   const [doneBookingCount, setDoneBookingCount] = useState(0);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(offerIdParam ?? null);
   const [offerPickerOpen, setOfferPickerOpen] = useState(false);
+  const [bookingBranchId, setBookingBranchId] = useState<string | undefined>(branchIdParam);
   const userPickedOfferRef = useRef(false);
 
   const CHECKOUT_CYAN = '#00D4FF';
   const CHECKOUT_CARD = '#121826';
 
   const activeServices = useMemo(() => getActiveServices(shopExtras), [shopExtras]);
+
+  useEffect(() => {
+    if (!shop?.id || bookingBranchId) return;
+    let cancelled = false;
+    void resolveDefaultBranchIdForShop(shop.id).then((branchId) => {
+      if (!cancelled && branchId) setBookingBranchId(branchId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shop?.id, bookingBranchId]);
 
   useEffect(() => {
     if (initialServiceIds.length) {
@@ -191,15 +207,10 @@ export default function BookShopScreen() {
   }, [customer?.phone, customer?.id]);
 
   const applyVehicleToBooking = useCallback((vehicle: CustomerVehicle | null) => {
-    if (vehicle) {
-      setVehicleId(vehicle.id);
-      setCarType(vehicle.makeModel);
-      setCarColor(vehicle.color ?? '');
-      return;
-    }
-    setVehicleId(undefined);
-    setCarType('');
-    setCarColor('');
+    if (!vehicle) return;
+    setVehicleId(vehicle.id);
+    setCarType(vehicle.makeModel);
+    setCarColor(vehicle.color ?? '');
   }, []);
 
   useFocusEffect(
@@ -209,13 +220,16 @@ export default function BookShopScreen() {
         return;
       }
       let cancelled = false;
-      listCustomerVehicles(customer.id).then((rows) => {
-        if (!cancelled) setHasRegisteredVehicles(rows.length > 0);
-      });
+      (async () => {
+        const { vehicles, activeVehicle } = await loadVehiclePickerState(customer.id);
+        if (cancelled) return;
+        setHasRegisteredVehicles(vehicles.length > 0);
+        if (activeVehicle) applyVehicleToBooking(activeVehicle);
+      })();
       return () => {
         cancelled = true;
       };
-    }, [customer?.id, isGuest]),
+    }, [customer?.id, isGuest, applyVehicleToBooking]),
   );
 
   useEffect(() => {
@@ -536,6 +550,7 @@ export default function BookShopScreen() {
       await createBooking({
         shopId: shop.id,
         shopType: shop.type,
+        branchId: bookingBranchId,
         customerId: customer?.id,
         customerPhone: normalizedPhone,
         carType: carType.trim(),
@@ -556,6 +571,13 @@ export default function BookShopScreen() {
         cartLineItems: isBogoOffer ? cartLineItems : undefined,
         rawServicesTotalEgp: rawServiceTotal,
       });
+      if (customer?.id && vehicleId && carType.trim()) {
+        await updateCustomerVehicle(customer.id, vehicleId, {
+          makeModel: carType.trim(),
+          label: carType.trim(),
+          color: carColor.trim() || undefined,
+        });
+      }
       await saveCustomerPhone(normalizedPhone);
       await refreshLoyaltyBalance();
       setReceiptSummary({

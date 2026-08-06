@@ -40,8 +40,9 @@ export function ActiveVehiclePicker({
     try {
       const { vehicles: rows, activeVehicle: active } = await loadVehiclePickerState(customerId);
       setVehicles(rows);
-      setActiveVehicleState(active);
-      onVehicleChange?.(active);
+      const resolved = active ?? rows[0] ?? null;
+      setActiveVehicleState(resolved);
+      onVehicleChange?.(resolved);
     } catch {
       setVehicles([]);
       setActiveVehicleState(null);

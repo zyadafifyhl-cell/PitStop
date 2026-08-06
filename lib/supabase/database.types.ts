@@ -81,6 +81,19 @@ export type DbShopBranch = {
   updated_at: string;
 };
 
+/** Customer garage vehicle row. */
+export type DbUserVehicle = {
+  id: string;
+  user_id: string;
+  label: string;
+  make_model: string;
+  color?: string | null;
+  plate?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Branch employee — no login account. */
 export type DbBranchEmployee = {
   id: string;
@@ -127,3 +140,69 @@ export type DbBranchService = {
   created_at: string;
   updated_at: string;
 };
+
+export type DbStoreProductCategory = 'spare_parts' | 'accessories';
+export type DbStoreCompatibilityType = 'universal' | 'brand_specific' | 'model_specific';
+export type DbStoreFulfillmentMethod = 'cod' | 'pickup';
+export type DbStoreOrderStatus = 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+
+export type DbProduct = {
+  id: string;
+  name: string;
+  description?: string | null;
+  category: DbStoreProductCategory;
+  sub_category: string;
+  price: number;
+  sale_price?: number | null;
+  stock_quantity: number;
+  image_url?: string | null;
+  compatibility_type: DbStoreCompatibilityType;
+  rating: number;
+  rating_count: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DbProductCompatibility = {
+  id: string;
+  product_id: string;
+  brand?: string | null;
+  model?: string | null;
+  year_start?: number | null;
+  year_end?: number | null;
+  created_at: string;
+};
+
+export type DbCartItem = {
+  id: string;
+  user_id: string;
+  product_id: string;
+  quantity: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DbStoreOrder = {
+  id: string;
+  user_id: string;
+  subtotal: number;
+  delivery_fee: number;
+  total_price: number;
+  fulfillment_method: DbStoreFulfillmentMethod;
+  status: DbStoreOrderStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DbStoreOrderItem = {
+  id: string;
+  order_id: string;
+  product_id?: string | null;
+  product_name: string;
+  unit_price: number;
+  quantity: number;
+  line_total: number;
+  created_at: string;
+};
+

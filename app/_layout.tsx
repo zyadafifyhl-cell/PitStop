@@ -12,6 +12,7 @@ import { I18nProvider, useI18n } from '@/context/I18nContext';
 import { ShopAuthProvider } from '@/context/ShopAuthContext';
 import { ShopCatalogProvider } from '@/context/ShopCatalogContext';
 import { CustomerAuthProvider } from '@/context/CustomerAuthContext';
+import { StoreCartProvider } from '@/context/StoreCartContext';
 import { ThemePreferenceProvider, useThemePreference } from '@/context/ThemePreferenceContext';
 import { AppDialogProvider } from '@/lib/ui/AppDialogProvider';
 import { CustomConfirmProvider } from '@/lib/ui/CustomConfirmProvider';
@@ -68,6 +69,7 @@ function RootStack() {
       }}>
       <Stack.Screen name="welcome" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="store" options={{ headerShown: false, title: t('store_title') }} />
       <Stack.Screen name="service/[type]/index" options={{ title: t('area_pick_title') }} />
       <Stack.Screen name="service/[type]/[areaId]" options={{ title: t('shops_screen_title') }} />
       <Stack.Screen name="book/[shopId]" options={{ title: t('book_screen_title') }} />
@@ -125,11 +127,13 @@ function RootLayoutWithTheme() {
           <CustomConfirmProvider>
           <ShopCatalogProvider>
             <CustomerAuthProvider>
+              <StoreCartProvider>
               <ShopAuthProvider>
                 <AppBootstrap>
                   <RootStack />
                 </AppBootstrap>
               </ShopAuthProvider>
+              </StoreCartProvider>
             </CustomerAuthProvider>
           </ShopCatalogProvider>
           </CustomConfirmProvider>

@@ -168,6 +168,52 @@ async function fetchServicesForBranches(branchIds: string[]): Promise<Map<string
   return map;
 }
 
+export type ShopBranchLabel = {
+  id: string;
+  name: string;
+  nameAr?: string;
+};
+
+export async function countActiveShopBranches(shopId: string): Promise<number> {
+  const supabase = getSupabase();
+  if (!supabase) return 0;
+
+  const { count, error } = await supabase
+    .from('shop_branches')
+    .select('id', { count: 'exact', head: true })
+    .eq('shop_id', shopId)
+    .eq('is_active', true);
+
+  if (error) {
+    console.warn('countActiveShopBranches:', error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+export async function fetchShopBranchLabels(shopId: string): Promise<ShopBranchLabel[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('shop_branches')
+    .select('id, name, name_ar')
+    .eq('shop_id', shopId)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+
+  if (error || !data) {
+    if (error) console.warn('fetchShopBranchLabels:', error.message);
+    return [];
+  }
+
+  return (data as Array<{ id: string; name: string; name_ar?: string | null }>).map((row) => ({
+    id: row.id,
+    name: row.name,
+    nameAr: row.name_ar ?? undefined,
+  }));
+}
+
 export async function fetchWashBranchStateFromRemote(
   shop: Shop,
   staff: ShopStaffUser,
@@ -265,6 +311,11 @@ export async function resolveRemoteBranchId(shopId: string, branchId: string): P
     data[0];
 
   return preferred?.id ?? null;
+}
+
+/** Default active branch for customer bookings when no branch is selected in the UI. */
+export async function resolveDefaultBranchIdForShop(shopId: string): Promise<string | null> {
+  return resolveRemoteBranchId(shopId, 'main');
 }
 
 export async function updateBranchRemote(

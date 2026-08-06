@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import type { ShopReview } from '@/lib/booking/types';
 import { getSupabase } from '@/lib/supabase/client';
-import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
+import { notifyMerchantReviewCreated } from '@/lib/booking/wash/merchantNotifications';
 
 const REVIEWS_KEY = '@pitstop/shop-reviews/v1';
 type ReviewMap = Record<string, ShopReview[]>;
@@ -195,6 +195,7 @@ export async function addShopReviewSynced(input: {
   customerName: string;
   rating: number;
   body: string;
+  branchId?: string;
 }): Promise<ShopReview> {
   const rating = Math.max(1, Math.min(5, Math.round(input.rating)));
   const body = input.body.trim();
@@ -225,11 +226,12 @@ export async function addShopReviewSynced(input: {
     if (!error && data) {
       const created = mapReviewRow(data as ReviewRow);
       await upsertLocalReview(input.shopId, created);
-      await pushWashCenterNotification({
+      await notifyMerchantReviewCreated({
         shopId: input.shopId,
-        kind: 'new_review',
-        title: 'New customer review',
-        body: `${customerName} · ${'★'.repeat(rating)} · ${body.slice(0, 100)}`,
+        branchId: input.branchId,
+        customerName,
+        rating,
+        body,
         reviewId: created.id,
       });
       return created;
@@ -249,11 +251,12 @@ export async function addShopReviewSynced(input: {
     createdAt: new Date().toISOString(),
   };
   await upsertLocalReview(input.shopId, localReview);
-  await pushWashCenterNotification({
+  await notifyMerchantReviewCreated({
     shopId: input.shopId,
-    kind: 'new_review',
-    title: 'New customer review',
-    body: `${customerName} · ${'★'.repeat(rating)} · ${body.slice(0, 100)}`,
+    branchId: input.branchId,
+    customerName,
+    rating,
+    body,
     reviewId: localReview.id,
   });
   return localReview;

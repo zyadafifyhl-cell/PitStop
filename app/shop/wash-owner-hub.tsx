@@ -26,9 +26,15 @@ import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format'
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { formatEgp } from '@/lib/booking/reporting';
 import { listShopReviews, setReviewOwnerReply, computeShopRatingSummary, formatReviewStarRow } from '@/lib/booking/reviewsStorage';
-import { updateBookingStatus } from '@/lib/booking/storage';
+import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
 import type { Booking, BookingStatus, ShopReview } from '@/lib/booking/types';
 import { filterWashNotificationsForStaff } from '@/lib/booking/wash/bookingDispatch';
+import {
+  countActiveShopBranches,
+  fetchShopBranchLabels,
+  type ShopBranchLabel,
+} from '@/lib/booking/wash/branchRepository';
+import { formatBranchBadgeLabel, resolveBranchIdForReview } from '@/lib/booking/wash/merchantBranchLabels';
 import { getActiveWashBranch } from '@/lib/booking/wash/washBranchStorage';
 import type { WashBranch } from '@/lib/booking/wash/types';
 import { openPhone } from '@/lib/linking/contact';
@@ -37,6 +43,7 @@ import {
   listWashCenterNotifications,
   markWashNotificationRead,
 } from '@/lib/booking/wash/washNotificationCenter';
+import { loadAuditPendingBookingsForStaff, subscribeMerchantBookingRealtime, handleMerchantBookingCancelledRealtime } from '@/lib/notifications/notificationService';
 
 type HubTab = 'reviews' | 'orders';
 
@@ -94,15 +101,21 @@ export default function WashOwnerHubScreen() {
   const [rejectNote, setRejectNote] = useState('');
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [walkInBranch, setWalkInBranch] = useState<WashBranch | null>(null);
+  const [auditOrderBookings, setAuditOrderBookings] = useState<Booking[]>([]);
+  const [shopBookings, setShopBookings] = useState<Booking[]>([]);
+  const [branchLabels, setBranchLabels] = useState<ShopBranchLabel[]>([]);
+  const [branchCount, setBranchCount] = useState(0);
+  const [reviewBranchById, setReviewBranchById] = useState<Record<string, string | undefined>>({});
 
   const branchId = shopStaff?.role === 'branch_manager' ? shopStaff.branchId ?? undefined : undefined;
+  const showBranchBadges = shopStaff?.role === 'owner' && branchCount > 1;
 
   const orderNotifier = useMerchantOrderNotifier({
     shopId: shop?.id,
     staff: shopStaff,
     activeBranchId: branchId,
     locale,
-    enabled: !!shop,
+    enabled: !!shop && shopStaff?.role !== 'owner',
   });
 
   useEffect(() => {
@@ -118,18 +131,35 @@ export default function WashOwnerHubScreen() {
     }
     setLoading(true);
     try {
-      const [notifRows, reviewRows] = await Promise.all([
+      const [notifRows, reviewRows, bookingRows, labels, totalBranches] = await Promise.all([
         listWashCenterNotifications(shop.id),
         listShopReviews(shop.id),
+        listBookingsForShop(shop.id),
+        fetchShopBranchLabels(shop.id),
+        countActiveShopBranches(shop.id),
       ]);
       const filteredNotifs = await filterWashNotificationsForStaff(shopStaff, notifRows);
+      const auditOrders = await loadAuditPendingBookingsForStaff(shop.id, shopStaff, branchId);
+      const reviewBranches = Object.fromEntries(
+        reviewRows.map((review) => [
+          review.id,
+          resolveBranchIdForReview(review, bookingRows),
+        ]),
+      );
       setNotifications(filteredNotifs);
       setReviews(reviewRows);
-      await orderNotifier.refresh();
+      setShopBookings(bookingRows);
+      setAuditOrderBookings(auditOrders);
+      setBranchLabels(labels);
+      setBranchCount(totalBranches);
+      setReviewBranchById(reviewBranches);
+      if (shopStaff?.role !== 'owner') {
+        await orderNotifier.refresh();
+      }
     } finally {
       setLoading(false);
     }
-  }, [shop, shopStaff, orderNotifier.refresh]);
+  }, [shop, shopStaff, branchId, orderNotifier.refresh]);
 
   useFocusEffect(
     useCallback(() => {
@@ -137,7 +167,44 @@ export default function WashOwnerHubScreen() {
     }, [refresh]),
   );
 
-  const orderBookings = orderNotifier.pendingBookings;
+  useEffect(() => {
+    if (!shop?.id || shopStaff?.role !== 'owner') return;
+
+    const unsubscribe = subscribeMerchantBookingRealtime(
+      { shopId: shop.id, staff: shopStaff, activeBranchId: branchId },
+      {
+        onBookingUpdate: (booking, previousStatus) => {
+          if (booking.status !== 'cancelled' || !previousStatus || previousStatus === 'cancelled') {
+            return;
+          }
+          setAuditOrderBookings((prev) => prev.filter((row) => row.id !== booking.id));
+          void handleMerchantBookingCancelledRealtime(booking, shopStaff, locale, branchId).then(() => {
+            void listWashCenterNotifications(shop.id).then(async (rows) => {
+              const filtered = await filterWashNotificationsForStaff(shopStaff, rows);
+              setNotifications(filtered);
+            });
+          });
+        },
+      },
+    );
+
+    return unsubscribe;
+  }, [shop?.id, shopStaff, branchId, locale]);
+
+  const orderBookings = shopStaff?.role === 'owner' ? auditOrderBookings : orderNotifier.pendingBookings;
+  const ordersTabBadge =
+    shopStaff?.role === 'owner' ? auditOrderBookings.length : orderNotifier.pendingCount;
+
+  function renderBranchBadge(branchIdForCard?: string) {
+    if (!showBranchBadges) return null;
+    const label = formatBranchBadgeLabel(branchIdForCard, branchLabels, locale);
+    if (!label) return null;
+    return (
+      <Text style={[styles.branchBadge, { color: theme.accent, borderColor: theme.accent }, isRTL && styles.textRtl]}>
+        {t('wash_hub_branch_badge').replace('{branch}', label)}
+      </Text>
+    );
+  }
 
   const reviewNotifications = useMemo(
     () => notifications.filter((row) => row.kind === 'new_review'),
@@ -190,6 +257,11 @@ export default function WashOwnerHubScreen() {
     await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
     orderNotifier.patchBookingLocally(booking.id, status);
     orderNotifier.removePendingLocally(booking.id);
+    setAuditOrderBookings((prev) =>
+      status === 'pending'
+        ? prev.map((row) => (row.id === booking.id ? { ...row, status } : row))
+        : prev.filter((row) => row.id !== booking.id),
+    );
     if (status === 'confirmed') {
       await scheduleBookingReminders({
         bookingId: booking.id,
@@ -278,6 +350,7 @@ export default function WashOwnerHubScreen() {
           },
         ]}>
         {unread ? <UnreadPulseDot rtl={isRTL} /> : null}
+        {renderBranchBadge(resolveBranchIdForReview(review, shopBookings, reviewBranchById))}
         <View style={[styles.reviewHeader, isRTL && styles.reviewHeaderRtl]}>
           <Text style={[styles.cardTitle, { color: theme.text }, isRTL && styles.textRtl]}>{review.customerName}</Text>
           <Text style={[styles.reviewStars, { color: theme.accent }, isRTL && styles.textRtl]}>
@@ -372,6 +445,7 @@ export default function WashOwnerHubScreen() {
 
     return (
       <View key={booking.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+        {renderBranchBadge(booking.branchId)}
         <Text style={[styles.when, { color: theme.text }]}>{formatBookingDateTime(booking.scheduledAt, locale)}</Text>
         <Text style={[styles.meta, { color: theme.textMuted }]}>
           {t('wash_booking_customer')}: {booking.customerName || booking.customerPhone}
@@ -467,7 +541,7 @@ export default function WashOwnerHubScreen() {
         {(
           [
             { id: 'reviews' as const, label: t('wash_hub_subtab_reviews'), badge: unreadReviewCount },
-            { id: 'orders' as const, label: t('wash_hub_tab_orders'), badge: orderNotifier.pendingCount },
+            { id: 'orders' as const, label: t('wash_hub_tab_orders'), badge: ordersTabBadge },
           ] as const
         ).map((item) => (
           <Pressable
@@ -596,6 +670,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: 2,
+  },
+  branchBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.04,
   },
   card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
   reviewCard: { position: 'relative', overflow: 'visible', borderRadius: 0 },

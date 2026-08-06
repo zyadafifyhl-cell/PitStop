@@ -18,6 +18,7 @@ export function clearBranchManagerCache(): void {
 }
 
 const BOOKING_QUEUE_KINDS = new Set<WashCenterNotification['kind']>(['new_booking', 'cancelled_booking']);
+const REVIEW_KINDS = new Set<WashCenterNotification['kind']>(['new_review']);
 
 /** Who may receive a wash hub notification based on branch-manager fallback rules. */
 export async function shouldStaffReceiveWashNotification(
@@ -30,15 +31,22 @@ export async function shouldStaffReceiveWashNotification(
 
   if (staff.role === 'branch_manager') {
     if (!staff.branchId) return false;
+    if (REVIEW_KINDS.has(notification.kind)) {
+      if (!branchId) return true;
+      return branchId === staff.branchId;
+    }
     if (!branchId) return BOOKING_QUEUE_KINDS.has(notification.kind);
     return branchId === staff.branchId;
   }
 
   if (staff.role === 'owner') {
-    if (!branchId) return true;
-    if (!BOOKING_QUEUE_KINDS.has(notification.kind)) return true;
-    const hasManager = await branchHasAssignedManager(branchId);
-    return !hasManager;
+    if (notification.kind === 'cancelled_booking') return true;
+    if (BOOKING_QUEUE_KINDS.has(notification.kind)) {
+      if (!branchId) return true;
+      const hasManager = await branchHasAssignedManager(branchId);
+      return !hasManager;
+    }
+    return true;
   }
 
   return false;
@@ -57,23 +65,25 @@ export async function filterWashNotificationsForStaff(
   return out;
 }
 
-/** Pending booking queue scoped by branch-manager primary / owner fallback dispatch rules. */
-export async function filterPendingQueueBookingsForStaff<T extends { status: string; branchId?: string }>(
+/**
+ * Operational workspace scope:
+ * - Branch managers see only their assigned branch.
+ * - Owners see unscoped bookings and branches without an active manager (fallback).
+ */
+export async function filterOperationalBookingsForStaff<T extends { branchId?: string }>(
   staff: ShopStaffUser | null,
   bookings: T[],
 ): Promise<T[]> {
   if (!staff) return [];
 
-  const pending = bookings.filter((row) => row.status === 'pending');
-
   if (staff.role === 'branch_manager') {
     if (!staff.branchId) return [];
-    return pending.filter((row) => row.branchId === staff.branchId);
+    return bookings.filter((row) => row.branchId === staff.branchId);
   }
 
   if (staff.role === 'owner') {
     const out: T[] = [];
-    for (const row of pending) {
+    for (const row of bookings) {
       if (!row.branchId) {
         out.push(row);
         continue;
@@ -85,4 +95,13 @@ export async function filterPendingQueueBookingsForStaff<T extends { status: str
   }
 
   return [];
+}
+
+/** Pending booking queue scoped by branch-manager primary / owner fallback dispatch rules. */
+export async function filterPendingQueueBookingsForStaff<T extends { status: string; branchId?: string }>(
+  staff: ShopStaffUser | null,
+  bookings: T[],
+): Promise<T[]> {
+  const operational = await filterOperationalBookingsForStaff(staff, bookings);
+  return operational.filter((row) => row.status === 'pending');
 }

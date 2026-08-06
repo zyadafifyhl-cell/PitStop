@@ -25,6 +25,7 @@ import {
 } from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
 import { listAllActiveOffers, subscribeOffersRealtime } from '@/lib/booking/offerRepository';
+import { listCustomerVehicles } from '@/lib/booking/vehicleStorage';
 import { formatOfferBadge, isOfferLive, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 
 function bookingStatusTone(status: Booking['status']) {
@@ -90,13 +91,13 @@ export default function HomeScreen() {
           type: 'parts' as const,
           title: t('service_parts_title'),
           subtitle: t('service_parts_sub'),
-          href: '/service/parts' as Href,
+          storeCategory: 'spare_parts' as const,
         },
         {
           type: 'accessories' as const,
           title: t('service_accessories_title'),
           subtitle: t('service_accessories_sub'),
-          href: '/service/accessories' as Href,
+          storeCategory: 'accessories' as const,
         },
       ].filter((card) => {
         if (serviceFilter === 'wash' && card.type !== 'wash') return false;
@@ -151,6 +152,21 @@ export default function HomeScreen() {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!customer?.id || isGuest) return;
+
+    let cancelled = false;
+    void listCustomerVehicles(customer.id).then(() => {
+      if (!cancelled) {
+        setVehicleRefreshKey((key) => key + 1);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [customer?.id, isGuest]);
 
   useFocusEffect(
     useCallback(() => {
@@ -305,7 +321,15 @@ export default function HomeScreen() {
         {serviceCards.map((card) => (
           <Pressable
             key={card.type}
-            onPress={() => router.push(card.href)}
+            onPress={() => {
+              if ('storeCategory' in card && card.storeCategory) {
+                router.push({ pathname: '/store', params: { category: card.storeCategory } });
+                return;
+              }
+              if ('href' in card && card.href) {
+                router.push(card.href);
+              }
+            }}
             style={[styles.serviceRow, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
             <View style={[styles.serviceIcon, { backgroundColor: theme.accentSoft }]}>
               <FontAwesome name={card.type === 'wash' ? 'tint' : card.type === 'maintenance' ? 'wrench' : 'cogs'} size={18} color={theme.warm} />
@@ -356,7 +380,7 @@ export default function HomeScreen() {
       {(customer || isGuest) ? (
         <Pressable onPress={onSignOut} disabled={signingOut} style={styles.signOut}>
           <Text style={[styles.signOutText, { color: theme.textDim, opacity: signingOut ? 0.5 : 1 }]}>
-            {t('home_sign_out')}
+            {isGuest ? t('guest_gate_sign_in') : t('home_sign_out')}
           </Text>
         </Pressable>
       ) : null}

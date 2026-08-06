@@ -222,6 +222,21 @@ create table if not exists public.garage_snapshots (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.user_vehicles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  label text not null,
+  make_model text not null,
+  color text,
+  plate text,
+  is_active boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists user_vehicles_user_id_idx on public.user_vehicles (user_id);
+create index if not exists user_vehicles_user_active_idx on public.user_vehicles (user_id, is_active);
+
 create table if not exists public.bookings (
   id uuid primary key default gen_random_uuid(),
   shop_id text not null references public.shops(id) on delete cascade,
@@ -497,6 +512,7 @@ alter table public.shop_branches enable row level security;
 alter table public.branch_employees enable row level security;
 alter table public.branch_services enable row level security;
 alter table public.garage_snapshots enable row level security;
+alter table public.user_vehicles enable row level security;
 alter table public.bookings enable row level security;
 alter table public.offers enable row level security;
 alter table public.shop_reviews enable row level security;
@@ -583,6 +599,22 @@ create policy "garage_snapshots_insert_own" on public.garage_snapshots
 drop policy if exists "garage_snapshots_update_own" on public.garage_snapshots;
 create policy "garage_snapshots_update_own" on public.garage_snapshots
   for update using (auth.uid() = user_id);
+
+drop policy if exists "user_vehicles_select_own" on public.user_vehicles;
+create policy "user_vehicles_select_own" on public.user_vehicles
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "user_vehicles_insert_own" on public.user_vehicles;
+create policy "user_vehicles_insert_own" on public.user_vehicles
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "user_vehicles_update_own" on public.user_vehicles;
+create policy "user_vehicles_update_own" on public.user_vehicles
+  for update using (auth.uid() = user_id);
+
+drop policy if exists "user_vehicles_delete_own" on public.user_vehicles;
+create policy "user_vehicles_delete_own" on public.user_vehicles
+  for delete using (auth.uid() = user_id);
 
 drop policy if exists "Anyone can create bookings" on public.bookings;
 create policy "Anyone can create bookings" on public.bookings

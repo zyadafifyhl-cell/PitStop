@@ -156,6 +156,74 @@ export async function sendShopPushForBooking(input: {
   await postExpoPush(payloads);
 }
 
+function reviewPushText(locale: Locale, input: { customerName: string; rating: number }): { title: string; body: string } {
+  const stars = '★'.repeat(Math.max(1, Math.min(5, input.rating)));
+  if (locale === 'ar') {
+    return {
+      title: 'تقييم جديد',
+      body: `${input.customerName} · ${stars}`,
+    };
+  }
+  return {
+    title: 'New customer review',
+    body: `${input.customerName} · ${stars}`,
+  };
+}
+
+export async function sendShopPushForReview(input: {
+  shopId: string;
+  customerName: string;
+  rating: number;
+  reviewId: string;
+}): Promise<void> {
+  const tokens = await readShopPushTokens(input.shopId);
+  if (!tokens.length) return;
+
+  const payloads = tokens.map((row) => {
+    const locale = row.locale === 'ar' ? 'ar' : 'en';
+    const text = reviewPushText(locale, {
+      customerName: input.customerName,
+      rating: input.rating,
+    });
+    return {
+      to: row.expo_push_token,
+      title: text.title,
+      body: text.body,
+      data: { type: 'new_review', reviewId: input.reviewId, shopId: input.shopId },
+    };
+  });
+  await postExpoPush(payloads);
+}
+
+function cancellationPushText(locale: Locale, body: string): { title: string; body: string } {
+  if (locale === 'ar') {
+    return { title: 'تم إلغاء الحجز', body };
+  }
+  return { title: 'Booking cancelled', body };
+}
+
+export async function sendShopPushForBookingCancelled(input: {
+  shopId: string;
+  bodyEn: string;
+  bodyAr: string;
+  bookingId: string;
+}): Promise<void> {
+  const tokens = await readShopPushTokens(input.shopId);
+  if (!tokens.length) return;
+
+  const payloads = tokens.map((row) => {
+    const locale = row.locale === 'ar' ? 'ar' : 'en';
+    const text = cancellationPushText(locale, locale === 'ar' ? input.bodyAr : input.bodyEn);
+    return {
+      to: row.expo_push_token,
+      title: text.title,
+      body: text.body,
+      data: { type: 'booking_cancelled', bookingId: input.bookingId, shopId: input.shopId },
+    };
+  });
+  await postExpoPush(payloads);
+}
+
 export async function sendShopPushForPartsOrder(input: {
   shopId: string;
   customerPhone: string;

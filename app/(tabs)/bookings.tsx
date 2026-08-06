@@ -121,6 +121,7 @@ export default function MyBookingsScreen() {
         customerName: customer.name?.trim() || t('shop_review_anonymous'),
         rating,
         body: orderHistoryReviewBody(locale),
+        branchId: booking.branchId,
       });
       setRatedShopIds((prev) => new Set(prev).add(booking.shopId));
       setShopRatings((prev) => ({ ...prev, [booking.shopId]: rating }));

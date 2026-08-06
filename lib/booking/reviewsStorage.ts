@@ -27,6 +27,7 @@ export async function addShopReview(input: {
   customerName: string;
   rating: number;
   body: string;
+  branchId?: string;
 }): Promise<ShopReview> {
   return addShopReviewSynced(input);
 }

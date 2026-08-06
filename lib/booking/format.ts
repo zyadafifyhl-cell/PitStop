@@ -1,5 +1,5 @@
 import type { Locale } from '@/lib/i18n/strings';
-import type { BookingStatus, ShopType } from '@/lib/booking/types';
+import type { Booking, BookingStatus, ShopType } from '@/lib/booking/types';
 
 export function formatBookingDateTime(iso: string, locale: Locale): string {
   const d = new Date(iso);
@@ -20,6 +20,34 @@ export function shopTypeLabel(type: ShopType, locale: Locale): string {
   if (type === 'accessories') return locale === 'ar' ? 'إكسسوارات' : 'Accessories';
   if (type === 'winch') return locale === 'ar' ? 'ونش' : 'Winch';
   return locale === 'ar' ? 'صيانة' : 'Maintenance';
+}
+
+export function resolveBookingServiceLabel(
+  booking: Pick<Booking, 'serviceName' | 'serviceNameAr' | 'carType'>,
+  locale: Locale,
+): string {
+  return locale === 'ar'
+    ? booking.serviceNameAr || booking.serviceName || booking.carType
+    : booking.serviceName || booking.carType;
+}
+
+export function formatMerchantCancellationBody(
+  booking: Pick<
+    Booking,
+    'customerName' | 'customerPhone' | 'serviceName' | 'serviceNameAr' | 'carType' | 'scheduledAt'
+  >,
+  locale: Locale,
+): string {
+  const customer =
+    booking.customerName?.trim() ||
+    booking.customerPhone ||
+    (locale === 'ar' ? 'عميل' : 'Customer');
+  const service = resolveBookingServiceLabel(booking, locale);
+  const when = formatBookingDateTime(booking.scheduledAt, locale);
+  if (locale === 'ar') {
+    return `تم إلغاء الحجز بواسطة ${customer} لخدمة ${service} في ${when}`;
+  }
+  return `Booking cancelled by ${customer} for ${service} at ${when}`;
 }
 
 export function bookingStatusLabel(status: BookingStatus, locale: Locale): string {

@@ -1,3 +1,5 @@
+import { filterOperationalBookingsForStaff } from '@/lib/booking/wash/bookingDispatch';
+import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
 import { DEFAULT_SERVICE_DURATION_MINUTES } from '@/lib/booking/format';
 import {
@@ -56,10 +58,14 @@ export function isActiveQueueBooking(booking: Booking, now = Date.now()): boolea
 
 export async function listActiveQueueBookingsForStaff(
   shopId: string,
+  staff: ShopStaffUser | null,
   branchId?: string | null,
 ): Promise<Booking[]> {
   const all = await listBookingsForShop(shopId);
-  const scoped = branchId ? all.filter((row) => row.branchId === branchId) : all;
+  let scoped = await filterOperationalBookingsForStaff(staff, all);
+  if (branchId) {
+    scoped = scoped.filter((row) => row.branchId === branchId);
+  }
   const now = Date.now();
   return sortBookingsByScheduledAtDesc(scoped.filter((row) => isActiveQueueBooking(row, now)));
 }

@@ -1,8 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
 import { registerCouponUsageRemote } from '@/lib/booking/couponRepository';
-import { formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
+import { formatBookingDateTime } from '@/lib/booking/format';
 import {
   deductMerchantLoyaltyPointsRemote,
   recordMerchantLoyaltyPointsOnDone,
@@ -23,10 +22,15 @@ import {
   validateOfferForBooking,
 } from '@/lib/booking/offerRepository';
 import type { Booking, BookingStatus, BookingType } from '@/lib/booking/types';
-import { resolveRemoteBranchId } from '@/lib/booking/wash/branchRepository';
-import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
+import {
+  resolveDefaultBranchIdForShop,
+  resolveRemoteBranchId,
+} from '@/lib/booking/wash/branchRepository';
+import {
+  notifyMerchantBookingCancelled,
+  notifyMerchantBookingCreated,
+} from '@/lib/booking/wash/merchantNotifications';
 import { normalizePhoneE164, phoneLookupVariants, phonesEqual } from '@/lib/phone';
-import { sendShopPushForBooking } from '@/lib/push/shopPush';
 import { getSupabase } from '@/lib/supabase/client';
 
 const REMOTE_QUERY_TIMEOUT_MS = 6000;
@@ -146,17 +150,13 @@ function newId(): string {
 async function notifyWashOwnerBooking(
   booking: Booking,
   kind: 'new_booking' | 'cancelled_booking',
+  options?: { skipOwnerPush?: boolean },
 ): Promise<void> {
-  if (booking.shopType !== 'wash') return;
-  const when = formatBookingDateTime(booking.scheduledAt, 'en');
-  await pushWashCenterNotification({
-    shopId: booking.shopId,
-    branchId: booking.branchId,
-    kind,
-    title: kind === 'new_booking' ? 'New booking request' : 'Booking cancelled',
-    body: `${booking.customerPhone} · ${booking.carType} · ${when}`,
-    bookingId: booking.id,
-  });
+  if (kind === 'new_booking') {
+    await notifyMerchantBookingCreated(booking, options);
+    return;
+  }
+  await notifyMerchantBookingCancelled(booking);
 }
 
 function defaultServicePriceEgp(shopType: Booking['shopType']): number {
@@ -376,21 +376,6 @@ function mergeBookings(remote: Booking[], local: Booking[]): Booking[] {
   return merged;
 }
 
-async function sendOwnerBookingPush(booking: Booking): Promise<void> {
-  const when = new Date(booking.scheduledAt);
-  const whenEn = when.toLocaleString('en-EG');
-  const whenAr = when.toLocaleString('ar-EG');
-  await sendShopPushForBooking({
-    shopId: booking.shopId,
-    serviceLabelEn: shopTypeLabel(booking.shopType, 'en'),
-    serviceLabelAr: shopTypeLabel(booking.shopType, 'ar'),
-    customerPhone: booking.customerPhone,
-    whenEn,
-    whenAr,
-    bookingId: booking.id,
-  });
-}
-
 export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
   const supabase = getSupabase();
   let rows: Booking[] = [];
@@ -486,7 +471,10 @@ export async function createBooking(
 ): Promise<Booking> {
   const bookingType = options?.bookingType ?? input.bookingType ?? 'app';
   const initialStatus = options?.initialStatus ?? 'pending';
-  const branchId = input.branchId ? await resolveBranchIdForRemote(input.shopId, input.branchId) : undefined;
+  let branchId = input.branchId ? await resolveBranchIdForRemote(input.shopId, input.branchId) : undefined;
+  if (!branchId && input.shopType === 'wash') {
+    branchId = (await resolveDefaultBranchIdForShop(input.shopId)) ?? undefined;
+  }
   const baseServicePriceEgp = Math.max(
     0,
     Math.round(
@@ -591,24 +579,7 @@ export async function createBooking(
           console.warn('Merchant loyalty deduction failed (non-blocking):', loyaltyError);
         }
       }
-      if (bookingType !== 'walk_in') {
-        await pushOwnerNotification({
-          shopId: created.shopId,
-          kind: 'service_booking',
-          customerPhone: created.customerPhone,
-          bookingId: created.id,
-          shopType: created.shopType,
-          carType: created.carType,
-          scheduledAt: created.scheduledAt,
-          totalEgp: created.servicePriceEgp,
-        });
-        await notifyWashOwnerBooking(created, 'new_booking');
-        if (!options?.skipOwnerPush) {
-          await sendOwnerBookingPush(created);
-        }
-      } else {
-        await notifyWashOwnerBooking(created, 'new_booking');
-      }
+      await notifyWashOwnerBooking(created, 'new_booking', options);
       return created;
     }
     if (error) {
@@ -617,24 +588,7 @@ export async function createBooking(
   }
 
   await upsertLocalBooking(booking);
-  if (bookingType !== 'walk_in') {
-    await pushOwnerNotification({
-      shopId: booking.shopId,
-      kind: 'service_booking',
-      customerPhone: booking.customerPhone,
-      bookingId: booking.id,
-      shopType: booking.shopType,
-      carType: booking.carType,
-      scheduledAt: booking.scheduledAt,
-      totalEgp: booking.servicePriceEgp,
-    });
-    await notifyWashOwnerBooking(booking, 'new_booking');
-    if (!options?.skipOwnerPush) {
-      await sendOwnerBookingPush(booking);
-    }
-  } else {
-    await notifyWashOwnerBooking(booking, 'new_booking');
-  }
+  await notifyWashOwnerBooking(booking, 'new_booking', options);
   return booking;
 }
 

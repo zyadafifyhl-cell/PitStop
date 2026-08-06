@@ -1,7 +1,7 @@
 import { Platform, Vibration } from 'react-native';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-import { formatBookingDateTime } from '@/lib/booking/format';
+import { formatBookingDateTime, formatMerchantCancellationBody } from '@/lib/booking/format';
 import {
   applyVirtualBookingLifecycle,
   applyVirtualBookingLifecycleBatch,
@@ -9,7 +9,11 @@ import {
   sortBookingsByScheduledAtDesc,
 } from '@/lib/booking/storage';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
-import { filterPendingQueueBookingsForStaff } from '@/lib/booking/wash/bookingDispatch';
+import {
+  filterOperationalBookingsForStaff,
+  filterPendingQueueBookingsForStaff,
+} from '@/lib/booking/wash/bookingDispatch';
+import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import { getSupabase } from '@/lib/supabase/client';
 import { userAlert } from '@/lib/ui/userAlert';
@@ -76,7 +80,7 @@ export function isPendingBookingStatus(status: string): boolean {
   return status === 'pending';
 }
 
-/** Branch-manager scope before pending dispatch rules. */
+/** Sync branch-manager scope (async owner fallback handled in loadScopedShopBookings). */
 export function scopeBookingsForStaffView(bookings: Booking[], staff: ShopStaffUser | null): Booking[] {
   if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
   return bookings.filter((booking) => booking.branchId === staff.branchId);
@@ -138,9 +142,54 @@ export function removePendingBookingLocally(bookings: Booking[], bookingId: stri
   return bookings.filter((row) => row.id !== bookingId || !isPendingBookingStatus(row.status));
 }
 
+export async function resolveAuditPendingBookingsForStaff(
+  staff: ShopStaffUser | null,
+  bookings: Booking[],
+  activeBranchId?: string,
+): Promise<Booking[]> {
+  let scoped = bookings;
+  if (staff?.role === 'branch_manager') {
+    scoped = scopeBookingsForStaffView(bookings, staff);
+  }
+  let pending = scoped.filter((row) => isPendingBookingStatus(row.status));
+  if (activeBranchId) {
+    pending = pending.filter((row) => !row.branchId || row.branchId === activeBranchId);
+  }
+  return sortBookingsByScheduledAtDesc(pending);
+}
+
+export async function loadAuditPendingBookingsForStaff(
+  shopId: string,
+  staff: ShopStaffUser | null,
+  activeBranchId?: string,
+): Promise<Booking[]> {
+  const rows = await listBookingsForShop(shopId);
+  return resolveAuditPendingBookingsForStaff(staff, rows, activeBranchId);
+}
+
+export async function bookingEligibleForCancellationAlert(
+  staff: ShopStaffUser | null,
+  booking: Booking,
+  activeBranchId?: string,
+): Promise<boolean> {
+  if (!staff || booking.status !== 'cancelled') return false;
+  if (activeBranchId && booking.branchId && booking.branchId !== activeBranchId) return false;
+
+  if (staff.role === 'owner') return true;
+
+  if (staff.role === 'branch_manager') {
+    if (!staff.branchId) return false;
+    if (!booking.branchId) return true;
+    return booking.branchId === staff.branchId;
+  }
+
+  return false;
+}
+
 export async function loadScopedShopBookings(shopId: string, staff: ShopStaffUser | null): Promise<Booking[]> {
   const rows = await listBookingsForShop(shopId);
-  return sortBookingsByScheduledAtDesc(scopeBookingsForStaffView(rows, staff));
+  const operational = await filterOperationalBookingsForStaff(staff, rows);
+  return sortBookingsByScheduledAtDesc(operational);
 }
 
 export async function triggerMerchantOrderAlert(booking: Booking, locale: 'en' | 'ar'): Promise<void> {
@@ -154,32 +203,90 @@ export async function triggerMerchantOrderAlert(booking: Booking, locale: 'en' |
   );
 }
 
+export async function triggerMerchantCancellationAlert(booking: Booking, locale: 'en' | 'ar'): Promise<void> {
+  if (Platform.OS !== 'web') {
+    Vibration.vibrate([0, 200, 100, 200]);
+  }
+  userAlert(
+    locale === 'ar' ? 'تم إلغاء الحجز' : 'Booking cancelled',
+    formatMerchantCancellationBody(booking, locale),
+  );
+}
+
+/** Merchant-side realtime handler: in-app notification center + alert popup. */
+export async function handleMerchantBookingCancelledRealtime(
+  booking: Booking,
+  staff: ShopStaffUser | null,
+  locale: 'en' | 'ar',
+  activeBranchId?: string,
+): Promise<void> {
+  const eligible = await bookingEligibleForCancellationAlert(staff, booking, activeBranchId);
+  if (!eligible) return;
+
+  if (booking.shopType === 'wash') {
+    await pushWashCenterNotification({
+      shopId: booking.shopId,
+      branchId: booking.branchId,
+      kind: 'cancelled_booking',
+      title: locale === 'ar' ? 'تم إلغاء الحجز' : 'Booking cancelled',
+      body: formatMerchantCancellationBody(booking, locale),
+      bookingId: booking.id,
+    });
+  }
+
+  await triggerMerchantCancellationAlert(booking, locale);
+}
+
 export type MerchantBookingRealtimeHandlers = {
   onPendingInsert?: (booking: Booking) => void;
   onBookingUpdate?: (booking: Booking, previousStatus?: BookingStatus) => void;
 };
 
-const activeMerchantBookingChannels = new Map<string, RealtimeChannel>();
+type MerchantBookingListener = {
+  id: string;
+  input: {
+    shopId: string;
+    staff: ShopStaffUser | null;
+    activeBranchId?: string;
+  };
+  handlers: MerchantBookingRealtimeHandlers;
+};
+
+type MerchantBookingChannelState = {
+  channel: RealtimeChannel;
+  listeners: Map<string, MerchantBookingListener>;
+};
+
+const activeMerchantBookingChannels = new Map<string, MerchantBookingChannelState>();
+let merchantBookingListenerSeq = 0;
 
 function merchantBookingChannelName(shopId: string): string {
   return `public:bookings:${shopId}`;
 }
 
-function teardownMerchantBookingChannel(
-  supabase: NonNullable<ReturnType<typeof getSupabase>>,
-  channelName: string,
-): void {
-  const tracked = activeMerchantBookingChannels.get(channelName);
-  if (tracked) {
-    void supabase.removeChannel(tracked);
-    activeMerchantBookingChannels.delete(channelName);
+async function dispatchMerchantBookingRow(
+  shopId: string,
+  listener: MerchantBookingListener,
+  row: BookingRow,
+  previousStatus?: BookingStatus,
+): Promise<void> {
+  const booking = mapBookingRowFromRemote(row);
+  if (booking.shopId !== shopId) return;
+
+  const { input, handlers } = listener;
+
+  if (isPendingBookingStatus(booking.status)) {
+    const eligible = await bookingEligibleForStaffAlert(input.staff, booking, input.activeBranchId);
+    if (!eligible) return;
+    if (!previousStatus || !isPendingBookingStatus(previousStatus)) {
+      handlers.onPendingInsert?.(booking);
+    } else {
+      handlers.onBookingUpdate?.(booking, previousStatus);
+    }
+    return;
   }
 
-  for (const existing of supabase.getChannels()) {
-    if (existing.topic === channelName) {
-      void supabase.removeChannel(existing);
-    }
-  }
+  handlers.onBookingUpdate?.(booking, previousStatus);
 }
 
 export function subscribeMerchantBookingRealtime(
@@ -194,66 +301,70 @@ export function subscribeMerchantBookingRealtime(
   if (!supabase || !input.shopId) return () => {};
 
   const channelName = merchantBookingChannelName(input.shopId);
+  const listenerId = `listener-${++merchantBookingListenerSeq}`;
 
-  // Prevent double-registration when React remounts, tabs blur, or hot-reload reuses the topic.
-  teardownMerchantBookingChannel(supabase, channelName);
+  let state = activeMerchantBookingChannels.get(channelName);
+  if (!state) {
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'bookings',
+          filter: `shop_id=eq.${input.shopId}`,
+        },
+        (payload) => {
+          const current = activeMerchantBookingChannels.get(channelName);
+          if (!current) return;
+          for (const listener of current.listeners.values()) {
+            void dispatchMerchantBookingRow(input.shopId, listener, payload.new as BookingRow);
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'bookings',
+          filter: `shop_id=eq.${input.shopId}`,
+        },
+        (payload) => {
+          const current = activeMerchantBookingChannels.get(channelName);
+          if (!current) return;
+          const previous = payload.old as Partial<BookingRow> | undefined;
+          for (const listener of current.listeners.values()) {
+            void dispatchMerchantBookingRow(
+              input.shopId,
+              listener,
+              payload.new as BookingRow,
+              previous?.status,
+            );
+          }
+        },
+      );
 
-  const handleRow = async (row: BookingRow, previousStatus?: BookingStatus) => {
-    const booking = mapBookingRowFromRemote(row);
-    if (booking.shopId !== input.shopId) return;
-
-    if (isPendingBookingStatus(booking.status)) {
-      const eligible = await bookingEligibleForStaffAlert(input.staff, booking, input.activeBranchId);
-      if (!eligible) return;
-      if (!previousStatus || !isPendingBookingStatus(previousStatus)) {
-        handlers.onPendingInsert?.(booking);
-      } else {
-        handlers.onBookingUpdate?.(booking, previousStatus);
+    channel.subscribe((status) => {
+      if (__DEV__) {
+        console.log('Realtime subscription status:', status, channelName);
       }
-      return;
-    }
+    });
 
-    handlers.onBookingUpdate?.(booking, previousStatus);
-  };
+    state = { channel, listeners: new Map() };
+    activeMerchantBookingChannels.set(channelName, state);
+  }
 
-  const channel = supabase
-    .channel(channelName)
-    .on(
-      'postgres_changes',
-      {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'bookings',
-        filter: `shop_id=eq.${input.shopId}`,
-      },
-      (payload) => {
-        void handleRow(payload.new as BookingRow);
-      },
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'bookings',
-        filter: `shop_id=eq.${input.shopId}`,
-      },
-      (payload) => {
-        const previous = payload.old as Partial<BookingRow> | undefined;
-        void handleRow(payload.new as BookingRow, previous?.status);
-      },
-    );
-
-  // CRITICAL: subscribe only after every postgres_changes listener is registered.
-  channel.subscribe((status) => {
-    if (__DEV__) {
-      console.log('Realtime subscription status:', status, channelName);
-    }
-  });
-
-  activeMerchantBookingChannels.set(channelName, channel);
+  state.listeners.set(listenerId, { id: listenerId, input, handlers });
 
   return () => {
-    teardownMerchantBookingChannel(supabase, channelName);
+    const current = activeMerchantBookingChannels.get(channelName);
+    if (!current) return;
+    current.listeners.delete(listenerId);
+    if (current.listeners.size === 0) {
+      void supabase.removeChannel(current.channel);
+      activeMerchantBookingChannels.delete(channelName);
+    }
   };
 }

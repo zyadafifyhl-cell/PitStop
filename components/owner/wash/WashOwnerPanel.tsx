@@ -88,6 +88,7 @@ import {
   addBranchEmployeeRemote,
   listBranchEmployeesRemote,
   removeBranchEmployeeRemote,
+  resolveRemoteBranchId,
   updateBranchRemote,
 } from '@/lib/booking/wash/branchRepository';
 import {
@@ -97,7 +98,7 @@ import {
   linkBranchManagerByEmail,
   removeBranchManagerRemote,
 } from '@/lib/booking/wash/branchManagerRepository';
-import { clearBranchManagerCache } from '@/lib/booking/wash/bookingDispatch';
+import { clearBranchManagerCache, filterOperationalBookingsForStaff, filterPendingQueueBookingsForStaff } from '@/lib/booking/wash/bookingDispatch';
 import {
   WASH_DAY_LABELS,
   type WashAnalyticsSnapshot,
@@ -201,11 +202,6 @@ function serviceLabel(service: ShopService, locale: 'en' | 'ar'): string {
 function branchDisplayName(branch: WashBranch, locale: 'en' | 'ar'): string {
   if (locale === 'ar') return branch.nameAr || branch.profileNameAr || branch.name;
   return branch.profileName || branch.name;
-}
-
-function filterBookingsForStaff(bookings: Booking[], staff: ShopStaffUser | null): Booking[] {
-  if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
-  return bookings.filter((booking) => booking.branchId === staff.branchId);
 }
 
 function washStatusLabelKey(status: WashShopStatus): 'wash_status_open' | 'wash_status_closed' | 'wash_status_busy' | 'wash_status_vacation' {
@@ -444,7 +440,7 @@ export function WashOwnerPanel({ shop }: Props) {
         const branch = state.branches.find((b) => b.id === resolvedBranchId);
         if (!branch) return;
 
-        const scopedBookings = filterBookingsForStaff(bookingRows, shopStaff);
+        const scopedBookings = await filterOperationalBookingsForStaff(shopStaff, bookingRows);
         const branchWithCoupons = { ...branch, coupons: couponRows };
         const stateWithCoupons = {
           ...state,
@@ -454,19 +450,27 @@ export function WashOwnerPanel({ shop }: Props) {
           ),
         };
 
-        const stats = await computeWashAnalytics(shop.id, scopedBookings, {
-          branchId: branch.id,
+        const resolvedBranchUuid = isUuid(branch.id)
+          ? branch.id
+          : (await resolveRemoteBranchId(shop.id, branch.id)) ?? branch.id;
+
+        const stats = await computeWashAnalytics(shop.id, bookingRows, {
+          branchId: resolvedBranchUuid,
           branchServices: branch.services ?? [],
           locale,
           noServiceDataLabel: t('wash_analytics_no_service_data'),
         });
+        const operationalPending = (
+          await filterPendingQueueBookingsForStaff(shopStaff, bookingRows)
+        ).filter((row) => row.branchId === resolvedBranchUuid).length;
+        const statsWithOperationalPending = { ...stats, pendingRequests: operationalPending };
         const meta = await fetchBranchManagementMeta(branch.id);
 
         setBranchState(stateWithCoupons);
         syncBranchForms(branchWithCoupons);
         setBookings(scopedBookings);
         setReviews(reviewRows);
-        setAnalytics(stats);
+        setAnalytics(statsWithOperationalPending);
         setEmployees(meta.employees);
         setBranchManager(meta.branchManager);
         setHasDedicatedBranchManager(meta.hasDedicatedBranchManager);
@@ -477,7 +481,7 @@ export function WashOwnerPanel({ shop }: Props) {
         setShopWorkspaceCache(shop.id, { bookings: scopedBookings, reviews: reviewRows });
         setBranchWorkspaceCache(shop.id, branch.id, {
           branch: branchWithCoupons,
-          analytics: stats,
+          analytics: statsWithOperationalPending,
           employees: meta.employees,
           branchManager: meta.branchManager,
           hasDedicatedBranchManager: meta.hasDedicatedBranchManager,

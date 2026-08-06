@@ -45,12 +45,21 @@ export async function registerShopOwner(input: RegisterShopOwnerInput): Promise<
 
   if (signUpError) {
     const message = signUpError.message.toLowerCase();
+    console.error('[registerShopOwner] SignUp error:', {
+      message: signUpError.message,
+      status: signUpError.status,
+      email,
+      shopType: input.shopType,
+    });
     if (message.includes('already') || message.includes('registered')) return 'email_taken';
     if (message.includes('password')) return 'weak_password';
     return 'invalid';
   }
 
-  if (!signUpData.user) return 'invalid';
+  if (!signUpData.user) {
+    console.error('[registerShopOwner] No user returned after signUp');
+    return 'invalid';
+  }
 
   const { error: rpcError } = await supabase.rpc('register_shop_owner', {
     p_shop_name: input.shopName.trim(),
@@ -63,6 +72,14 @@ export async function registerShopOwner(input: RegisterShopOwnerInput): Promise<
   });
 
   if (rpcError) {
+    console.error('[registerShopOwner] RPC error:', {
+      message: rpcError.message,
+      details: rpcError.details,
+      hint: rpcError.hint,
+      code: rpcError.code,
+      shopType: input.shopType,
+      areaId: input.areaId,
+    });
     await supabase.auth.signOut();
     return 'invalid';
   }

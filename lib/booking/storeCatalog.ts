@@ -4,6 +4,12 @@ export function isStoreShopType(type: ShopType): boolean {
   return type === 'parts' || type === 'accessories';
 }
 
+export function storeProductCategoryForShopType(type: ShopType): 'spare_parts' | 'accessories' | null {
+  if (type === 'parts') return 'spare_parts';
+  if (type === 'accessories') return 'accessories';
+  return null;
+}
+
 export function storeCategoryForShopType(type: ShopType): StoreCategory | null {
   if (type === 'parts') return 'parts';
   if (type === 'accessories') return 'accessories';

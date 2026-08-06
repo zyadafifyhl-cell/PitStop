@@ -1,6 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { CustomerVehicle } from '@/lib/booking/types';
+import {
+  addUserVehicleRemote,
+  getActiveUserVehicleIdRemote,
+  listUserVehiclesRemote,
+  removeUserVehicleRemote,
+  setActiveUserVehicleRemote,
+  syncLocalVehiclesToRemote,
+  updateUserVehicleRemote,
+} from '@/lib/booking/vehicleRepository';
 
 const VEHICLES_KEY = '@pitstop/customer-vehicles/v1';
 const ACTIVE_VEHICLE_KEY = '@pitstop/active-vehicle/v1';
@@ -49,31 +58,33 @@ async function writeActiveMap(map: ActiveVehicleMap): Promise<void> {
   await AsyncStorage.setItem(ACTIVE_VEHICLE_KEY, JSON.stringify(map));
 }
 
-export async function getActiveVehicleId(customerId: string): Promise<string | null> {
-  const map = await readActiveMap();
-  return map[bucket(customerId)] ?? null;
-}
-
-export async function setActiveVehicle(customerId: string, vehicleId: string): Promise<CustomerVehicle | null> {
-  const map = await readMap();
+async function writeLocalCache(customerId: string, rows: CustomerVehicle[], activeVehicleId?: string | null): Promise<void> {
   const key = bucket(customerId);
-  const rows = map[key] ?? [];
-  const idx = rows.findIndex((row) => row.id === vehicleId);
-  if (idx < 0) return null;
-
-  const [picked] = rows.splice(idx, 1);
-  picked.updatedAt = nowIso();
-  map[key] = [picked, ...rows];
+  const map = await readMap();
+  map[key] = rows;
   await writeMap(map);
 
   const activeMap = await readActiveMap();
-  activeMap[key] = vehicleId;
+  const activeId = activeVehicleId ?? rows[0]?.id;
+  if (activeId) activeMap[key] = activeId;
+  else delete activeMap[key];
   await writeActiveMap(activeMap);
-  await AsyncStorage.setItem(
-    `${LEGACY_PROFILE_PREFIX}${customerId}`,
-    JSON.stringify({ carType: picked.makeModel }),
-  );
-  return picked;
+
+  const primary = rows.find((row) => row.id === activeId) ?? rows[0];
+  if (primary) {
+    await AsyncStorage.setItem(
+      `${LEGACY_PROFILE_PREFIX}${customerId}`,
+      JSON.stringify({ carType: primary.makeModel }),
+    );
+  }
+}
+
+export async function getActiveVehicleId(customerId: string): Promise<string | null> {
+  const remoteActiveId = await getActiveUserVehicleIdRemote(customerId);
+  if (remoteActiveId) return remoteActiveId;
+
+  const map = await readActiveMap();
+  return map[bucket(customerId)] ?? null;
 }
 
 async function migrateLegacyProfile(customerId: string): Promise<CustomerVehicle[]> {
@@ -98,17 +109,82 @@ async function migrateLegacyProfile(customerId: string): Promise<CustomerVehicle
   }
 }
 
-export async function listCustomerVehicles(customerId: string): Promise<CustomerVehicle[]> {
+async function readLocalVehicles(customerId: string): Promise<CustomerVehicle[]> {
   const map = await readMap();
   const rows = map[bucket(customerId)] ?? [];
   if (rows.length) return rows.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return migrateLegacyProfile(customerId);
 }
 
+async function resolveVehiclesFromRemote(customerId: string): Promise<CustomerVehicle[] | null> {
+  const remoteRows = await listUserVehiclesRemote(customerId);
+  if (remoteRows.length) {
+    const activeId = (await getActiveUserVehicleIdRemote(customerId)) ?? remoteRows[0]?.id ?? null;
+    await writeLocalCache(customerId, remoteRows, activeId);
+    return remoteRows;
+  }
+
+  const localRows = await readLocalVehicles(customerId);
+  if (!localRows.length) return [];
+
+  const activeMap = await readActiveMap();
+  const activeId = activeMap[bucket(customerId)] ?? localRows[0]?.id ?? null;
+  const synced = await syncLocalVehiclesToRemote(customerId, localRows, activeId);
+  if (synced.length) {
+    const syncedActiveId = (await getActiveUserVehicleIdRemote(customerId)) ?? synced[0]?.id ?? null;
+    await writeLocalCache(customerId, synced, syncedActiveId);
+    return synced;
+  }
+
+  return null;
+}
+
+export async function listCustomerVehicles(customerId: string): Promise<CustomerVehicle[]> {
+  const remoteResolved = await resolveVehiclesFromRemote(customerId);
+  if (remoteResolved) return remoteResolved;
+  return readLocalVehicles(customerId);
+}
+
+export async function setActiveVehicle(customerId: string, vehicleId: string): Promise<CustomerVehicle | null> {
+  const remotePicked = await setActiveUserVehicleRemote(customerId, vehicleId);
+  if (remotePicked) {
+    const rows = await listCustomerVehicles(customerId);
+    await writeLocalCache(customerId, rows, remotePicked.id);
+    return remotePicked;
+  }
+
+  const map = await readMap();
+  const key = bucket(customerId);
+  const rows = map[key] ?? [];
+  const idx = rows.findIndex((row) => row.id === vehicleId);
+  if (idx < 0) return null;
+
+  const [picked] = rows.splice(idx, 1);
+  picked.updatedAt = nowIso();
+  map[key] = [picked, ...rows];
+  await writeMap(map);
+
+  const activeMap = await readActiveMap();
+  activeMap[key] = vehicleId;
+  await writeActiveMap(activeMap);
+  await AsyncStorage.setItem(
+    `${LEGACY_PROFILE_PREFIX}${customerId}`,
+    JSON.stringify({ carType: picked.makeModel }),
+  );
+  return picked;
+}
+
 export async function addCustomerVehicle(
   customerId: string,
   input: { label?: string; makeModel: string; color?: string; plate?: string },
 ): Promise<CustomerVehicle[]> {
+  const remoteCreated = await addUserVehicleRemote(customerId, { ...input, setActive: true });
+  if (remoteCreated) {
+    const rows = await listCustomerVehicles(customerId);
+    await writeLocalCache(customerId, rows, remoteCreated.id);
+    return rows;
+  }
+
   const map = await readMap();
   const key = bucket(customerId);
   const row: CustomerVehicle = {
@@ -134,11 +210,19 @@ export async function updateCustomerVehicle(
   vehicleId: string,
   input: Partial<Pick<CustomerVehicle, 'label' | 'makeModel' | 'color' | 'plate'>>,
 ): Promise<CustomerVehicle[]> {
+  const remoteUpdated = await updateUserVehicleRemote(customerId, vehicleId, input);
+  if (remoteUpdated) {
+    const rows = await listCustomerVehicles(customerId);
+    const activeId = (await getActiveUserVehicleIdRemote(customerId)) ?? rows[0]?.id ?? null;
+    await writeLocalCache(customerId, rows, activeId);
+    return rows;
+  }
+
   const map = await readMap();
   const key = bucket(customerId);
   map[key] = (map[key] ?? []).map((row) => {
     if (row.id !== vehicleId) return row;
-    const next = {
+    return {
       ...row,
       label: input.label?.trim() || row.label,
       makeModel: input.makeModel?.trim() || row.makeModel,
@@ -146,7 +230,6 @@ export async function updateCustomerVehicle(
       plate: input.plate?.trim() || row.plate,
       updatedAt: nowIso(),
     };
-    return next;
   });
   await writeMap(map);
   const primary = map[key]?.[0];
@@ -157,6 +240,14 @@ export async function updateCustomerVehicle(
 }
 
 export async function removeCustomerVehicle(customerId: string, vehicleId: string): Promise<CustomerVehicle[]> {
+  const remoteRemoved = await removeUserVehicleRemote(customerId, vehicleId);
+  if (remoteRemoved) {
+    const rows = await listCustomerVehicles(customerId);
+    const activeId = (await getActiveUserVehicleIdRemote(customerId)) ?? rows[0]?.id ?? null;
+    await writeLocalCache(customerId, rows, activeId);
+    return rows;
+  }
+
   const map = await readMap();
   const key = bucket(customerId);
   map[key] = (map[key] ?? []).filter((row) => row.id !== vehicleId);
@@ -179,9 +270,19 @@ export async function removeCustomerVehicle(customerId: string, vehicleId: strin
 export async function getActiveVehicle(customerId: string): Promise<CustomerVehicle | null> {
   const rows = await listCustomerVehicles(customerId);
   if (!rows.length) return null;
+
   const activeId = await getActiveVehicleId(customerId);
-  if (!activeId) return null;
-  return rows.find((row) => row.id === activeId) ?? null;
+  if (activeId) {
+    const hit = rows.find((row) => row.id === activeId);
+    if (hit) return hit;
+  }
+
+  const fallback = rows[0];
+  await writeLocalCache(customerId, rows, fallback.id);
+  if (fallback.id !== activeId) {
+    await setActiveUserVehicleRemote(customerId, fallback.id);
+  }
+  return fallback;
 }
 
 export async function loadVehiclePickerState(customerId: string): Promise<{
