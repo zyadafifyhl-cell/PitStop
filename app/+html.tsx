@@ -35,4 +35,8 @@ body {
   body {
     background-color: #000;
   }
+}
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
 }`;

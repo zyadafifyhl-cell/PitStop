@@ -32,7 +32,7 @@ import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
 import { parseShopType } from '@/lib/booking/serviceType';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import type { ShopExtras } from '@/lib/booking/types';
-import { openListingsInMaps, openPhone } from '@/lib/linking/contact';
+import { openPhone } from '@/lib/linking/contact';
 import type { TranslationKey } from '@/lib/i18n/strings';
 
 type NearbyFilter = 'all' | 'top_rated' | 'price' | 'distance' | 'open_now' | 'favorites';
@@ -59,7 +59,7 @@ export default function NearbyScreen() {
   const [shops, setShops] = useState<DiscoverableListing[]>([]);
   const [ratingsMap, setRatingsMap] = useState<Record<string, ShopRatingSummary>>({});
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<NearbyFilter>('all');
+  const [filter, setFilter] = useState<NearbyFilter>('top_rated');
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [offerFlags, setOfferFlags] = useState<Record<string, { hasActiveOffer: boolean; maxDiscount: number }>>({});
 
@@ -160,14 +160,6 @@ export default function NearbyScreen() {
 
   const serviceLabel = shopTypeLabel(type, locale);
 
-  async function openMapView() {
-    try {
-      await openListingsInMaps(filteredShops, serviceLabel, locale);
-    } catch {
-      Alert.alert(t('settings_link_fail_title'), t('nearby_map_no_coords'));
-    }
-  }
-
   return (
     <ScrollView style={[styles.screen, { backgroundColor: '#080D1A' }]} contentContainerStyle={styles.content}>
       <Text style={[styles.title, { color: theme.text }]}>{t('nearby_title')}</Text>
@@ -233,32 +225,22 @@ export default function NearbyScreen() {
 
       {loading ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
+      ) : filteredShops.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.textMuted }]}>{t('book_no_shops')}</Text>
       ) : (
-        <>
-          <Pressable
-            onPress={() => openMapView()}
-            style={[styles.mapsAllBtn, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
-            <Text style={[styles.mapsAllText, { color: theme.accent }]}>{t('location_map_view')}</Text>
-          </Pressable>
-
-          {filteredShops.length === 0 ? (
-            <Text style={[styles.empty, { color: theme.textMuted }]}>{t('book_no_shops')}</Text>
-          ) : (
-            filteredShops.map((shop, index) => (
-              <NearbyShopCard
-                key={'branchId' in shop ? `${shop.id}-${shop.branchId}` : shop.id}
-                shop={shop}
-                index={index}
-                locale={locale}
-                theme={theme}
-                t={t}
-                filter={filter}
-                ratingSummary={ratingsMap[shop.id]}
-                offerFlag={offerFlags[shop.id]}
-              />
-            ))
-          )}
-        </>
+        filteredShops.map((shop, index) => (
+          <NearbyShopCard
+            key={'branchId' in shop ? `${shop.id}-${shop.branchId}` : shop.id}
+            shop={shop}
+            index={index}
+            locale={locale}
+            theme={theme}
+            t={t}
+            filter={filter}
+            ratingSummary={ratingsMap[shop.id]}
+            offerFlag={offerFlags[shop.id]}
+          />
+        ))
       )}
     </ScrollView>
   );
@@ -374,14 +356,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  mapsAllBtn: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    alignSelf: 'flex-start',
-    marginBottom: 16,
-  },
-  mapsAllText: { fontSize: 13, fontWeight: '800' },
   empty: { textAlign: 'center', marginTop: 12 },
 });

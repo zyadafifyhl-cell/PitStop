@@ -38,6 +38,46 @@ const SESSION_KEY = '@pitstop/customer-session';
 
 type RegisterVehicleDraft = { id: string; makeModel: string };
 
+type PasswordInputProps = {
+  placeholder: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  theme: ReturnType<typeof useAppTheme>;
+  isRTL: boolean;
+};
+
+function PasswordInput({ placeholder, value, onChangeText, theme, isRTL }: PasswordInputProps) {
+  const [secureTextEntry, setSecureTextEntry] = useState(true);
+
+  return (
+    <View
+      style={[
+        styles.passwordRow,
+        { backgroundColor: theme.bgElevated, borderColor: theme.border },
+        isRTL && styles.passwordRowRtl,
+      ]}>
+      <TextInput
+        placeholder={placeholder}
+        placeholderTextColor={theme.textDim}
+        secureTextEntry={secureTextEntry}
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={value}
+        onChangeText={onChangeText}
+        style={[styles.passwordInput, { color: theme.text, textAlign: isRTL ? 'right' : 'left' }]}
+      />
+      <Pressable
+        onPress={() => setSecureTextEntry((current) => !current)}
+        hitSlop={8}
+        style={styles.passwordToggle}
+        accessibilityRole="button"
+        accessibilityLabel={secureTextEntry ? 'Show password' : 'Hide password'}>
+        <FontAwesome name={secureTextEntry ? 'eye' : 'eye-slash'} size={18} color={theme.textMuted} />
+      </Pressable>
+    </View>
+  );
+}
+
 function newVehicleDraft(): RegisterVehicleDraft {
   return { id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, makeModel: '' };
 }
@@ -456,13 +496,12 @@ export default function WelcomeScreen() {
                   onChangeText={setEmail}
                   style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
                 />
-                <TextInput
+                <PasswordInput
                   placeholder={t('customer_password_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  secureTextEntry
                   value={password}
                   onChangeText={setPassword}
-                  style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                  theme={theme}
+                  isRTL={isRTL}
                 />
                 {isRegister ? <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text> : null}
                 {isRegister ? (
@@ -617,24 +656,22 @@ export default function WelcomeScreen() {
                   onChangeText={setEmail}
                   style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
                 />
-                <TextInput
+                <PasswordInput
                   placeholder={t('customer_password_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  secureTextEntry
                   value={password}
                   onChangeText={setPassword}
-                  style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                  theme={theme}
+                  isRTL={isRTL}
                 />
                 {isOwnerRegister ? (
                   <>
                     <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text>
-                    <TextInput
+                    <PasswordInput
                       placeholder={t('auth_register_confirm_password')}
-                      placeholderTextColor={theme.textDim}
-                      secureTextEntry
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+                      theme={theme}
+                      isRTL={isRTL}
                     />
                     <Pressable
                       onPress={() => setOwnerTermsAccepted((value) => !value)}
@@ -805,6 +842,24 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     marginBottom: 12,
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 18,
+    marginBottom: 12,
+  },
+  passwordRowRtl: { flexDirection: 'row-reverse' },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  passwordToggle: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   submitBtn: {
     borderRadius: 999,
