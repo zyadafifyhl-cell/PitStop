@@ -358,19 +358,73 @@ export async function fetchPlatformStats(): Promise<PlatformStats> {
 export async function approveShopOwner(userId: string, shopId: string): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase not configured');
-  const { error } = await supabase.rpc('approve_shop_owner', {
-    p_target_user_id: userId,
-    p_target_shop_id: shopId,
+
+  // Get user email from pending request
+  const { data: userData } = await supabase
+    .from('users')
+    .select('email')
+    .eq('id', userId)
+    .single();
+
+  if (!userData?.email) {
+    throw new Error('User email not found');
+  }
+
+  // Get current auth session to pass token
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session?.access_token) {
+    throw new Error('Not authenticated');
+  }
+
+  // Call Edge Function instead of RPC to handle Auth user confirmation
+  const { data, error } = await supabase.functions.invoke('approve-merchant', {
+    body: {
+      userId,
+      shopId,
+      userEmail: userData.email,
+    },
+    headers: {
+      Authorization: `Bearer ${sessionData.session.access_token}`,
+    },
   });
-  if (error) throw new Error(error.message);
+
+  if (error) {
+    console.error('[approveShopOwner] Edge Function error:', error);
+    throw new Error(error.message || 'Failed to approve merchant');
+  }
+
+  if (!data?.success) {
+    throw new Error(data?.error || 'Approval failed');
+  }
 }
 
 export async function rejectShopOwner(userId: string, shopId: string): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase not configured');
-  const { error } = await supabase.rpc('reject_shop_owner', {
-    p_target_user_id: userId,
-    p_target_shop_id: shopId,
+
+  // Get current auth session to pass token
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session?.access_token) {
+    throw new Error('Not authenticated');
+  }
+
+  // Call Edge Function instead of RPC
+  const { data, error } = await supabase.functions.invoke('reject-merchant', {
+    body: {
+      userId,
+      shopId,
+    },
+    headers: {
+      Authorization: `Bearer ${sessionData.session.access_token}`,
+    },
   });
-  if (error) throw new Error(error.message);
+
+  if (error) {
+    console.error('[rejectShopOwner] Edge Function error:', error);
+    throw new Error(error.message || 'Failed to reject merchant');
+  }
+
+  if (!data?.success) {
+    throw new Error(data?.error || 'Rejection failed');
+  }
 }

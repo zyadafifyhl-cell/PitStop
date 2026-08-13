@@ -23,6 +23,7 @@ import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
 import { StoreOwnerAdminPanel } from '@/components/store/owner/StoreOwnerAdminPanel';
+import { StoreOwnerDashboard } from '@/components/store/owner/StoreOwnerDashboard';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -1008,45 +1009,7 @@ export default function ShopScreen() {
           {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
 
           {storeAdminTab === 'dashboard' ? (
-            <>
-              <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
-                {(
-                  [
-                    { id: 'workspace' as const, label: t('owner_panel_tab_workspace') },
-                    { id: 'history' as const, label: t('owner_panel_tab_history') },
-                  ] as const
-                ).map((item) => (
-                  <Pressable
-                    key={item.id}
-                    onPress={() => setPanelTab(item.id)}
-                    style={[
-                      styles.panelTabBtn,
-                      {
-                        backgroundColor: panelTab === item.id ? theme.accent : theme.bgElevated,
-                        borderColor: panelTab === item.id ? theme.accent : theme.border,
-                      },
-                    ]}>
-                    <Text style={[styles.panelTabText, { color: panelTab === item.id ? theme.onAccent : theme.text }]}>
-                      {item.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              {panelTab === 'history' ? (
-                <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="shop" />
-              ) : (
-                <>
-                  {ownerManageSections}
-                  <StoreOwnerAdminPanel
-                    shop={shop}
-                    shopExtras={shopExtras}
-                    onExtrasChange={setShopExtras}
-                    mode="all"
-                  />
-                </>
-              )}
-            </>
+            <StoreOwnerDashboard shop={shop} onRefresh={loadBookings} />
           ) : null}
 
           {storeAdminTab === 'profile' ? ownerManageSections : null}

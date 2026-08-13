@@ -48,11 +48,16 @@ export type StoreCartItem = {
 export type StoreOrder = {
   id: string;
   userId: string;
+  shopId?: string;
   subtotal: number;
   deliveryFee: number;
   totalPrice: number;
   fulfillmentMethod: StoreFulfillmentMethod;
   status: StoreOrderStatus;
+  customerName?: string;
+  customerPhone?: string;
+  deliveryAddress?: string;
+  deliveryNotes?: string;
   createdAt: string;
   updatedAt: string;
 };
