@@ -16,6 +16,7 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
   approveShopOwner,
+  deleteMerchant,
   deleteModerationContent,
   dismissModerationReport,
   fetchMerchantLedger,
@@ -255,6 +256,29 @@ export function AdminPanel() {
     }
   }
 
+  async function onDeleteMerchant(row: ActiveMerchant) {
+    const confirmed = await userConfirm(
+      t('admin_delete_merchant_confirm_title'),
+      t('admin_delete_merchant_confirm_body').replace('{shop}', row.shopName),
+      {
+        confirmLabel: t('admin_delete_merchant_btn'),
+        cancelLabel: t('alert_cancel'),
+      },
+    );
+    if (!confirmed) return;
+
+    setBusyId(row.shopId);
+    try {
+      await deleteMerchant(row.shopId);
+      await Promise.all([reload('merchants'), reload('dashboard')]);
+      userAlert(t('admin_delete_merchant_success_title'), t('admin_delete_merchant_success_body'));
+    } catch (error) {
+      showActionError(error, 'admin.deleteMerchant');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const tabBtn = (key: AdminTab, label: string) => {
     const active = tab === key;
     return (
@@ -447,6 +471,21 @@ export function AdminPanel() {
                         />
                       </Pressable>
                     </View>
+                    <Pressable
+                      onPress={() => onDeleteMerchant(row)}
+                      disabled={busyId === row.shopId}
+                      style={[
+                        styles.deleteMerchantBtn,
+                        {
+                          backgroundColor: 'rgba(255, 59, 48, 0.12)',
+                          borderColor: '#FF3B30',
+                          opacity: busyId === row.shopId ? 0.5 : 1,
+                        },
+                      ]}>
+                      <Text style={[styles.deleteMerchantText, { color: '#FF3B30' }]}>
+                        🗑️ {t('admin_delete_merchant_btn')}
+                      </Text>
+                    </Pressable>
                   </View>
                 ))
               )}
@@ -830,5 +869,18 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
     overflow: 'hidden',
+  },
+  deleteMerchantBtn: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteMerchantText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

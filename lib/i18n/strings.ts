@@ -332,6 +332,11 @@ export const EN = {
   admin_approve_success_body: 'The shop is now live in the customer catalog.',
   admin_reject_success_title: 'Request rejected',
   admin_reject_success_body: 'The pending shop was removed and the user returned to customer role.',
+  admin_delete_merchant_btn: 'Delete Merchant',
+  admin_delete_merchant_confirm_title: 'Delete Merchant',
+  admin_delete_merchant_confirm_body: 'Are you sure you want to delete {shop}? This will remove the shop and all associated branches and products. This action cannot be undone.',
+  admin_delete_merchant_success_title: 'Deleted',
+  admin_delete_merchant_success_body: 'Merchant and shop deleted successfully.',
   admin_action_fail_title: 'Action failed',
   admin_action_fail_body: 'Could not update the request. Check Supabase RPC permissions.',
   admin_tab_moderation: 'Moderation',
@@ -3369,6 +3374,13 @@ export const AR: Record<TranslationKey, string> = {
   // Store Fulfillment Methods
   store_fulfillment_cod: 'الدفع عند الاستلام',
   store_fulfillment_pickup: 'استلام من المحل',
+
+  // Admin Delete Merchant
+  admin_delete_merchant_btn: 'حذف التاجر',
+  admin_delete_merchant_confirm_title: 'حذف التاجر',
+  admin_delete_merchant_confirm_body: 'هل أنت متأكد من حذف {shop}؟ سيتم حذف المحل وجميع الفروع والمنتجات المرتبطة. لا يمكن التراجع عن هذا الإجراء.',
+  admin_delete_merchant_success_title: 'تم الحذف',
+  admin_delete_merchant_success_body: 'تم حذف التاجر والمحل بنجاح.',
 };
 
 export function translate(locale: Locale, key: TranslationKey): string {

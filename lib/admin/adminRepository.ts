@@ -428,3 +428,66 @@ export async function rejectShopOwner(userId: string, shopId: string): Promise<v
     throw new Error(data?.error || 'Rejection failed');
   }
 }
+
+export async function deleteMerchant(shopId: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase not configured');
+
+  // Delete shop branches first
+  const { error: branchError } = await supabase
+    .from('shop_branches')
+    .delete()
+    .eq('shop_id', shopId);
+
+  if (branchError) {
+    console.error('[deleteMerchant] Failed to delete branches:', branchError);
+    throw new Error('Failed to delete shop branches');
+  }
+
+  // Delete products if any (for store types)
+  const { error: productsError } = await supabase
+    .from('products')
+    .delete()
+    .eq('shop_id', shopId);
+
+  // Ignore if products table doesn't have shop_id or no products exist
+  if (productsError && !productsError.message.includes('column')) {
+    console.error('[deleteMerchant] Failed to delete products:', productsError);
+  }
+
+  // Delete store orders if any
+  const { error: ordersError } = await supabase
+    .from('store_orders')
+    .delete()
+    .eq('shop_id', shopId);
+
+  if (ordersError && !ordersError.message.includes('column')) {
+    console.error('[deleteMerchant] Failed to delete orders:', ordersError);
+  }
+
+  // Finally, delete the shop itself
+  const { error: shopError } = await supabase
+    .from('shops')
+    .delete()
+    .eq('id', shopId);
+
+  if (shopError) {
+    console.error('[deleteMerchant] Failed to delete shop:', shopError);
+    throw new Error('Failed to delete shop');
+  }
+
+  // Update user record to remove shop association and revert to customer
+  const { error: userError } = await supabase
+    .from('users')
+    .update({
+      role: 'customer',
+      shop_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('shop_id', shopId);
+
+  if (userError) {
+    console.error('[deleteMerchant] Failed to update user:', userError);
+    // Don't throw - shop is already deleted
+  }
+}
