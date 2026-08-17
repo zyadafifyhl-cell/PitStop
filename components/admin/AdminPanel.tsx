@@ -149,6 +149,13 @@ export function AdminPanel() {
       await Promise.all([reload('pending'), reload('dashboard')]);
       userAlert(t('admin_approve_success_title'), t('admin_approve_success_body'));
     } catch (error) {
+      console.error('[AdminPanel] Merchant approval error details:', {
+        error,
+        userId: row.userId,
+        shopId: row.shopId,
+        shopName: row.shopName,
+        message: error instanceof Error ? error.message : String(error),
+      });
       showActionError(error, 'admin.approveOwner');
     } finally {
       setBusyId(null);
@@ -169,6 +176,13 @@ export function AdminPanel() {
       await Promise.all([reload('pending'), reload('dashboard')]);
       userAlert(t('admin_reject_success_title'), t('admin_reject_success_body'));
     } catch (error) {
+      console.error('[AdminPanel] Merchant rejection error details:', {
+        error,
+        userId: row.userId,
+        shopId: row.shopId,
+        shopName: row.shopName,
+        message: error instanceof Error ? error.message : String(error),
+      });
       showActionError(error, 'admin.rejectOwner');
     } finally {
       setBusyId(null);

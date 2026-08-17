@@ -376,25 +376,55 @@ export async function approveShopOwner(userId: string, shopId: string): Promise<
     throw new Error('Not authenticated');
   }
 
-  // Call Edge Function instead of RPC to handle Auth user confirmation
-  const { data, error } = await supabase.functions.invoke('approve-merchant', {
-    body: {
-      userId,
-      shopId,
-      userEmail: userData.email,
-    },
-    headers: {
-      Authorization: `Bearer ${sessionData.session.access_token}`,
-    },
-  });
+  // Try Edge Function first (for Auth user email confirmation)
+  let edgeFunctionSuccess = false;
+  try {
+    const { data, error } = await supabase.functions.invoke('approve-merchant', {
+      body: {
+        userId,
+        shopId,
+        userEmail: userData.email,
+      },
+      headers: {
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+      },
+    });
 
-  if (error) {
-    console.error('[approveShopOwner] Edge Function error:', error);
-    throw new Error(error.message || 'Failed to approve merchant');
+    if (!error && data?.success) {
+      console.log('[approveShopOwner] Edge Function succeeded');
+      edgeFunctionSuccess = true;
+      return;
+    }
+
+    console.warn('[approveShopOwner] Edge Function failed or unavailable:', {
+      error,
+      data,
+      message: error?.message || data?.error,
+    });
+  } catch (edgeError) {
+    console.warn('[approveShopOwner] Edge Function invocation failed:', edgeError);
   }
 
-  if (!data?.success) {
-    throw new Error(data?.error || 'Approval failed');
+  // FALLBACK: Use direct RPC if Edge Function is not available/deployed
+  if (!edgeFunctionSuccess) {
+    console.log('[approveShopOwner] Falling back to direct RPC approve_shop_owner');
+
+    const { error: rpcError } = await supabase.rpc('approve_shop_owner', {
+      p_target_user_id: userId,
+      p_target_shop_id: shopId,
+    });
+
+    if (rpcError) {
+      console.error('[approveShopOwner] RPC fallback error:', {
+        code: rpcError.code,
+        message: rpcError.message,
+        details: rpcError.details,
+        hint: rpcError.hint,
+      });
+      throw new Error(`Approval failed: ${rpcError.message}`);
+    }
+
+    console.log('[approveShopOwner] RPC fallback succeeded');
   }
 }
 
@@ -408,24 +438,54 @@ export async function rejectShopOwner(userId: string, shopId: string): Promise<v
     throw new Error('Not authenticated');
   }
 
-  // Call Edge Function instead of RPC
-  const { data, error } = await supabase.functions.invoke('reject-merchant', {
-    body: {
-      userId,
-      shopId,
-    },
-    headers: {
-      Authorization: `Bearer ${sessionData.session.access_token}`,
-    },
-  });
+  // Try Edge Function first
+  let edgeFunctionSuccess = false;
+  try {
+    const { data, error } = await supabase.functions.invoke('reject-merchant', {
+      body: {
+        userId,
+        shopId,
+      },
+      headers: {
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+      },
+    });
 
-  if (error) {
-    console.error('[rejectShopOwner] Edge Function error:', error);
-    throw new Error(error.message || 'Failed to reject merchant');
+    if (!error && data?.success) {
+      console.log('[rejectShopOwner] Edge Function succeeded');
+      edgeFunctionSuccess = true;
+      return;
+    }
+
+    console.warn('[rejectShopOwner] Edge Function failed or unavailable:', {
+      error,
+      data,
+      message: error?.message || data?.error,
+    });
+  } catch (edgeError) {
+    console.warn('[rejectShopOwner] Edge Function invocation failed:', edgeError);
   }
 
-  if (!data?.success) {
-    throw new Error(data?.error || 'Rejection failed');
+  // FALLBACK: Use direct RPC if Edge Function is not available/deployed
+  if (!edgeFunctionSuccess) {
+    console.log('[rejectShopOwner] Falling back to direct RPC reject_shop_owner');
+
+    const { error: rpcError } = await supabase.rpc('reject_shop_owner', {
+      p_target_user_id: userId,
+      p_target_shop_id: shopId,
+    });
+
+    if (rpcError) {
+      console.error('[rejectShopOwner] RPC fallback error:', {
+        code: rpcError.code,
+        message: rpcError.message,
+        details: rpcError.details,
+        hint: rpcError.hint,
+      });
+      throw new Error(`Rejection failed: ${rpcError.message}`);
+    }
+
+    console.log('[rejectShopOwner] RPC fallback succeeded');
   }
 }
 
