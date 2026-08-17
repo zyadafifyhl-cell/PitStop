@@ -193,8 +193,11 @@ export default function ShopScreen() {
       if (!shop) return;
       refreshOwnerNotifications();
       refreshShopExtras();
-      if (isStoreShopType(shop.type)) refreshPartsData();
-      else {
+      // Store owners (parts/accessories) load inventory, not bookings
+      if (isStoreShopType(shop.type)) {
+        refreshPartsData();
+      } else {
+        // Service providers (wash/maintenance) load bookings
         refreshBookings();
         void orderNotifier.refresh();
       }
@@ -1009,7 +1012,7 @@ export default function ShopScreen() {
           {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
 
           {storeAdminTab === 'dashboard' ? (
-            <StoreOwnerDashboard shop={shop} onRefresh={loadBookings} />
+            <StoreOwnerDashboard shop={shop} />
           ) : null}
 
           {storeAdminTab === 'profile' ? ownerManageSections : null}
