@@ -30,7 +30,7 @@ import {
   notifyMerchantBookingCancelled,
   notifyMerchantBookingCreated,
 } from '@/lib/booking/wash/merchantNotifications';
-import { normalizePhoneE164, phoneLookupVariants, phonesEqual } from '@/lib/phone';
+import { normalizePhoneE164, phoneLookupVariants } from '@/lib/phone';
 import { getSupabase } from '@/lib/supabase/client';
 
 const REMOTE_QUERY_TIMEOUT_MS = 6000;
@@ -66,7 +66,6 @@ async function fetchBookingsForPhoneRemote(phone: string): Promise<Booking[] | n
   return (response.data as BookingRow[]).map(mapBookingRow);
 }
 
-const BOOKINGS_KEY = '@pitstop/bookings/v1';
 const CUSTOMER_PHONE_KEY = '@pitstop/bookings/customer-phone';
 
 /** Grace period after scheduled_at before a confirmed booking is treated as done. */
@@ -141,10 +140,6 @@ export function sortBookingsByScheduledAtDesc(bookings: Booking[]): Booking[] {
     if (tierDiff !== 0) return tierDiff;
     return new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime();
   });
-}
-
-function newId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 async function notifyWashOwnerBooking(
@@ -332,83 +327,26 @@ function buildBookingInsertRow(
   return row;
 }
 
-async function readAll(): Promise<Booking[]> {
-  try {
-    const raw = await AsyncStorage.getItem(BOOKINGS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Booking[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeAll(bookings: Booking[]): Promise<void> {
-  await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
-}
-
-async function upsertLocalBooking(booking: Booking): Promise<void> {
-  const rows = await readAll();
-  const idx = rows.findIndex((b) => b.id === booking.id);
-  if (idx >= 0) rows[idx] = booking;
-  else rows.push(booking);
-  await writeAll(rows);
-}
-
-/** Patch local booking cache after remote bulk status updates. */
-export async function syncLocalBookingsFromRemote(bookings: Booking[]): Promise<void> {
-  for (const booking of bookings) {
-    await upsertLocalBooking(booking);
-  }
-}
-
-function mergeBookings(remote: Booking[], local: Booking[]): Booking[] {
-  const localById = new Map(local.map((row) => [row.id, row]));
-  const merged = remote.map((row) => {
-    const cached = localById.get(row.id);
-    if (!cached) return row;
-    if (cached.status === row.status) return row;
-    return { ...row, status: cached.status };
-  });
-  for (const row of local) {
-    if (!merged.some((item) => item.id === row.id)) merged.push(row);
-  }
-  return merged;
-}
-
 export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
   const supabase = getSupabase();
-  let rows: Booking[] = [];
-  if (supabase) {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('shop_id', shopId)
-      .order('scheduled_at', { ascending: false });
-
-    if (!error && data) rows = (data as BookingRow[]).map(mapBookingRow);
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('shop_id', shopId)
+    .order('scheduled_at', { ascending: false });
+  if (error || !data) {
+    if (error) console.warn('listBookingsForShop:', error.message);
+    return [];
   }
-
-  if (rows.length === 0) {
-    const localRows = await readAll();
-    rows = localRows.filter((b) => b.shopId === shopId);
-  } else {
-    const localRows = (await readAll()).filter((b) => b.shopId === shopId);
-    rows = mergeBookings(rows, localRows);
-  }
-
-  const dedup = new Map<string, Booking>();
-  for (const row of rows) dedup.set(row.id, row);
-  return sortBookingsByScheduledAtDesc(applyVirtualBookingLifecycleBatch([...dedup.values()]));
+  return sortBookingsByScheduledAtDesc(
+    applyVirtualBookingLifecycleBatch((data as BookingRow[]).map(mapBookingRow)),
+  );
 }
 
 export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
-  const localRows = (await readAll()).filter((b) => phonesEqual(b.customerPhone, phone));
   const remoteRows = await fetchBookingsForPhoneRemote(phone);
-  if (remoteRows) {
-    return sortBookingsByScheduledAtDesc(mergeBookings(remoteRows, localRows));
-  }
-  return sortBookingsByScheduledAtDesc(localRows);
+  return sortBookingsByScheduledAtDesc(remoteRows ?? []);
 }
 
 const HOME_NEXT_BOOKING_STATUSES = new Set<BookingStatus>(['pending', 'confirmed']);
@@ -431,7 +369,7 @@ export function pickNextUpcomingBooking(bookings: Booking[], now = Date.now()): 
   );
 }
 
-/** Fetch the single closest upcoming booking for the Home card (Supabase-first, local fallback). */
+/** Fetch the single closest upcoming booking for the Home card from Supabase. */
 export async function fetchNextUpcomingBookingForPhone(phone: string, now = Date.now()): Promise<Booking | null> {
   const nowIso = new Date(now).toISOString();
   const supabase = getSupabase();
@@ -456,8 +394,7 @@ export async function fetchNextUpcomingBookingForPhone(phone: string, now = Date
     }
   }
 
-  const localRows = (await readAll()).filter((b) => phonesEqual(b.customerPhone, phone));
-  return pickNextUpcomingBooking(localRows, now);
+  return null;
 }
 
 export async function getBookingForCustomer(bookingId: string, phone: string): Promise<Booking | null> {
@@ -527,69 +464,59 @@ export async function createBooking(
     pointsRedeemed: options?.loyaltyCheckout?.pointsRedeemed ?? 0,
     discountAppliedEgp: options?.loyaltyCheckout?.discountAppliedEgp ?? 0,
     finalAmountPaidEgp: options?.loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp,
-    id: newId(),
+    id: '',
     status: initialStatus,
     createdAt: new Date().toISOString(),
   };
 
   const supabase = getSupabase();
-  if (supabase) {
-    const insertRow = buildBookingInsertRow(
-      { ...input, offerId: resolvedOfferId },
-      {
-        servicePriceEgp: booking.servicePriceEgp ?? servicePriceEgp,
-        platformFeeEgp,
-        status: initialStatus,
-        bookingType,
-        branchId,
-        loyaltyCheckout: options?.loyaltyCheckout,
-      },
-    );
-    const { data, error } = await supabase.from('bookings').insert(insertRow).select('*').single();
+  if (!supabase) throw new Error('Supabase is not configured');
+  const insertRow = buildBookingInsertRow(
+    { ...input, offerId: resolvedOfferId },
+    {
+      servicePriceEgp: booking.servicePriceEgp ?? servicePriceEgp,
+      platformFeeEgp,
+      status: initialStatus,
+      bookingType,
+      branchId,
+      loyaltyCheckout: options?.loyaltyCheckout,
+    },
+  );
+  const { data, error } = await supabase.from('bookings').insert(insertRow).select('*').single();
+  if (error || !data) throw new Error(error?.message ?? 'Booking could not be saved');
 
-    if (!error && data) {
-      const created = mapBookingRow(data as BookingRow);
-      if (options?.appliedCouponId && options?.couponUsageUserId) {
-        const usageSaved = await registerCouponUsageRemote({
-          couponId: options.appliedCouponId,
-          userId: options.couponUsageUserId,
-          bookingId: created.id,
-        });
-        if (!usageSaved) {
-          await supabase.from('bookings').delete().eq('id', created.id);
-          throw new Error('Coupon usage log failed');
-        }
-      }
-      await upsertLocalBooking(created);
-      if (
-        options?.loyaltyCheckout &&
-        options.loyaltyCheckout.pointsRedeemed > 0 &&
-        isUuid(created.id) &&
-        isUuid(input.customerId)
-      ) {
-        try {
-          await deductMerchantLoyaltyPointsRemote({
-            userId: input.customerId,
-            shopId: created.shopId,
-            bookingId: created.id,
-            pointsToRedeem: options.loyaltyCheckout.pointsRedeemed,
-            discountEgp: options.loyaltyCheckout.discountAppliedEgp,
-          });
-        } catch (loyaltyError) {
-          console.warn('Merchant loyalty deduction failed (non-blocking):', loyaltyError);
-        }
-      }
-      await notifyWashOwnerBooking(created, 'new_booking', options);
-      return created;
-    }
-    if (error) {
-      throw new Error(error.message);
+  const created = mapBookingRow(data as BookingRow);
+  if (options?.appliedCouponId && options?.couponUsageUserId) {
+    const usageSaved = await registerCouponUsageRemote({
+      couponId: options.appliedCouponId,
+      userId: options.couponUsageUserId,
+      bookingId: created.id,
+    });
+    if (!usageSaved) {
+      await supabase.from('bookings').delete().eq('id', created.id);
+      throw new Error('Coupon usage log failed');
     }
   }
-
-  await upsertLocalBooking(booking);
-  await notifyWashOwnerBooking(booking, 'new_booking', options);
-  return booking;
+  if (
+    options?.loyaltyCheckout &&
+    options.loyaltyCheckout.pointsRedeemed > 0 &&
+    isUuid(created.id) &&
+    isUuid(input.customerId)
+  ) {
+    try {
+      await deductMerchantLoyaltyPointsRemote({
+        userId: input.customerId,
+        shopId: created.shopId,
+        bookingId: created.id,
+        pointsToRedeem: options.loyaltyCheckout.pointsRedeemed,
+        discountEgp: options.loyaltyCheckout.discountAppliedEgp,
+      });
+    } catch (loyaltyError) {
+      console.warn('Merchant loyalty deduction failed (non-blocking):', loyaltyError);
+    }
+  }
+  await notifyWashOwnerBooking(created, 'new_booking', options);
+  return created;
 }
 
 export async function createWalkInBooking(input: WalkInBookingInput): Promise<Booking> {
@@ -639,46 +566,21 @@ export async function updateBookingStatus(
   fallback?: Booking,
   patch?: Partial<Pick<Booking, 'ownerRejectionNote'>>,
 ): Promise<Booking | null> {
-  const rows = await readAll();
-  const localIdx = rows.findIndex((b) => b.id === bookingId);
-  const previousStatus = localIdx >= 0 ? rows[localIdx].status : fallback?.status;
-  let updated: Booking | null = localIdx >= 0 ? { ...rows[localIdx], status, ...patch } : null;
-
-  if (!updated && fallback && fallback.id === bookingId) {
-    updated = { ...fallback, status, ...patch };
-  }
-
-  if (!updated) {
-    const supabase = getSupabase();
-    if (supabase) {
-      const { data } = await supabase.from('bookings').select('*').eq('id', bookingId).maybeSingle();
-      if (data) updated = { ...mapBookingRow(data as BookingRow), status };
-    }
-  }
-
-  if (!updated) return null;
-
-  let remoteSynced = false;
-
-  await upsertLocalBooking(updated);
-
   const supabase = getSupabase();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from('bookings')
-      .update({ status })
-      .eq('id', bookingId)
-      .select('*')
-      .maybeSingle();
-
-    if (!error && data) {
-      updated = mapBookingRow(data as BookingRow);
-      await upsertLocalBooking(updated);
-      remoteSynced = true;
-    }
-  } else {
-    remoteSynced = true;
-  }
+  if (!supabase) return null;
+  const previousStatus = fallback?.status ?? (
+    await supabase.from('bookings').select('status').eq('id', bookingId).maybeSingle()
+  ).data?.status as BookingStatus | undefined;
+  const updatePatch: Record<string, unknown> = { status };
+  if (patch?.ownerRejectionNote !== undefined) updatePatch.owner_rejection_note = patch.ownerRejectionNote;
+  const { data, error } = await supabase
+    .from('bookings')
+    .update(updatePatch)
+    .eq('id', bookingId)
+    .select('*')
+    .maybeSingle();
+  if (error || !data) return null;
+  const updated = mapBookingRow(data as BookingRow);
 
   if (updated && status === 'cancelled' && previousStatus !== 'cancelled') {
     await notifyWashOwnerBooking(updated, 'cancelled_booking');
@@ -688,7 +590,7 @@ export async function updateBookingStatus(
     await handleBookingConfirmed({ booking: updated, previousStatus });
   }
 
-  if (updated && status === 'done' && previousStatus !== 'done' && remoteSynced) {
+  if (updated && status === 'done' && previousStatus !== 'done') {
     try {
       await recordWashBookingDone(updated, previousStatus);
     } catch (error) {
@@ -705,28 +607,17 @@ export async function updateBookingStatus(
 }
 
 export async function deleteBookingForShop(shopId: string, bookingId: string): Promise<boolean> {
-  const rows = await readAll();
-  const target = rows.find((b) => b.id === bookingId && b.shopId === shopId);
-  if (!target) return false;
-  await writeAll(rows.filter((b) => b.id !== bookingId));
-
   const supabase = getSupabase();
-  if (supabase && isUuid(bookingId)) {
-    await supabase.from('bookings').delete().eq('id', bookingId).eq('shop_id', shopId);
-  }
-  return true;
+  if (!supabase || !isUuid(bookingId)) return false;
+  const { error } = await supabase.from('bookings').delete().eq('id', bookingId).eq('shop_id', shopId);
+  return !error;
 }
 
 export async function clearShopBookingHistory(shopId: string): Promise<number> {
-  const rows = await readAll();
-  const removed = rows.filter((b) => b.shopId === shopId);
-  await writeAll(rows.filter((b) => b.shopId !== shopId));
-
   const supabase = getSupabase();
-  if (supabase) {
-    await supabase.from('bookings').delete().eq('shop_id', shopId);
-  }
-  return removed.length;
+  if (!supabase) return 0;
+  const { data, error } = await supabase.from('bookings').delete().eq('shop_id', shopId).select('id');
+  return error ? 0 : (data?.length ?? 0);
 }
 
 export async function getSavedCustomerPhone(): Promise<string | null> {
@@ -745,18 +636,11 @@ export async function clearCustomerBookingHistory(input: {
   phone: string;
   customerId?: string;
 }): Promise<void> {
-  const normalizedPhone = input.phone.trim();
-  const rows = await readAll();
-  const kept = rows.filter((booking) => {
-    if (booking.customerPhone.trim() === normalizedPhone) return false;
-    if (input.customerId && booking.customerId === input.customerId) return false;
-    return true;
-  });
-  await writeAll(kept);
-
   const supabase = getSupabase();
-  if (supabase && input.customerId && isUuid(input.customerId)) {
-    const { error } = await supabase.from('bookings').delete().eq('customer_id', input.customerId);
-    if (error) console.warn('Failed to delete remote bookings:', error.message);
-  }
+  if (!supabase) return;
+  const query = input.customerId && isUuid(input.customerId)
+    ? supabase.from('bookings').delete().eq('customer_id', input.customerId)
+    : supabase.from('bookings').delete().in('customer_phone', phoneLookupVariants(input.phone));
+  const { error } = await query;
+  if (error) console.warn('Failed to delete remote bookings:', error.message);
 }

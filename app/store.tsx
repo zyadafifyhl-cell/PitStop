@@ -26,8 +26,7 @@ import { useStoreCart } from '@/context/StoreCartContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { STORE_SUB_CATEGORIES } from '@/lib/store/constants';
-import { mergeStoreCatalogProducts } from '@/lib/store/demoProducts';
-import { listStoreProducts } from '@/lib/store/productRepository';
+import { listStoreProducts, listStoreProductsByShop } from '@/lib/store/productRepository';
 import type { StoreProduct, StoreProductCategory } from '@/lib/store/types';
 import { getStoreGridLayout } from '@/lib/ui/storeGridLayout';
 
@@ -42,9 +41,10 @@ export default function StoreScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const grid = useMemo(() => getStoreGridLayout(screenWidth), [screenWidth]);
   const { customer } = useCustomerAuth();
-  const { itemCount, addProduct, refresh: refreshCart } = useStoreCart();
-  const params = useLocalSearchParams<{ category?: string | string[] }>();
+  const { itemCount, items, addProduct, setQuantity, refresh: refreshCart } = useStoreCart();
+  const params = useLocalSearchParams<{ category?: string | string[]; shopId?: string | string[] }>();
   const routeCategory = Array.isArray(params.category) ? params.category[0] : params.category;
+  const routeShopId = Array.isArray(params.shopId) ? params.shopId[0] : params.shopId;
   const activeCategory = resolveRouteCategory(routeCategory);
 
   const [products, setProducts] = useState<StoreProduct[]>([]);
@@ -66,12 +66,13 @@ export default function StoreScreen() {
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const remote = await listStoreProducts();
-      setProducts(mergeStoreCatalogProducts(remote));
+      setProducts(routeShopId
+        ? await listStoreProductsByShop(routeShopId)
+        : await listStoreProducts());
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [routeShopId]);
 
   useEffect(() => {
     void loadProducts();
@@ -86,7 +87,7 @@ export default function StoreScreen() {
   );
 
   const filteredProducts = useMemo(() => {
-    let rows = products.filter((row) => row.category === activeCategory);
+    let rows = routeShopId ? products : products.filter((row) => row.category === activeCategory);
 
     if (subCategory !== 'all') {
       rows = rows.filter((row) => row.subCategory === subCategory);
@@ -97,25 +98,49 @@ export default function StoreScreen() {
         (row) =>
           row.name.toLowerCase().includes(q) ||
           (row.description ?? '').toLowerCase().includes(q) ||
-          (row.sellerLabel ?? '').toLowerCase().includes(q) ||
           row.subCategory.toLowerCase().includes(q),
       );
     }
 
     return rows;
-  }, [products, activeCategory, subCategory, query]);
+  }, [products, activeCategory, routeShopId, subCategory, query]);
+
+  const handleInventoryChanged = useCallback(() => {
+    void loadProducts();
+  }, [loadProducts]);
 
   async function onAddToCart(product: StoreProduct) {
     if (!customer?.id) {
       router.push('/auth-required');
       return;
     }
+    if (product.stockQuantity <= 0) return;
+    const current = items.find((row) => row.productId === product.id)?.quantity ?? 0;
+    if (current >= product.stockQuantity) return;
     setAddingId(product.id);
     try {
       const ok = await addProduct(product, 1);
       if (!ok) {
         Alert.alert(t('store_checkout_fail_title'), t('store_cart_add_fail_body'));
       }
+    } finally {
+      setAddingId(null);
+    }
+  }
+
+  async function onChangeQuantity(product: StoreProduct, next: number) {
+    if (!customer?.id) {
+      router.push('/auth-required');
+      return;
+    }
+    const row = items.find((item) => item.productId === product.id);
+    setAddingId(product.id);
+    try {
+      if (!row) {
+        if (next > 0) await addProduct(product, next);
+        return;
+      }
+      await setQuantity(row.id, next);
     } finally {
       setAddingId(null);
     }
@@ -141,6 +166,8 @@ export default function StoreScreen() {
             return;
           }
           setCartOpen(true);
+          void refreshCart();
+          void loadProducts();
         }}
       />
 
@@ -188,7 +215,9 @@ export default function StoreScreen() {
               product={item}
               compact={grid.compact}
               adding={addingId === item.id}
+              cartQuantity={items.find((row) => row.productId === item.id)?.quantity ?? 0}
               onAddToCart={() => void onAddToCart(item)}
+              onChangeQuantity={(next) => void onChangeQuantity(item, next)}
             />
           )}
         />
@@ -208,7 +237,11 @@ export default function StoreScreen() {
         </ScrollView>
       )}
 
-      <StoreCartCheckoutModal visible={cartOpen} onClose={() => setCartOpen(false)} />
+      <StoreCartCheckoutModal
+        visible={cartOpen}
+        onClose={() => setCartOpen(false)}
+        onInventoryChanged={handleInventoryChanged}
+      />
     </View>
   );
 }

@@ -1,0 +1,2290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PitStop — System Architecture and Operational Flows</title>
+  <style>
+    @page { size: A4; margin: 14mm 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      color: #111;
+      background: #fff;
+      line-height: 1.42;
+      font-size: 10pt;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 8mm 4mm;
+    }
+    h1 { font-size: 22pt; margin: 0 0 8px; color: #0d3b66; }
+    h2 { font-size: 14pt; margin: 22px 0 8px; color: #0d3b66; border-bottom: 2px solid #e8eef5; padding-bottom: 4px; page-break-after: avoid; break-after: avoid; }
+    h3 { font-size: 11.5pt; margin: 14px 0 6px; color: #1f3d5c; page-break-after: avoid; break-after: avoid; }
+    h4 { font-size: 10.5pt; margin: 10px 0 4px; color: #333; page-break-after: avoid; }
+    p, li { margin: 0 0 6px; }
+    ul, ol { margin: 4px 0 10px; padding-left: 18px; }
+    table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 8.6pt; page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+    th, td { border: 1px solid #d8dee8; padding: 5px 7px; text-align: left; vertical-align: top; }
+    th { background: #f3f6fa; color: #0d3b66; }
+    code { font-family: Consolas, "Courier New", monospace; font-size: 8.4pt; background: #f3f6fa; padding: 1px 4px; border-radius: 3px; }
+    pre {
+      background: #f7f9fc;
+      border: 1px solid #e2e8f0;
+      padding: 8px 10px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 6px 0 12px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 7.8pt;
+      line-height: 1.35;
+    }
+    pre code { background: transparent; padding: 0; }
+    hr { border: 0; border-top: 1px solid #dde4ee; margin: 16px 0; }
+    a { color: #0d3b66; }
+    .mermaid-wrap { background: #f7f9fc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 10px 0 14px; overflow-x: auto; }
+    .mermaid-wrap pre.mermaid { background: transparent; border: none; padding: 0; margin: 0; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose' });</script>
+</head>
+<body>
+<h1 id="pitstop-system-architecture-and-operational-flows">PitStop System Architecture and Operational Flows</h1>
+<p><strong>Document type:</strong> Production architecture &amp; flow specification  </p>
+<p><strong>Audience:</strong> Engineers, product stakeholders, operations, and auditors  </p>
+<p><strong>Stack:</strong> Expo Router (React Native / web) · Supabase Auth · PostgreSQL · RLS · Realtime · Storage · Edge Functions  </p>
+<p><strong>Canonical schema sources:</strong> <code>supabase/schema.sql</code>, <code>supabase/complete_system_schema.sql</code>, incremental <code>apply-pitstop-2.0-step*.sql</code>  </p>
+<p><strong>Last aligned to codebase:</strong> 18 August 2026</p>
+<hr />
+<h2 id="table-of-contents">Table of contents</h2>
+<ol>
+<li><a href="#1-executive-overview--platform-roles">Executive overview and platform roles</a></li>
+<li><a href="#2-owner--merchant-ecosystem--dashboards">Owner / merchant ecosystem and dashboards</a></li>
+<li><a href="#3-customer-user-journey--checkout-flow">Customer user journey and checkout flow</a></li>
+<li><a href="#4-super-admin-governance-panel">Super admin governance panel</a></li>
+<li><a href="#5-database-schema--supabase-topology">Database schema and Supabase topology</a></li>
+<li><a href="#6-realtime-event-pipelines--edge-integrations">Realtime event pipelines and edge integrations</a></li>
+</ol>
+<hr />
+<h2 id="1-executive-overview-and-platform-roles">1. Executive overview &amp; platform roles</h2>
+<h3 id="1-1-platform-purpose">1.1 Platform purpose</h3>
+<p>PitStop is a multi-tenant marketplace for automotive services and retail in Egypt. One Expo app serves three distinct populations from a shared Supabase project:</p>
+<table><thead><tr>
+<th>Population</th>
+<th>Primary job</th>
+<th>Typical entry</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Customers</strong></td>
+<td>Discover shops, book services, buy parts/accessories, track orders</td>
+<td><code>/welcome</code> → customer login or guest → <code>/(tabs)</code></td>
+</tr>
+<tr>
+<td><strong>Merchants / owners</strong></td>
+<td>Operate a shop: queue, catalog, inventory, fulfillment, settings</td>
+<td><code>/welcome?focus=owner</code> → <code>/(tabs)/shop</code></td>
+</tr>
+<tr>
+<td><strong>Super admins</strong></td>
+<td>Approve merchants, toggle premium, moderate content, remove accounts</td>
+<td>Owner login with <code>users.role = admin</code> → <code>/admin</code></td>
+</tr>
+</tbody></table>
+<p>The domain is <strong>shop-centric</strong>: every merchant brand is a row in <code>public.shops</code>. Physical locations are <code>public.shop_branches</code>. Customers never own shops; they own bookings, carts, orders, vehicles, and community posts.</p>
+<pre><code>                         ┌─────────────────────────────────────┐
+                         │           PitStop Expo App          │
+                         │  app/_layout.tsx  (providers)       │
+                         └───────────────┬─────────────────────┘
+                                         │
+              ┌──────────────────────────┼──────────────────────────┐
+              │                          │                          │
+              ▼                          ▼                          ▼
+     CustomerAuthContext         ShopAuthContext              AdminPanel
+     (customers / guests)        (owner / manager /           (role=admin)
+                                  pending_owner)
+              │                          │                          │
+              ▼                          ▼                          ▼
+     /(tabs) home, book,         /(tabs)/shop dashboards      /admin
+     store, bookings             + /shop/* merchant routes
+              │                          │                          │
+              └──────────────────────────┼──────────────────────────┘
+                                         ▼
+                              Supabase (Auth + Postgres +
+                              Realtime + Storage + Edge)</code></pre>
+<h3 id="1-2-multi-tenant-domain-model">1.2 Multi-tenant domain model</h3>
+<p>Tenancy is <strong>shop_id scoped</strong>, not organization-id scoped.</p>
+<pre><code>auth.users (Supabase Auth identity)
+    │ 1:1  (handle_new_auth_user trigger)
+    ▼
+public.users  role, shop_id, branch_id, is_active
+    │
+    ├── customer          → no shop_id
+    ├── pending_owner     → shop_id set, shop.is_active = false
+    ├── owner             → shop_id required
+    ├── branch_manager    → shop_id + branch_id required
+    └── admin             → no shop_id
+
+public.shops  (tenant root)
+    ├── shop_branches     (physical bays / locations)
+    │     ├── branch_services
+    │     └── branch_employees   (no login)
+    ├── products          (parts / accessories merchants)
+    ├── store_orders
+    ├── bookings
+    ├── shop_extras       (JSONB profile, hours, gallery)
+    ├── offers / coupons / campaigns
+    └── shop_push_tokens</code></pre>
+<p><strong>Shop types</strong> (<code>public.shop_type</code>):</p>
+<table><thead><tr>
+<th>Enum value</th>
+<th>Merchant category</th>
+<th>Customer surface</th>
+<th>Owner surface</th>
+</tr></thead><tbody>
+<tr>
+<td><code>wash</code></td>
+<td>Car wash</td>
+<td>Area list → shop profile → <code>/book/[shopId]</code></td>
+<td><code>WashOwnerPanel</code></td>
+</tr>
+<tr>
+<td><code>maintenance</code></td>
+<td>Service center</td>
+<td>Same booking path</td>
+<td><code>app/(tabs)/shop.tsx</code> service dashboard</td>
+</tr>
+<tr>
+<td><code>winch</code></td>
+<td>Roadside / winch</td>
+<td>Same booking path</td>
+<td>Service dashboard + winch phone toggle</td>
+</tr>
+<tr>
+<td><code>parts</code></td>
+<td>Spare-parts retailer</td>
+<td><code>/store?category=spare_parts</code></td>
+<td><code>StoreOwnerDashboard</code></td>
+</tr>
+<tr>
+<td><code>accessories</code></td>
+<td>Accessories retailer</td>
+<td><code>/store?category=accessories</code></td>
+<td><code>StoreOwnerDashboard</code></td>
+</tr>
+</tbody></table>
+<p><code>shops.category</code> is a generated compatibility alias: <code>wash</code> → <code>car_wash</code>, <code>parts</code> → <code>spare_parts</code>, otherwise <code>type::text</code> (<code>complete_system_schema.sql</code> trigger <code>shops_sync_category</code>).</p>
+<h3 id="1-3-role-definitions">1.3 Role definitions</h3>
+<p>App identity lives in <code>public.users</code>. TypeScript mirror: <code>lib/supabase/database.types.ts</code> → <code>DbUserRole</code>.</p>
+<table><thead><tr>
+<th>Role</th>
+<th>Login context</th>
+<th>Session resolver</th>
+<th>Can do</th>
+<th>Cannot do</th>
+</tr></thead><tbody>
+<tr>
+<td><code>customer</code></td>
+<td><code>CustomerAuthContext</code></td>
+<td>Confirmed <code>auth.users</code> email that is <strong>not</strong> a shop staff email</td>
+<td>Browse, book, cart, checkout, reviews, community</td>
+<td>Open merchant dashboard</td>
+</tr>
+<tr>
+<td>Guest</td>
+<td><code>continueAsGuest()</code></td>
+<td>Local flag only, no <code>auth.uid()</code></td>
+<td>Browse catalog / map</td>
+<td>Checkout, booking persist, cart persist</td>
+</tr>
+<tr>
+<td><code>pending_owner</code></td>
+<td><code>ShopAuthContext.login</code></td>
+<td><code>resolveShopSession</code></td>
+<td>Wait after register</td>
+<td>Operate dashboard (<code>pending_approval</code>)</td>
+</tr>
+<tr>
+<td><code>owner</code></td>
+<td><code>ShopAuthContext</code></td>
+<td><code>users.role=owner</code> + <code>shop_id</code></td>
+<td>Full shop + all branches (premium for extra branches)</td>
+<td>Admin approval RPCs</td>
+</tr>
+<tr>
+<td><code>branch_manager</code></td>
+<td><code>ShopAuthContext</code></td>
+<td><code>users.role=branch_manager</code> + <code>branch_id</code></td>
+<td>Queue, walk-in POS, branch-scoped bookings</td>
+<td>Other branches, premium toggles, delete shop</td>
+</tr>
+<tr>
+<td><code>admin</code></td>
+<td>Same merchant login form</td>
+<td><code>users.role=admin</code></td>
+<td>Approval, premium, moderation, merchant delete</td>
+<td>Impersonate customer checkout</td>
+</tr>
+</tbody></table>
+<p><strong>Staff vs customer isolation</strong></p>
+<ul>
+<li><code>CustomerAuthContext.resolveCustomerFromUser</code> rejects emails that <code>isShopStaffEmailRemote</code> reports as shop staff.</li>
+<li><code>ShopAuthContext.login</code> returns <code>shop_not_found</code> if the session is not owner/manager/admin/pending_owner.</li>
+<li>Admins are redirected: <code>app/(tabs)/shop.tsx</code> → <code>router.replace('/admin')</code>.</li>
+</ul>
+<h3 id="1-4-authentication-models">1.4 Authentication models</h3>
+<p>Both populations use <strong>Supabase Auth email/password</strong>. Sessions are isolated per browser tab via <code>lib/storage/webTabAuthStorage.ts</code> and <code>lib/supabase/webTabAuthIsolation.ts</code>.</p>
+<pre><code>                    ┌──────────────────┐
+                    │  /welcome        │
+                    │  Customer │ Owner│
+                    └────────┬─────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+   signInWithPassword                signInWithPassword
+   CustomerAuthContext               ShopAuthContext
+              │                             │
+              ▼                             ▼
+   email_confirmed_at required       applySession(userId, email)
+   not a shop staff email            fetch public.users row
+              │                             │
+              ▼                             ├── role=admin        → /admin
+   /(tabs) customer shell                   ├── pending_owner     → pending_approval
+                                            ├── owner             → /(tabs)/shop
+                                            └── branch_manager    → /(tabs)/shop (branch scoped)</code></pre>
+<p><strong>Customer register:</strong> <code>CustomerAuthContext.register</code> → <code>auth.signUp</code> → <code>handle_new_auth_user</code> inserts <code>public.users</code> with <code>role='customer'</code>.</p>
+<p><strong>Merchant register:</strong> <code>lib/shop/ownerRegistrationRepository.ts</code> → <code>auth.signUp</code> (metadata <code>account_type=shop_owner</code>) → RPC <code>register_shop_owner(...)</code> creates an <strong>inactive</strong> shop and sets <code>users.role='pending_owner'</code>. Login then returns <code>pending_approval</code> until a super admin accepts.</p>
+<p><strong>Password reset:</strong> <code>/reset-password</code> (customers). Merchant password change: <code>/shop/merchant-password</code>.</p>
+<p><strong>Account deletion:</strong> customers call <code>deleteCustomerAccountRemote</code> (<code>lib/account/customerAccountRepository.ts</code>); merchants are removed only by admin (<code>deleteMerchant</code>).</p>
+<h3 id="1-5-permission-boundaries-enforced-in-postgres">1.5 Permission boundaries (enforced in Postgres)</h3>
+<p>Helper functions (security definer, <code>search_path = public</code>):</p>
+<table><thead><tr>
+<th>Function</th>
+<th>True when</th>
+</tr></thead><tbody>
+<tr>
+<td><code>is_platform_admin()</code></td>
+<td><code>users.role = admin</code> and <code>is_active</code></td>
+</tr>
+<tr>
+<td><code>is_shop_owner(p_shop_id)</code></td>
+<td>Active owner row for that shop <strong>or</strong> JWT email matches <code>shops.owner_email</code></td>
+</tr>
+<tr>
+<td><code>is_branch_manager(p_branch_id)</code></td>
+<td>Active <code>branch_manager</code> with that <code>branch_id</code></td>
+</tr>
+<tr>
+<td><code>can_manage_shop(p_shop_id)</code></td>
+<td>Owner <strong>or</strong> any branch manager of that shop</td>
+</tr>
+<tr>
+<td><code>can_manage_branch(p_branch_id)</code></td>
+<td>Branch manager of that branch <strong>or</strong> shop owner</td>
+</tr>
+</tbody></table>
+<p>RLS then uses those helpers. Application code never trusts the client for stock decrement or order insert: checkout goes through <code>place_store_order</code>.</p>
+<h3 id="1-6-provider-tree-app-layout-tsx">1.6 Provider tree (<code>app/_layout.tsx</code>)</h3>
+<pre><code>ThemePreferenceProvider
+  I18nProvider
+    AppDialogProvider / CustomConfirmProvider
+      ShopCatalogProvider
+        CustomerAuthProvider
+          StoreCartProvider
+            ShopAuthProvider
+              AppBootstrap
+                RootStack  (expo-router Stack)</code></pre>
+<p>Initial route: <code>welcome</code> (<code>unstable_settings.initialRouteName</code>).</p>
+<hr />
+<h2 id="2-owner-merchant-ecosystem-and-dashboards">2. Owner / merchant ecosystem &amp; dashboards</h2>
+<p>Owner chrome is role- and type-routed from a single tab: <code>app/(tabs)/shop.tsx</code>.</p>
+<pre><code>/(tabs)/shop
+    │
+    ├── not logged in     → email/password merchant login form
+    ├── isAdmin           → redirect /admin
+    ├── shop.type = wash  → components/owner/wash/WashOwnerPanel.tsx
+    ├── parts|accessories → Store owner shell (STORE_TABS)
+    └── maintenance|winch → Service owner shell (SERVICE_TABS)</code></pre>
+<p>Shared bottom navigation: <code>components/owner/OwnerDashboardNav.tsx</code>. Tab ids are the same four strings for every merchant category; <strong>labels and content change</strong> via <code>lib/owner/dashboardConfig.ts</code>.</p>
+<table><thead><tr>
+<th>Tab id</th>
+<th>Store merchants (<code>parts</code>, <code>accessories</code>)</th>
+<th>Service merchants (<code>wash</code>, <code>maintenance</code>, <code>winch</code>)</th>
+</tr></thead><tbody>
+<tr>
+<td><code>dashboard</code></td>
+<td>Overview + metrics</td>
+<td>Overview + metrics</td>
+</tr>
+<tr>
+<td><code>management</code></td>
+<td>Orders (<code>store_owner_orders</code>)</td>
+<td>Bookings / queue (<code>owner_dashboard_bookings</code>)</td>
+</tr>
+<tr>
+<td><code>operations</code></td>
+<td>Inventory (<code>store_owner_inventory</code>)</td>
+<td>Services catalog (<code>owner_dashboard_services</code>)</td>
+</tr>
+<tr>
+<td><code>profile</code></td>
+<td>Profile, gallery, campaigns</td>
+<td>Profile, hours, GPS, gallery</td>
+</tr>
+</tbody></table>
+<h3 id="2-1-merchant-categories">2.1 Merchant categories</h3>
+<h4 id="a-service-providers-car-wash">A. Service providers — car wash</h4>
+<p><strong>Primary component:</strong> <code>components/owner/wash/WashOwnerPanel.tsx</code>  </p>
+<p><strong>Satellite screens:</strong></p>
+<table><thead><tr>
+<th>Route</th>
+<th>File</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td>`/shop/wash-owner-hub?tab=orders\</td>
+<td>reviews`</td>
+<td><code>app/shop/wash-owner-hub.tsx</code></td>
+<td>Notification inbox + pending queue + reviews</td>
+</tr>
+<tr>
+<td><code>/shop/wash-reports</code></td>
+<td><code>app/shop/wash-reports.tsx</code></td>
+<td>Revenue / analytics reports</td>
+</tr>
+<tr>
+<td><code>/shop/wash-history</code></td>
+<td><code>app/shop/wash-history.tsx</code></td>
+<td>Historical bookings</td>
+</tr>
+<tr>
+<td><code>/shop/merchant-hours</code></td>
+<td><code>app/shop/merchant-hours.tsx</code></td>
+<td>Hours editor (settings deep-link)</td>
+</tr>
+<tr>
+<td><code>/shop/merchant-services</code></td>
+<td><code>app/shop/merchant-services.tsx</code></td>
+<td>Services editor</td>
+</tr>
+<tr>
+<td><code>/shop/merchant-staff</code></td>
+<td><code>app/shop/merchant-staff.tsx</code></td>
+<td>Staff / manager</td>
+</tr>
+</tbody></table>
+<p><strong>Operating unit:</strong> a <strong>branch</strong> (<code>shop_branches</code>), not a literal “bay” table. Each branch is an active service location with:</p>
+<ul>
+<li><code>shop_status</code>: <code>open | closed | busy | vacation</code></li>
+<li><code>weekly_hours</code> JSONB → slot engine in <code>lib/booking/shopSchedule.ts</code></li>
+<li><code>service_duration_minutes</code> (default 60 in schema, often 30 in wash UI)</li>
+<li><code>vacation_mode</code> JSONB</li>
+<li>GPS (<code>latitude</code>, <code>longitude</code>)</li>
+<li>Cover + gallery (<code>profile_image_url</code>, <code>image_urls</code>)</li>
+</ul>
+<p>Premium (<code>shops.is_premium</code>) unlocks extra branches, coupons, campaigns, and several CMS sections via <code>components/owner/PremiumFeatureGate.tsx</code>. Free owners keep one branch (<code>premium_branch_free_hint</code>).</p>
+<h4 id="b-service-providers-maintenance-winch">B. Service providers — maintenance / winch</h4>
+<p>Rendered inside <code>app/(tabs)/shop.tsx</code> (not <code>WashOwnerPanel</code>). Same four tabs. Extra: winch enable/phone on maintenance shops (<code>shop_manage_winch_*</code>). Schedule is shop-level <code>shop_extras</code> (<code>workOpenTime</code>, <code>workCloseTime</code>, <code>serviceDurationMinutes</code>, <code>weeklyHours</code>).</p>
+<h4 id="c-retail-product-stores-spare-parts-and-accessories">C. Retail / product stores — spare parts &amp; accessories</h4>
+<p>Detected by <code>isStoreShopType()</code> in <code>lib/booking/storeCatalog.ts</code>. Catalog category mapping:</p>
+<ul>
+<li><code>parts</code> → <code>spare_parts</code></li>
+<li><code>accessories</code> → <code>accessories</code></li>
+</ul>
+<p>Products are <strong>merchant-owned</strong> (<code>products.shop_id</code> NOT NULL after <code>complete_system_schema.sql</code>). Checkout is single-merchant: <code>place_store_order</code> rejects mixed-shop carts.</p>
+<hr />
+<h3 id="2-2-layout-architecture-all-merchant-types">2.2 Layout architecture (all merchant types)</h3>
+<pre><code>┌──────────────────────────────────────────────────────────┐
+│ OwnerProfileHeader  (cover, avatar, notifications, cog)  │
+├──────────────────────────────────────────────────────────┤
+│ Tab body (ScrollView)                                    │
+│   dashboard | management | operations | profile          │
+├──────────────────────────────────────────────────────────┤
+│ OwnerDashboardNav  (absolute bottom bar, 4 tabs)         │
+└──────────────────────────────────────────────────────────┘</code></pre>
+<p>Merchant account settings (password, terms, privacy, locale, sign-out) live at <code>/shop/merchant-settings</code> (<code>app/shop/merchant-settings.tsx</code>), opened from the header cog. Customer tab bar is <strong>hidden</strong> while a shop session is active (<code>app/(tabs)/_layout.tsx</code>).</p>
+<hr />
+<h3 id="2-3-overview-and-key-metrics">2.3 Overview &amp; key metrics</h3>
+<h4 id="store-merchants">Store merchants</h4>
+<p><strong>Component:</strong> <code>components/store/owner/StoreOwnerDashboard.tsx</code>  </p>
+<p><strong>Data:</strong> RPC <code>get_store_owner_stats(p_shop_id)</code> with table fallback in <code>lib/store/storeStatsRepository.ts</code>.</p>
+<table><thead><tr>
+<th>Metric id</th>
+<th>Label key</th>
+<th>Source</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>revenue</code></td>
+<td><code>store_owner_total_revenue</code></td>
+<td><code>sum(store_orders.total_price)</code> where status ∈ pending, preparing, ready, completed</td>
+<td>Cancelled excluded</td>
+</tr>
+<tr>
+<td><code>orders</code></td>
+<td><code>store_owner_total_orders</code></td>
+<td><code>count(*)</code> of shop orders</td>
+<td>All statuses</td>
+</tr>
+<tr>
+<td><code>pending</code></td>
+<td><code>store_owner_pending_orders</code></td>
+<td>status = <code>pending</code></td>
+<td>Warning tone</td>
+</tr>
+<tr>
+<td><code>stock</code></td>
+<td><code>store_owner_low_stock</code></td>
+<td>active products with <code>stock_quantity &lt; 5</code></td>
+<td>Danger if &gt; 0</td>
+</tr>
+</tbody></table>
+<p>Also shown: total products, local Open/Closed switch (UI state in dashboard; shop availability for checkout is <code>shops.is_active</code>).</p>
+<p><strong>Realtime:</strong> channel <code>store-dashboard:{shopId}</code> listens to <code>store_orders</code> and <code>products</code> filtered by <code>shop_id</code>.</p>
+<h4 id="wash-merchants">Wash merchants</h4>
+<p><strong>Analytics:</strong> <code>lib/booking/wash/washAnalytics.ts</code> → <code>WashAnalyticsSnapshot</code></p>
+<table><thead><tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td><code>todayBookings</code></td>
+<td>Bookings scheduled today</td>
+</tr>
+<tr>
+<td><code>pendingRequests</code></td>
+<td><code>status = pending</code> in staff scope</td>
+</tr>
+<tr>
+<td><code>monthlyRevenue</code> / <code>weeklyRevenue</code></td>
+<td>Done bookings that count as revenue (<code>countsAsRevenueBooking</code>)</td>
+</tr>
+<tr>
+<td><code>averageRating</code></td>
+<td><code>shop_reviews</code></td>
+</tr>
+<tr>
+<td><code>mostBookedService</code> / <code>peakHourLabel</code> / <code>bookingTrend</code></td>
+<td>Queue analytics</td>
+</tr>
+</tbody></table>
+<p>Workspace vs history chips on the dashboard tab: <code>owner_panel_tab_workspace</code> / <code>owner_panel_tab_history</code> (<code>OwnerHistoryPanel</code>).</p>
+<h4 id="maintenance-winch">Maintenance / winch</h4>
+<p><strong>Computed in</strong> <code>app/(tabs)/shop.tsx</code> → <code>serviceOwnerMetrics</code>:</p>
+<table><thead><tr>
+<th>Metric</th>
+<th>Rule</th>
+</tr></thead><tbody>
+<tr>
+<td>Revenue</td>
+<td>Sum <code>servicePriceEgp</code> where <code>status = done</code></td>
+</tr>
+<tr>
+<td>Today bookings</td>
+<td><code>scheduledAt</code> date = today</td>
+</tr>
+<tr>
+<td>Pending requests</td>
+<td><code>status = pending</code></td>
+</tr>
+<tr>
+<td>Active services</td>
+<td><code>shop_extras.services</code> where <code>active</code></td>
+</tr>
+</tbody></table>
+<hr />
+<h3 id="2-4-inventory-and-catalog-management">2.4 Inventory &amp; catalog management</h3>
+<h4 id="retail-catalog-parts-accessories">Retail catalog (parts / accessories)</h4>
+<p><strong>Component:</strong> <code>components/store/owner/StoreInventoryManager.tsx</code>  </p>
+<p><strong>Repository:</strong> <code>lib/store/productRepository.ts</code></p>
+<table><thead><tr>
+<th>Capability</th>
+<th>Implementation</th>
+</tr></thead><tbody>
+<tr>
+<td>List including hidden</td>
+<td><code>listStoreProductsByShop(shopId, { includeInactive: true })</code></td>
+</tr>
+<tr>
+<td>Create</td>
+<td><code>createStoreProduct</code> → <code>products</code> insert</td>
+</tr>
+<tr>
+<td>Inline edit</td>
+<td>price, sale price, stock</td>
+</tr>
+<tr>
+<td>Atomic live stock</td>
+<td>+/- stepper then <code>updateStoreProductFields</code>; DB check <code>stock_quantity &gt;= 0</code></td>
+</tr>
+<tr>
+<td>Base vs sale price</td>
+<td><code>price</code>, <code>sale_price</code> with CHECK <code>sale_price IS NULL OR (sale_price &gt;= 0 AND sale_price &lt;= price)</code></td>
+</tr>
+<tr>
+<td>Visibility</td>
+<td><code>is_active</code> toggle</td>
+</tr>
+<tr>
+<td>Category tagging</td>
+<td>Shop type → <code>store_product_category</code>; sub-category from <code>lib/store/constants.ts</code> <code>STORE_SUB_CATEGORIES</code></td>
+</tr>
+<tr>
+<td>Compatibility</td>
+<td><code>product_compatibility</code> rows (<code>universal</code> / <code>brand_specific</code> / <code>model_specific</code>)</td>
+</tr>
+<tr>
+<td>Image upload</td>
+<td><code>uploadImageToBucket</code> → bucket <code>product-images</code>, path <code>shops/{shopId}/products/{timestamp}-...</code></td>
+</tr>
+<tr>
+<td>Product image column</td>
+<td><code>products.image_url</code> (<strong>one primary image per SKU</strong> in current schema)</td>
+</tr>
+<tr>
+<td>Delete</td>
+<td><code>deleteStoreProduct(productId, shopId)</code></td>
+</tr>
+<tr>
+<td>Low stock UI</td>
+<td>Visual when stock &amp;lt; 5</td>
+</tr>
+<tr>
+<td>Realtime</td>
+<td>channel <code>store-inventory:{shopId}</code> on <code>products</code></td>
+</tr>
+</tbody></table>
+<p><strong>Sub-categories (canonical ids):</strong></p>
+<table><thead><tr>
+<th><code>spare_parts</code></th>
+<th><code>accessories</code></th>
+</tr></thead><tbody>
+<tr>
+<td><code>engine_oil</code>, <code>air_filters</code>, <code>brakes</code>, <code>fluids</code>, <code>batteries</code></td>
+<td><code>car_care</code>, <code>electronics</code>, <code>interior</code>, <code>exterior</code></td>
+</tr>
+</tbody></table>
+<p><strong>Effective customer price</strong> (<code>lib/store/pricing.ts</code>): product <code>sale_price</code> wins over shop-level <code>storeGlobalDiscountPercent</code> on <code>shop_extras</code>.</p>
+<p><strong>Admin catalog override:</strong> <code>/admin/store-products</code> (<code>app/admin/store-products.tsx</code>) + <code>components/store/admin/StoreProductForm.tsx</code> (uploads historically used bucket <code>shop-images</code>).</p>
+<h4 id="service-catalog-wash-maintenance">Service catalog (wash / maintenance)</h4>
+<table><thead><tr>
+<th>Surface</th>
+<th>Persistence</th>
+</tr></thead><tbody>
+<tr>
+<td>Wash services CRUD</td>
+<td><code>branch_services</code> via <code>lib/booking/wash/washBranchStorage.ts</code> <code>saveWashBranchServices</code></td>
+</tr>
+<tr>
+<td>Maintenance services</td>
+<td><code>shop_extras.services</code> JSON via <code>lib/booking/shopExtrasStorage.ts</code></td>
+</tr>
+<tr>
+<td>Categories (wash)</td>
+<td><code>exterior_wash</code>, <code>interior_cleaning</code>, <code>full_package</code>, <code>detailing</code>, <code>engine_cleaning</code>, <code>custom</code></td>
+</tr>
+<tr>
+<td>Visibility</td>
+<td><code>visible</code> / <code>active</code> flags; hidden items stay in owner list</td>
+</tr>
+<tr>
+<td>Duration</td>
+<td><code>duration_minutes</code> drives slot occupancy</td>
+</tr>
+</tbody></table>
+<hr />
+<h3 id="2-5-order-and-fulfillment-management-retail">2.5 Order &amp; fulfillment management (retail)</h3>
+<p><strong>Component:</strong> <code>components/store/owner/StoreOrdersPanel.tsx</code>  </p>
+<p><strong>Repository:</strong> <code>lib/store/orderRepository.ts</code>  </p>
+<p><strong>Status RPC:</strong> <code>update_store_order_status(p_order_id, p_new_status)</code></p>
+<h4 id="order-lifecycle">Order lifecycle</h4>
+<pre><code>                    place_store_order()
+                            │
+                            ▼
+                       ┌─────────┐
+                       │ pending │  new order, stock already decremented
+                       └───┬─────┘
+                           │ owner: Preparing
+                           ▼
+                       ┌───────────┐
+                       │ preparing │
+                       └─────┬─────┘
+                             │ owner: Ready
+                             ▼
+                         ┌───────┐
+                         │ ready │  pickup / out for COD delivery
+                         └───┬───┘
+                             │ owner: Completed
+                             ▼
+                      ┌───────────┐
+                      │ completed │  terminal (revenue counted)
+                      └───────────┘
+
+       pending ──owner: Cancelled──► cancelled   (terminal; excluded from revenue)</code></pre>
+<p>UI actions in <code>StoreOrdersPanel</code> (order detail modal):</p>
+<table><thead><tr>
+<th>Current status</th>
+<th>Allowed owner actions</th>
+</tr></thead><tbody>
+<tr>
+<td><code>pending</code></td>
+<td><code>preparing</code>, <code>cancelled</code></td>
+</tr>
+<tr>
+<td><code>preparing</code></td>
+<td><code>ready</code></td>
+</tr>
+<tr>
+<td><code>ready</code></td>
+<td><code>completed</code></td>
+</tr>
+<tr>
+<td><code>completed</code> / <code>cancelled</code></td>
+<td>none</td>
+</tr>
+</tbody></table>
+<h4 id="order-payload-shown-to-owner">Order payload shown to owner</h4>
+<ul>
+<li>Short id <code>#</code> + first 8 UUID chars  </li>
+<li>Customer name / phone (<code>customer_name</code>, <code>customer_phone</code>)  </li>
+<li>Delivery address + notes (COD)  </li>
+<li>Line items (<code>store_order_items</code>: name, qty, unit price, line total)  </li>
+<li>Subtotal, delivery fee, grand total  </li>
+<li>Fulfillment: <code>cod</code> (cash on delivery, fee <code>STORE_COD_DELIVERY_FEE_EGP = 50</code>) or <code>pickup</code> (fee 0)  </li>
+<li>Enum also allows <code>card</code>; customer checkout UI currently exposes <strong>COD and pickup only</strong> (<code>StoreCartCheckoutModal</code>)</li>
+</ul>
+<p><strong>Realtime:</strong> channel <code>store-orders:{shopId}</code> on <code>store_orders</code>.</p>
+<p>There is <strong>no <code>delivery_zones</code> table</strong>. Delivery is: COD + free-text address + flat 50 EGP fee, or in-store pickup. Geographic discovery uses shop/branch lat/lng and PostGIS proximity (<code>apply-pitstop-2.0-step15a-postgis-proximity.sql</code>), not zone polygons.</p>
+<hr />
+<h3 id="2-6-service-and-queue-management">2.6 Service &amp; queue management</h3>
+<h4 id="booking-status-machine">Booking status machine</h4>
+<p>Persisted enum <code>public.booking_status</code>. TypeScript: <code>lib/booking/types.ts</code>.</p>
+<pre><code> createBooking() default
+         │
+         ▼
+    ┌─────────┐   owner approve    ┌───────────┐   start work    ┌─────────────┐
+    │ pending │ ─────────────────► │ confirmed │ ──────────────► │ in_progress │
+    └────┬────┘                    └─────┬─────┘                 └──────┬──────┘
+         │                               │                              │
+         │ owner decline                 │ 60 min after scheduled_at    │
+         │                               │ virtual read-time            │
+         ▼                               ▼                              ▼
+    ┌───────────┐                  ┌──────────┐                   ┌──────┐
+    │ cancelled │                  │   done   │ ◄─────────────────│ done │
+    └───────────┘                  └──────────┘                   └──────┘
+         ▲                               ▲
+         │ customer cancel               │ owner no_show
+         │                               ▼
+         │                          ┌─────────┐
+         └──────────────────────────│ no_show │
+                                    └─────────┘
+
+ Additional: suspended_by_shop  (shop closure / vacation hold)</code></pre>
+<p><strong>Virtual lifecycle</strong> (<code>lib/booking/storage.ts</code>): <code>confirmed</code> or <code>in_progress</code> bookings whose <code>scheduled_at</code> is older than <strong>60 minutes</strong> (<code>AUTO_DONE_AFTER_MS</code>) are <strong>read as <code>done</code></strong> with <code>lifecycleAutoCompleted=true</code>. Revenue reports <strong>exclude</strong> those virtual completions (<code>countsAsRevenueBooking</code>).</p>
+<p><strong>Booking types:</strong> <code>app</code> (customer) vs <code>walk_in</code> (POS). Walk-in skips customer confirmation email (<code>handleBookingConfirmed</code>).</p>
+<h4 id="time-slots">Time slots</h4>
+<p><code>lib/booking/shopSchedule.ts</code>:</p>
+<ul>
+<li>Builds slots from weekly hours + <code>serviceDurationMinutes</code></li>
+<li>Occupancy from existing bookings on that shop/date</li>
+<li>Slot availability: <code>available | almost_full | booked</code></li>
+<li>Customer UI: <code>BookingDatePicker</code> + slot list on <code>app/book/[shopId].tsx</code></li>
+</ul>
+<p>Cairo timezone is used for generated columns <code>booking_date</code> and <code>time_slot</code> (<code>Africa/Cairo</code> in <code>sync_booking_compatibility_columns</code>).</p>
+<h4 id="active-locations-bays">Active locations (bays)</h4>
+<table><thead><tr>
+<th>Concept</th>
+<th>Storage</th>
+<th>UI</th>
+</tr></thead><tbody>
+<tr>
+<td>Active branch</td>
+<td><code>shop_branches.is_active</code>, <code>WashBranchState.activeBranchId</code></td>
+<td>Horizontal branch tabs in wash dashboard</td>
+</tr>
+<tr>
+<td>Operating status</td>
+<td><code>shop_branches.shop_status</code></td>
+<td>Open / closed / busy / vacation</td>
+</tr>
+<tr>
+<td>Staff scope</td>
+<td><code>users.branch_id</code></td>
+<td>Branch managers only see their branch queue (<code>filterPendingQueueBookingsForStaff</code>)</td>
+</tr>
+<tr>
+<td>Walk-in POS</td>
+<td><code>WalkInBookingModal</code></td>
+<td>Creates <code>booking_type=walk_in</code></td>
+</tr>
+</tbody></table>
+<p><strong>Realtime queue:</strong> <code>owner-bookings:{shopId}</code> in <code>WashOwnerPanel</code>; shared subscriber <code>subscribeMerchantBookingRealtime</code> in <code>lib/notifications/notificationService.ts</code> (INSERT + UPDATE on <code>bookings</code>).</p>
+<p><strong>Side effects on status change</strong> (<code>updateBookingStatus</code>):</p>
+<table><thead><tr>
+<th>New status</th>
+<th>Side effects</th>
+</tr></thead><tbody>
+<tr>
+<td><code>confirmed</code></td>
+<td><code>handleBookingConfirmed</code> → customer notification + <code>sendBookingConfirmationEmail</code></td>
+</tr>
+<tr>
+<td><code>cancelled</code></td>
+<td>Merchant cancelled-booking push</td>
+</tr>
+<tr>
+<td><code>done</code></td>
+<td>Wash loyalty stamps + merchant loyalty points earn</td>
+</tr>
+</tbody></table>
+<hr />
+<h3 id="2-7-store-shop-settings">2.7 Store / shop settings</h3>
+<table><thead><tr>
+<th>Concern</th>
+<th>Wash / branch</th>
+<th>Maintenance</th>
+<th>Retail store</th>
+</tr></thead><tbody>
+<tr>
+<td>Profile (EN/AR name, phone, email, address, more info)</td>
+<td>Branch fields via <code>updateActiveWashBranch</code></td>
+<td><code>setShopProfileInfo</code> → <code>shop_extras</code></td>
+<td>Same <code>shop_extras</code> profile card</td>
+</tr>
+<tr>
+<td>Working hours</td>
+<td>Per-day <code>weekly_hours</code> on branch</td>
+<td><code>setShopSchedule</code> / <code>setShopWeeklyHours</code></td>
+<td>Profile tab (hours optional; retail uses <code>shops.is_active</code>)</td>
+</tr>
+<tr>
+<td>Gallery</td>
+<td><code>image_urls</code> on branch</td>
+<td><code>shop_extras.imageUrls</code></td>
+<td>Same album on profile tab</td>
+</tr>
+<tr>
+<td>Cover / avatar</td>
+<td><code>profile_image_url</code></td>
+<td><code>profileImageUrl</code></td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Map pin</td>
+<td>GPS capture + <code>OsmLocationPicker</code></td>
+<td>Shop lat/lng on <code>shops</code></td>
+<td>Shop lat/lng for store map</td>
+</tr>
+<tr>
+<td>Delivery</td>
+<td>N/A</td>
+<td>N/A</td>
+<td>COD address at checkout; pickup at shop</td>
+</tr>
+<tr>
+<td>Staff</td>
+<td>Branch manager invite + <code>branch_employees</code></td>
+<td><code>/shop/merchant-staff</code></td>
+<td>Owner only</td>
+</tr>
+<tr>
+<td>Legal</td>
+<td><code>/shop/merchant-terms</code>, <code>/shop/merchant-privacy</code></td>
+<td>same</td>
+<td>same</td>
+</tr>
+</tbody></table>
+<p>Campaigns panel (<code>components/merchant/MerchantCampaignsPanel.tsx</code>) is embedded on profile/operations depending on type.</p>
+<hr />
+<h2 id="3-customer-user-journey-and-checkout-flow">3. Customer user journey &amp; checkout flow</h2>
+<h3 id="3-1-customer-shell-routes">3.1 Customer shell routes</h3>
+<table><thead><tr>
+<th>Route</th>
+<th>File</th>
+<th>Role</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/welcome</code></td>
+<td><code>app/welcome.tsx</code></td>
+<td>Customer / merchant login &amp; register</td>
+</tr>
+<tr>
+<td><code>/(tabs)</code></td>
+<td><code>app/(tabs)/index.tsx</code></td>
+<td>Home: service tiles, store tiles, nearby, offers</td>
+</tr>
+<tr>
+<td><code>/(tabs)/bookings</code></td>
+<td><code>app/(tabs)/bookings.tsx</code></td>
+<td>My bookings + ratings</td>
+</tr>
+<tr>
+<td><code>/(tabs)/favorites</code></td>
+<td><code>app/(tabs)/favorites.tsx</code></td>
+<td>Saved shops</td>
+</tr>
+<tr>
+<td><code>/(tabs)/assistant</code></td>
+<td><code>app/(tabs)/assistant.tsx</code></td>
+<td>Driver network / community feed</td>
+</tr>
+<tr>
+<td><code>/(tabs)/settings</code></td>
+<td><code>app/(tabs)/settings.tsx</code></td>
+<td>Account (customers)</td>
+</tr>
+<tr>
+<td><code>/service/[type]</code></td>
+<td><code>app/service/[type]/index.tsx</code></td>
+<td>Area picker</td>
+</tr>
+<tr>
+<td><code>/service/[type]/[areaId]</code></td>
+<td><code>app/service/[type]/[areaId].tsx</code></td>
+<td>Shop list</td>
+</tr>
+<tr>
+<td><code>/nearby/[type]</code></td>
+<td><code>app/nearby/[type].tsx</code></td>
+<td>Map / proximity</td>
+</tr>
+<tr>
+<td><code>/shop-profile/[shopId]</code></td>
+<td><code>app/shop-profile/[shopId].tsx</code></td>
+<td>Public shop profile</td>
+</tr>
+<tr>
+<td><code>/book/[shopId]</code></td>
+<td><code>app/book/[shopId].tsx</code></td>
+<td>Service checkout</td>
+</tr>
+<tr>
+<td><code>/booking/[id]</code></td>
+<td><code>app/booking/[id].tsx</code></td>
+<td>Booking detail</td>
+</tr>
+<tr>
+<td><code>/store</code></td>
+<td><code>app/store.tsx</code></td>
+<td>Product catalog + cart</td>
+</tr>
+<tr>
+<td><code>/parts-shop/[shopId]</code></td>
+<td><code>app/parts-shop/[shopId].tsx</code></td>
+<td>Single-merchant storefront</td>
+</tr>
+<tr>
+<td><code>/settings/vehicles</code></td>
+<td><code>app/settings/vehicles.tsx</code></td>
+<td>Garage</td>
+</tr>
+<tr>
+<td><code>/points-marketplace</code></td>
+<td><code>app/points-marketplace.tsx</code></td>
+<td>Loyalty redemption catalog</td>
+</tr>
+<tr>
+<td><code>/auth-required</code></td>
+<td><code>app/auth-required.tsx</code></td>
+<td>Guest gate</td>
+</tr>
+<tr>
+<td><code>/driver-network/[postId]</code></td>
+<td><code>app/driver-network/[postId].tsx</code></td>
+<td>Community post</td>
+</tr>
+</tbody></table>
+<p>Home tiles (<code>app/(tabs)/index.tsx</code>):</p>
+<ul>
+<li>Services: <code>/service/maintenance</code>, <code>/service/wash</code></li>
+<li>Store: <code>/store?category=spare_parts</code> or <code>accessories</code></li>
+</ul>
+<h3 id="3-2-end-to-end-service-booking">3.2 End-to-end: service booking</h3>
+<pre><code>Home  →  /service/{wash|maintenance|winch}
+      →  pick area
+      →  /service/{type}/{areaId}  (list)  or  /nearby/{type}  (map)
+      →  /shop-profile/{shopId}
+      →  /book/{shopId}
+              │
+              ├─ pick vehicle (ActiveVehiclePicker / user_vehicles)
+              ├─ multi-select services (ServiceMultiPicker)
+              ├─ pick date + generated time slot
+              ├─ apply offer / coupon / loyalty points
+              └─ createBooking() → public.bookings INSERT status=pending
+                      │
+                      ├─ notifyWashOwnerBooking / Expo push (shop_push_tokens)
+                      ├─ realtime INSERT → merchant OrderNotifier
+                      └─ owner confirms → email + customer notification</code></pre>
+<p><strong>Guest:</strong> <code>/book/[shopId]</code> redirects through <code>/auth-required</code> with return path <code>buildBookReturnTo</code>.</p>
+<p><strong>Pricing at reservation</strong> (<code>lib/booking/storage.ts</code> <code>createBooking</code>):</p>
+<ol>
+<li>Sum selected services (or shop default price).</li>
+<li>Validate offer (<code>validateOfferForBooking</code>) — percentage, flat, BOGO, buy-X-get-Y.</li>
+<li>Optional coupon (<code>validateCouponForCheckout</code> + <code>registerCouponUsageRemote</code>; rolls back booking if usage log fails).</li>
+<li>Optional loyalty (<code>validatePointsRedemptionRemote</code> / <code>deductMerchantLoyaltyPointsRemote</code>).</li>
+<li>Platform fee = 12% of net (<code>PLATFORM_FEE_RATE</code> in <code>lib/booking/offerPricing.ts</code>).</li>
+<li>Insert booking; wash shops attach default <code>branch_id</code> if missing.</li>
+</ol>
+<p>Slot collision is enforced by occupancy in <code>buildSlotsForShopDate</code> (client) plus merchant queue; stock of <strong>time</strong> is the slot, not a row lock.</p>
+<h3 id="3-3-end-to-end-retail-catalog-cart-checkout">3.3 End-to-end: retail catalog → cart → checkout</h3>
+<pre><code>Home store tile
+    → /store?category=spare_parts|accessories
+         optional shopId → listStoreProductsByShop
+    → StoreSearchHeader / StoreSubCategoryPills / StoreViewToggle
+         products | location list | location map
+    → StoreProductCard  addProduct()
+         guest → /auth-required
+         signed-in → StoreCartContext (optimistic) → cart_items UPSERT
+    → StoreCartCheckoutModal
+         fulfillment: COD (address required, +50 EGP) | pickup
+         placeStoreOrder() RPC
+    → success alert; cart cleared server-side
+    → order appears in owner StoreOrdersPanel via Realtime</code></pre>
+<p>Cart state: <code>context/StoreCartContext.tsx</code> backed by <code>lib/store/cartRepository.ts</code>. Unique key <code>(user_id, product_id)</code>.</p>
+<h3 id="3-4-atomic-store-checkout-place-store-order">3.4 Atomic store checkout (<code>place_store_order</code>)</h3>
+<p>Security definer RPC. Canonical body: <code>supabase/complete_system_schema.sql</code>. Client: <code>lib/store/productRepository.ts</code> <code>placeStoreOrder</code>.</p>
+<pre><code>BEGIN  (implicit in PL/pgSQL function)
+
+1. AUTH
+   auth.uid() IS NOT NULL
+   else raise 'Not authenticated'
+
+2. CART SHAPE
+   lock products FOR UPDATE (ordered by product id)
+   cart not empty
+   all products active and have shop_id
+   DISTINCT shop_id count = 1
+   that shop is_active
+
+3. STOCK CHECK
+   for each cart line:
+     if products.stock_quantity &lt; cart.quantity
+        raise 'Insufficient stock for product %'
+
+4. PRICE
+   unit = coalesce(sale_price, price)
+   subtotal = Σ unit * qty
+   total = subtotal + delivery_fee
+
+5. ORDER INSERT  status='pending'
+   store_orders (user_id, shop_id, customer_*, fulfillment, payment_method, totals)
+
+6. LINES + STOCK RESERVE (decrement)
+   insert store_order_items
+   update products set stock_quantity = stock_quantity - qty
+     where stock_quantity &gt;= qty
+   if not found → raise (concurrent checkout lost the race)
+
+7. CLEAR CART
+   delete cart_items where user_id = auth.uid()
+
+8. RETURN order uuid
+
+END</code></pre>
+<p><strong>Reservation model:</strong> there is no separate <code>reservations</code> table. Stock is <strong>decremented at order insert</strong>. Cancellation does <strong>not</strong> automatically restock in <code>update_store_order_status</code> (status-only update). Restock, if required operationally, is a follow-up inventory edit.</p>
+<p><strong>Single-merchant rule:</strong> mixed-shop carts fail with <code>Checkout supports products from one merchant at a time</code>.</p>
+<h3 id="3-5-customer-post-purchase">3.5 Customer post-purchase</h3>
+<table><thead><tr>
+<th>Artifact</th>
+<th>Where</th>
+</tr></thead><tbody>
+<tr>
+<td>Service bookings</td>
+<td><code>/(tabs)/bookings</code> via <code>listBookingsForPhone</code></td>
+</tr>
+<tr>
+<td>Booking detail / invoice-style breakdown</td>
+<td><code>/booking/[id]</code> + <code>lib/booking/customerOrderPresentation.ts</code></td>
+</tr>
+<tr>
+<td>Store orders</td>
+<td>same bookings tab / order cards when wired through <code>listStoreOrdersForUser</code></td>
+</tr>
+<tr>
+<td>Reviews</td>
+<td><code>shop_reviews</code> after done booking (<code>addShopReview</code>)</td>
+</tr>
+<tr>
+<td>Loyalty</td>
+<td><code>customer_merchant_loyalty</code>, <code>customer_wash_loyalty</code></td>
+</tr>
+<tr>
+<td>Notifications bell</td>
+<td><code>components/customer/CustomerNotificationsBell.tsx</code></td>
+</tr>
+</tbody></table>
+<p>Customer booking progress UI: <code>components/customer/BookingProgressTimeline.tsx</code>.</p>
+<hr />
+<h2 id="4-super-admin-governance-panel">4. Super admin governance panel</h2>
+<p><strong>Route:</strong> <code>/admin</code> (<code>app/admin/index.tsx</code>)  </p>
+<p><strong>Guard:</strong> <code>useShopAuth().isAdmin</code> else <code>admin_access_denied</code>  </p>
+<p><strong>UI:</strong> <code>components/admin/AdminPanel.tsx</code>  </p>
+<p><strong>Data:</strong> <code>lib/admin/adminRepository.ts</code></p>
+<p>Tabs (<code>AdminTab</code>): <code>dashboard</code> | <code>pending</code> | <code>merchants</code> | <code>moderation</code></p>
+<h3 id="4-1-merchant-approval-lifecycle">4.1 Merchant approval lifecycle</h3>
+<pre><code>Merchant fills /welcome owner register
+        │
+        ▼
+auth.signUp + RPC register_shop_owner
+        │
+        ├─ inserts shops row   is_active = false
+        ├─ users.role          pending_owner
+        └─ users.shop_id       new shop
+        │
+        ▼
+Login as merchant → ShopLoginResult 'pending_approval'
+        │
+        ▼
+Admin tab &quot;pending&quot;  listPendingOwnerRequests()
+        │  users.role = pending_owner  JOIN shops
+        │
+        ├── Accept  (confirm dialog)
+        │     AdminPanel.onApprove
+        │       → functions.invoke('approve-merchant')
+        │       → fallback RPC approve_shop_owner(p_target_user_id, p_target_shop_id)
+        │     users.role = owner, is_active = true
+        │     shops.is_active = true
+        │
+        └── Reject  (confirm dialog)
+              → functions.invoke('reject-merchant')
+              → fallback RPC reject_shop_owner(...)
+              pending shop/user torn down per RPC</code></pre>
+<p>Edge functions: <code>supabase/functions/approve-merchant/index.ts</code>, <code>supabase/functions/reject-merchant/index.ts</code>. They exist so Auth email confirmation / admin JWT can be applied server-side; the SQL RPCs are the data-plane fallback.</p>
+<h3 id="4-2-active-merchant-management">4.2 Active merchant management</h3>
+<p><strong>List:</strong> <code>listActiveMerchants()</code> — <code>users.role=owner</code>, <code>is_active</code>, shop <code>is_active</code>, plus <code>shop_branches</code> count.</p>
+<table><thead><tr>
+<th>Control</th>
+<th>Mechanism</th>
+<th>Confirm?</th>
+</tr></thead><tbody>
+<tr>
+<td>Premium subscription toggle</td>
+<td>RPC <code>admin_toggle_shop_premium(p_shop_id, p_is_premium)</code></td>
+<td>Yes (<code>admin_premium_confirm_*</code>)</td>
+</tr>
+<tr>
+<td>Platform fee settlement</td>
+<td>RPC <code>admin_settle_shop_platform_fees</code></td>
+<td>Ledger “settle” action</td>
+</tr>
+<tr>
+<td>Branch oversight</td>
+<td><code>branchCount</code> on merchant row (read-only in list)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Account / shop removal</td>
+<td><code>deleteMerchant(shopId)</code></td>
+<td>Yes (<code>userConfirm</code>)</td>
+</tr>
+<tr>
+<td>Feature flag (premium CMS)</td>
+<td><code>shops.is_premium</code></td>
+<td>Same toggle</td>
+</tr>
+<tr>
+<td>Shop live flag</td>
+<td><code>shops.is_active</code> (approval sets true; delete removes shop)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Loyalty flag</td>
+<td><code>shops.is_loyalty_enabled</code></td>
+<td>Schema-level; not a dedicated admin toggle in <code>AdminPanel</code></td>
+</tr>
+</tbody></table>
+<p><strong><code>deleteMerchant</code> sequence</strong> (client, admin RLS required):</p>
+<ol>
+<li>Delete <code>shop_branches</code> for <code>shop_id</code></li>
+<li>Delete <code>products</code> for <code>shop_id</code></li>
+<li>Delete <code>store_orders</code> for <code>shop_id</code></li>
+<li>Delete <code>shops</code> row</li>
+<li>Update <code>users</code> with that <code>shop_id</code> → <code>role='customer'</code>, <code>shop_id=null</code></li>
+</ol>
+<p>Bookings cascade from <code>shops</code> (<code>ON DELETE CASCADE</code> on <code>bookings.shop_id</code>).</p>
+<h3 id="4-3-dashboard-and-ledger">4.3 Dashboard &amp; ledger</h3>
+<p><code>fetchPlatformStats()</code>:</p>
+<ul>
+<li>Active shops count  </li>
+<li>Completed bookings (<code>status=done</code>)  </li>
+<li>Gross revenue from <code>final_amount_paid_egp</code>  </li>
+<li>Reported community posts  </li>
+</ul>
+<p><code>fetchMerchantLedger()</code>: per-shop completed bookings since <code>platform_fee_last_settled_at</code>, gross revenue, outstanding 12% fee.</p>
+<h3 id="4-4-moderation">4.4 Moderation</h3>
+<p>Queue: reported <code>posts</code>, <code>comments</code>, <code>shop_reviews</code>. Actions: dismiss (<code>reported=false</code>) or delete row.</p>
+<p>Secondary admin catalog: <code>/admin/store-products</code>.</p>
+<hr />
+<h2 id="5-database-schema-and-supabase-topology">5. Database schema &amp; Supabase topology</h2>
+<h3 id="5-1-entity-relationship-mermaid">5.1 Entity-relationship (Mermaid)</h3>
+<div class="mermaid-wrap"><pre class="mermaid">erDiagram
+  AUTH_USERS ||--|| USERS : mirrors
+  AREAS ||--o{ SHOPS : locates
+  USERS ||--o| SHOPS : owns
+  USERS ||--o| SHOP_BRANCHES : manages
+  SHOPS ||--o{ SHOP_BRANCHES : has
+  SHOPS ||--o{ PRODUCTS : catalogs
+  SHOPS ||--o{ BOOKINGS : receives
+  SHOPS ||--o{ STORE_ORDERS : receives
+  SHOPS ||--o| SHOP_EXTRAS : profile
+  SHOP_BRANCHES ||--o{ BRANCH_SERVICES : menu
+  SHOP_BRANCHES ||--o{ BRANCH_EMPLOYEES : staff
+  SHOP_BRANCHES ||--o{ BOOKINGS : queues
+  PRODUCTS ||--o{ PRODUCT_COMPATIBILITY : fits
+  PRODUCTS ||--o{ CART_ITEMS : in_cart
+  USERS ||--o{ CART_ITEMS : holds
+  USERS ||--o{ STORE_ORDERS : places
+  STORE_ORDERS ||--o{ STORE_ORDER_ITEMS : contains
+  PRODUCTS ||--o{ STORE_ORDER_ITEMS : snapshotted
+  AUTH_USERS ||--o{ USER_VEHICLES : garage
+  SHOPS ||--o{ OFFERS : campaigns
+  SHOPS ||--o{ COUPONS : promo
+  SHOPS ||--o{ SHOP_REVIEWS : rated
+  SHOPS ||--o{ SHOP_PUSH_TOKENS : notify</pre></div>
+<h3 id="5-2-entity-relationship-ascii">5.2 Entity-relationship (ASCII)</h3>
+<pre><code>auth.users
+    │
+    │ handle_new_auth_user()
+    ▼
+public.users ──────────── shop_id ──────────► public.shops
+    │ role, branch_id                            │
+    │                                            │
+    ├── customer                                 ├── type: wash|maintenance|parts|accessories|winch
+    ├── pending_owner                            ├── is_active, is_premium, is_loyalty_enabled
+    ├── owner                                    ├── owner_email, owner_user_id
+    ├── branch_manager                           └── area_id → areas
+    └── admin                                          │
+                                                       ├─◄── shop_branches (bays / locations)
+                                                       │         ├─ branch_services
+                                                       │         └─ branch_employees
+                                                       ├─◄── products ── product_compatibility
+                                                       │         ▲
+                                                       │         │
+cart_items (user_id, product_id unique) ───────────────┘         │
+                                                       │         │
+store_orders (user_id, shop_id) ── store_order_items ────────────┘
+bookings (shop_id, branch_id, customer_id, status)
+shop_extras (shop_id PK, payload jsonb)</code></pre>
+<h3 id="5-3-enumerations">5.3 Enumerations</h3>
+<table><thead><tr>
+<th>Type</th>
+<th>Values</th>
+</tr></thead><tbody>
+<tr>
+<td><code>shop_type</code></td>
+<td><code>maintenance</code>, <code>wash</code>, <code>parts</code>, <code>accessories</code>, <code>winch</code></td>
+</tr>
+<tr>
+<td><code>user_role</code></td>
+<td><code>customer</code>, <code>owner</code>, <code>branch_manager</code>, <code>admin</code>, <code>pending_owner</code></td>
+</tr>
+<tr>
+<td><code>shop_operating_status</code></td>
+<td><code>open</code>, <code>closed</code>, <code>busy</code>, <code>vacation</code></td>
+</tr>
+<tr>
+<td><code>booking_status</code></td>
+<td><code>pending</code>, <code>confirmed</code>, <code>in_progress</code>, <code>done</code>, <code>cancelled</code>, <code>no_show</code>, <code>suspended_by_shop</code></td>
+</tr>
+<tr>
+<td><code>booking_type</code></td>
+<td><code>app</code>, <code>walk_in</code></td>
+</tr>
+<tr>
+<td><code>store_product_category</code></td>
+<td><code>spare_parts</code>, <code>accessories</code></td>
+</tr>
+<tr>
+<td><code>store_compatibility_type</code></td>
+<td><code>universal</code>, <code>brand_specific</code>, <code>model_specific</code></td>
+</tr>
+<tr>
+<td><code>store_fulfillment_method</code></td>
+<td><code>cod</code>, <code>pickup</code>, <code>card</code></td>
+</tr>
+<tr>
+<td><code>store_order_status</code></td>
+<td><code>pending</code>, <code>preparing</code>, <code>ready</code>, <code>completed</code>, <code>cancelled</code></td>
+</tr>
+</tbody></table>
+<h3 id="5-4-table-dictionaries">5.4 Table dictionaries</h3>
+<h4 id="public-areas"><code>public.areas</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>text PK</td>
+<td>Area slug</td>
+</tr>
+<tr>
+<td><code>name</code> / <code>name_ar</code></td>
+<td>text</td>
+<td>Display</td>
+</tr>
+<tr>
+<td><code>city</code> / <code>city_ar</code></td>
+<td>text</td>
+<td>City</td>
+</tr>
+</tbody></table>
+<h4 id="public-shops"><code>public.shops</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>text PK</td>
+<td>Tenant key used across app routes</td>
+</tr>
+<tr>
+<td><code>name</code> / <code>name_ar</code></td>
+<td>text</td>
+<td>Brand</td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td><code>shop_type</code></td>
+<td>Merchant category</td>
+</tr>
+<tr>
+<td><code>category</code></td>
+<td>text</td>
+<td>Synced alias (<code>car_wash</code>, <code>spare_parts</code>, …)</td>
+</tr>
+<tr>
+<td><code>area_id</code></td>
+<td>text FK → areas</td>
+<td>Required in core schema</td>
+</tr>
+<tr>
+<td><code>address</code> / <code>address_ar</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>phone</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>latitude</code> / <code>longitude</code></td>
+<td>float</td>
+<td>Map / proximity</td>
+</tr>
+<tr>
+<td><code>owner_email</code></td>
+<td>text</td>
+<td>JWT fallback for <code>is_shop_owner</code></td>
+</tr>
+<tr>
+<td><code>owner_user_id</code></td>
+<td>uuid FK → auth.users</td>
+<td>Optional</td>
+</tr>
+<tr>
+<td><code>rating</code></td>
+<td>numeric</td>
+<td></td>
+</tr>
+<tr>
+<td><code>is_active</code></td>
+<td>boolean</td>
+<td>Approval + operational flag</td>
+</tr>
+<tr>
+<td><code>is_premium</code></td>
+<td>boolean</td>
+<td>SaaS / CMS gate</td>
+</tr>
+<tr>
+<td><code>is_loyalty_enabled</code></td>
+<td>boolean</td>
+<td>Default true</td>
+</tr>
+<tr>
+<td><code>platform_fee_last_settled_at</code></td>
+<td>timestamptz</td>
+<td>Admin ledger</td>
+</tr>
+<tr>
+<td><code>created_at</code> / <code>updated_at</code></td>
+<td>timestamptz</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><strong>Indexes:</strong> <code>shops_owner_email_idx</code> (lower email), <code>shops_owner_user_id_idx</code>, <code>shops_category_active_idx</code>.</p>
+<h4 id="public-users"><code>public.users</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>uuid PK FK → auth.users</td>
+<td>Cascade delete</td>
+</tr>
+<tr>
+<td><code>email</code></td>
+<td>text unique, lowercase check</td>
+<td></td>
+</tr>
+<tr>
+<td><code>full_name</code> / <code>phone</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td><code>user_role</code></td>
+<td>Default <code>customer</code></td>
+</tr>
+<tr>
+<td><code>shop_id</code></td>
+<td>text FK → shops</td>
+<td>SET NULL on shop delete</td>
+</tr>
+<tr>
+<td><code>branch_id</code></td>
+<td>uuid FK → shop_branches</td>
+<td>Required if branch_manager</td>
+</tr>
+<tr>
+<td><code>preferred_locale</code></td>
+<td><code>en</code> \</td>
+<td><code>ar</code></td>
+<td>Step 18</td>
+</tr>
+<tr>
+<td><code>is_active</code></td>
+<td>boolean</td>
+<td></td>
+</tr>
+<tr>
+<td><code>created_by</code></td>
+<td>uuid</td>
+<td>Staff invite provenance</td>
+</tr>
+<tr>
+<td><code>created_at</code> / <code>updated_at</code></td>
+<td>timestamptz</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><strong>Constraints:</strong> owner must have <code>shop_id</code>; branch_manager must have <code>branch_id</code>.  </p>
+<p><strong>Indexes:</strong> <code>users_role_idx</code>, <code>users_shop_id_idx</code>, <code>users_branch_id_idx</code>, <code>users_email_unique_idx</code>.</p>
+<h4 id="public-shop-branches"><code>public.shop_branches</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>uuid PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>shop_id</code></td>
+<td>text FK CASCADE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>slug</code></td>
+<td>text</td>
+<td>Unique per shop (<code>main</code>, …)</td>
+</tr>
+<tr>
+<td><code>name</code> / <code>name_ar</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>area_id</code>, address, phone, lat/lng</td>
+<td>mixed</td>
+<td>Override shop location</td>
+</tr>
+<tr>
+<td><code>profile_*</code>, <code>more_info*</code></td>
+<td>text</td>
+<td>CMS</td>
+</tr>
+<tr>
+<td><code>profile_image_url</code></td>
+<td>text</td>
+<td>Avatar</td>
+</tr>
+<tr>
+<td><code>image_urls</code></td>
+<td>jsonb</td>
+<td>Gallery array</td>
+</tr>
+<tr>
+<td><code>service_price_egp</code></td>
+<td>numeric</td>
+<td>Fallback price</td>
+</tr>
+<tr>
+<td><code>service_duration_minutes</code></td>
+<td>int default 60</td>
+<td>Slot size</td>
+</tr>
+<tr>
+<td><code>weekly_hours</code></td>
+<td>jsonb</td>
+<td><code>ShopDayHours[]</code></td>
+</tr>
+<tr>
+<td><code>shop_status</code></td>
+<td><code>shop_operating_status</code></td>
+<td>Live bay status</td>
+</tr>
+<tr>
+<td><code>vacation_mode</code></td>
+<td>jsonb</td>
+<td></td>
+</tr>
+<tr>
+<td><code>manager_user_id</code></td>
+<td>uuid</td>
+<td>Linked manager</td>
+</tr>
+<tr>
+<td><code>is_active</code> / <code>is_default</code> / <code>sort_order</code></td>
+<td>bool/int</td>
+<td></td>
+</tr>
+<tr>
+<td><code>created_at</code> / <code>updated_at</code></td>
+<td>timestamptz</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><strong>Indexes:</strong> <code>shop_branches_shop_id_idx</code>, <code>shop_branches_manager_user_id_idx</code>. Unique <code>(shop_id, slug)</code>.</p>
+<h4 id="public-branch-services"><code>public.branch_services</code></h4>
+<p>Menu items: <code>name</code>, <code>name_ar</code>, <code>description*</code>, <code>category</code>, <code>price_egp</code>, <code>duration_minutes</code>, <code>visible</code>, <code>sort_order</code>. FK <code>shop_id</code>, <code>branch_id</code>. Index <code>branch_services_branch_id_idx</code>.</p>
+<h4 id="public-branch-employees"><code>public.branch_employees</code></h4>
+<p>No login. <code>full_name</code>, <code>phone</code>, <code>job_title</code>, <code>notes</code>, <code>is_active</code>. Index <code>branch_employees_branch_id_idx</code>.</p>
+<h4 id="public-products"><code>public.products</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>uuid PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>shop_id</code></td>
+<td>text FK CASCADE NOT NULL</td>
+<td>Merchant catalog</td>
+</tr>
+<tr>
+<td><code>name</code> / <code>description</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>category</code></td>
+<td><code>store_product_category</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>sub_category</code></td>
+<td>text</td>
+<td>Tag from constants</td>
+</tr>
+<tr>
+<td><code>price</code></td>
+<td>numeric(12,2) ≥ 0</td>
+<td>Base price</td>
+</tr>
+<tr>
+<td><code>sale_price</code></td>
+<td>numeric</td>
+<td>Optional, ≤ price</td>
+</tr>
+<tr>
+<td><code>stock_quantity</code></td>
+<td>int ≥ 0</td>
+<td>Live stock</td>
+</tr>
+<tr>
+<td><code>stock</code></td>
+<td>generated</td>
+<td>Alias of <code>stock_quantity</code></td>
+</tr>
+<tr>
+<td><code>image_url</code></td>
+<td>text</td>
+<td>Public Storage URL</td>
+</tr>
+<tr>
+<td><code>compatibility_type</code></td>
+<td>enum</td>
+<td></td>
+</tr>
+<tr>
+<td><code>rating</code> / <code>rating_count</code></td>
+<td>numeric/int</td>
+<td></td>
+</tr>
+<tr>
+<td><code>is_active</code></td>
+<td>boolean</td>
+<td>Hidden if false (owners still read via RLS)</td>
+</tr>
+<tr>
+<td><code>created_at</code> / <code>updated_at</code></td>
+<td>timestamptz</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><strong>Indexes:</strong> <code>products_shop_active_idx (shop_id, is_active, created_at desc)</code>, <code>products_low_stock_idx (shop_id, stock_quantity) WHERE is_active</code>.</p>
+<h4 id="public-product-compatibility"><code>public.product_compatibility</code></h4>
+<p><code>product_id</code> FK CASCADE, <code>brand</code>, <code>model</code>, <code>year_start</code>, <code>year_end</code>.</p>
+<h4 id="public-cart-items"><code>public.cart_items</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>uuid PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>user_id</code></td>
+<td>uuid FK auth.users CASCADE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>product_id</code></td>
+<td>uuid FK products CASCADE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>quantity</code></td>
+<td>int &gt; 0</td>
+<td></td>
+</tr>
+<tr>
+<td>unique</td>
+<td><code>(user_id, product_id)</code></td>
+<td>Upsert target</td>
+</tr>
+</tbody></table>
+<p><strong>Indexes:</strong> <code>cart_items_user_id_idx</code>, unique <code>cart_items_user_product_uidx</code>.</p>
+<h4 id="public-store-orders"><code>public.store_orders</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>uuid PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>user_id</code></td>
+<td>uuid FK auth.users CASCADE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>customer_id</code></td>
+<td>generated</td>
+<td>Alias of <code>user_id</code></td>
+</tr>
+<tr>
+<td><code>shop_id</code></td>
+<td>text FK shops RESTRICT NOT NULL</td>
+<td></td>
+</tr>
+<tr>
+<td><code>subtotal</code> / <code>delivery_fee</code> / <code>total_price</code></td>
+<td>numeric</td>
+<td></td>
+</tr>
+<tr>
+<td><code>total_amount</code></td>
+<td>generated</td>
+<td>Alias of <code>total_price</code></td>
+</tr>
+<tr>
+<td><code>fulfillment_method</code></td>
+<td>enum</td>
+<td><code>cod</code> / <code>pickup</code> / <code>card</code></td>
+</tr>
+<tr>
+<td><code>payment_method</code></td>
+<td>text</td>
+<td>CHECK in (<code>cod</code>,<code>card</code>,<code>pickup</code>)</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>store_order_status</code></td>
+<td>Default <code>pending</code></td>
+</tr>
+<tr>
+<td><code>customer_name</code> / <code>customer_phone</code></td>
+<td>text</td>
+<td>Snapshot at checkout</td>
+</tr>
+<tr>
+<td><code>delivery_address</code> / <code>delivery_notes</code> / <code>notes</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>created_at</code> / <code>updated_at</code></td>
+<td>timestamptz</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><strong>Indexes:</strong> <code>store_orders_shop_created_idx</code>, <code>store_orders_customer_created_idx</code>, <code>store_orders_shop_status_idx</code>.  </p>
+<p><strong>Replica identity:</strong> FULL (Realtime payloads).</p>
+<h4 id="public-store-order-items"><code>public.store_order_items</code></h4>
+<p><code>order_id</code> FK CASCADE, <code>product_id</code> SET NULL, <code>product_name</code>, <code>unit_price</code>, <code>quantity</code>, <code>line_total</code>, generated <code>subtotal</code>. Index <code>store_order_items_order_idx</code>.</p>
+<h4 id="public-bookings"><code>public.bookings</code></h4>
+<table><thead><tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td><code>id</code></td>
+<td>uuid PK</td>
+<td></td>
+</tr>
+<tr>
+<td><code>shop_id</code></td>
+<td>text FK CASCADE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>branch_id</code></td>
+<td>uuid FK SET NULL</td>
+<td>Wash queue scope</td>
+</tr>
+<tr>
+<td><code>shop_type</code></td>
+<td><code>shop_type</code></td>
+<td>Denormalized</td>
+</tr>
+<tr>
+<td><code>customer_id</code></td>
+<td>uuid SET NULL</td>
+<td></td>
+</tr>
+<tr>
+<td><code>customer_phone</code> / <code>customer_name</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>car_type</code> / <code>car_color</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>service_id</code></td>
+<td>uuid FK branch_services</td>
+<td></td>
+</tr>
+<tr>
+<td><code>service_name</code> / <code>service_name_ar</code></td>
+<td>text</td>
+<td>Snapshot</td>
+</tr>
+<tr>
+<td><code>service_price_egp</code> / <code>platform_fee_egp</code></td>
+<td>numeric</td>
+<td></td>
+</tr>
+<tr>
+<td><code>original_price_egp</code> / <code>points_redeemed</code> / <code>discount_applied_egp</code> / <code>final_amount_paid_egp</code></td>
+<td>money/loyalty</td>
+<td></td>
+</tr>
+<tr>
+<td><code>offer_id</code></td>
+<td>uuid FK offers</td>
+<td></td>
+</tr>
+<tr>
+<td><code>customer_notes</code> / <code>owner_rejection_note</code></td>
+<td>text</td>
+<td></td>
+</tr>
+<tr>
+<td><code>booking_type</code></td>
+<td><code>app</code> \</td>
+<td><code>walk_in</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>scheduled_at</code></td>
+<td>timestamptz</td>
+<td>Slot instant</td>
+</tr>
+<tr>
+<td><code>booking_date</code></td>
+<td>date</td>
+<td>Generated Cairo date</td>
+</tr>
+<tr>
+<td><code>time_slot</code></td>
+<td>text</td>
+<td>Generated <code>HH24:MI</code></td>
+</tr>
+<tr>
+<td><code>total_price</code></td>
+<td>numeric</td>
+<td>Synced from paid / service price</td>
+</tr>
+<tr>
+<td><code>vehicle_details</code></td>
+<td>jsonb</td>
+<td>model/color/plate</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>booking_status</code></td>
+<td>Default <code>pending</code></td>
+</tr>
+<tr>
+<td><code>created_at</code> / <code>updated_at</code></td>
+<td>timestamptz</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><strong>Indexes:</strong> <code>bookings_shop_id_idx</code>, <code>bookings_branch_id_idx</code>, <code>bookings_customer_phone_idx</code>, <code>bookings_shop_scheduled_idx</code>, <code>bookings_customer_scheduled_idx</code>, <code>bookings_shop_status_idx</code>, <code>bookings_booking_type_idx</code>, <code>bookings_offer_id_idx</code>.  </p>
+<p><strong>Replica identity:</strong> FULL.</p>
+<h4 id="public-shop-extras"><code>public.shop_extras</code></h4>
+<p><code>shop_id</code> PK FK CASCADE, <code>payload</code> jsonb (profile, hours, gallery, services, store discount), <code>updated_at</code>. App mapper: <code>lib/booking/shopExtrasStorage.ts</code> / <code>ShopExtras</code> in <code>lib/booking/types.ts</code>.</p>
+<h4 id="other-commerce-social-tables">Other commerce / social tables</h4>
+<table><thead><tr>
+<th>Table</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><code>offers</code></td>
+<td>Shop campaigns (percent / dates / active)</td>
+</tr>
+<tr>
+<td><code>coupons</code> / <code>coupon_usages</code></td>
+<td>Promo codes + per-user log</td>
+</tr>
+<tr>
+<td><code>shop_reviews</code></td>
+<td>Ratings, owner reply, hidden, reported</td>
+</tr>
+<tr>
+<td><code>posts</code> / <code>comments</code> / <code>post_votes</code> / <code>comment_likes</code></td>
+<td>Driver network</td>
+</tr>
+<tr>
+<td><code>customer_merchant_loyalty</code></td>
+<td>Points per shop</td>
+</tr>
+<tr>
+<td><code>customer_wash_loyalty</code></td>
+<td>Stamp cards</td>
+</tr>
+<tr>
+<td><code>user_vehicles</code> / <code>garage_snapshots</code></td>
+<td>Customer garage</td>
+</tr>
+<tr>
+<td><code>shop_push_tokens</code></td>
+<td>Expo push targets</td>
+</tr>
+<tr>
+<td><code>shop_report_history</code></td>
+<td>Owner report HTML archive</td>
+</tr>
+<tr>
+<td><code>customer_notifications</code> / owner notification storage</td>
+<td>Via <code>lib/booking/commerceEvents.ts</code> (table or local depending on migration)</td>
+</tr>
+</tbody></table>
+<h3 id="5-5-rls-security-model">5.5 RLS security model</h3>
+<p>RLS is enabled on shops, products, cart, orders, order items, bookings, extras, and related social tables.</p>
+<p><strong>Cart (<code>cart_items</code>):</strong> select/insert/update/delete only when <code>auth.uid() = user_id</code>.</p>
+<p><strong>Products:</strong></p>
+<ul>
+<li>SELECT if <code>is_active</code> OR admin OR <code>is_shop_owner(shop_id)</code></li>
+<li>INSERT/UPDATE/DELETE: admin or owning merchant (<code>unify-store-owner-data-access.sql</code> / <code>complete_system_schema.sql</code>)</li>
+</ul>
+<p><strong>Store orders:</strong></p>
+<ul>
+<li>SELECT: buyer (<code>user_id</code>) OR admin OR shop owner</li>
+<li>UPDATE: admin or shop owner (status workflow)</li>
+<li>INSERT: not granted to clients; <strong>only</strong> <code>place_store_order</code> (security definer)</li>
+</ul>
+<p><strong>Order items:</strong> SELECT if parent order is readable by the same rules.</p>
+<p><strong>Bookings:</strong></p>
+<ul>
+<li>INSERT: open (<code>Anyone can create bookings</code>) so guests-turned-customers and walk-in POS can write  </li>
+<li>SELECT: <code>customer_id = auth.uid()</code> plus owner/manager policies from shop RLS (<code>can_manage_shop</code> / branch filters in later steps)  </li>
+<li>Customer UPDATE: only to <code>cancelled</code>  </li>
+<li>Owner UPDATE: status + rejection note via authenticated owner policies in <code>schema.sql</code> / step 2–4</li>
+</ul>
+<p><strong>Shop extras:</strong> public SELECT; mutating requires admin or owner.</p>
+<p><strong>Users:</strong> self-read plus <code>is_platform_admin()</code>.</p>
+<p><strong>Shops:</strong> public catalog read for active shops; admin read-all; owner manage own.</p>
+<p>Policies are <strong>defense in depth</strong>. Stock mutation during checkout is not done with a client UPDATE; it is inside the RPC.</p>
+<h3 id="5-6-storage-buckets">5.6 Storage buckets</h3>
+<h4 id="product-images-supabase-create-product-images-storage-sql"><code>product-images</code> (<code>supabase/create-product-images-storage.sql</code>)</h4>
+<table><thead><tr>
+<th>Property</th>
+<th>Value</th>
+</tr></thead><tbody>
+<tr>
+<td>Public</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Size limit</td>
+<td>10 MiB</td>
+</tr>
+<tr>
+<td>MIME</td>
+<td>jpeg, png, webp, gif, heic, heif</td>
+</tr>
+<tr>
+<td>Object path</td>
+<td><code>shops/{shopId}/products/{file}</code></td>
+</tr>
+<tr>
+<td>SELECT</td>
+<td>public</td>
+</tr>
+<tr>
+<td>INSERT/UPDATE/DELETE</td>
+<td>authenticated AND folder shop id matches <code>shops.owner_email</code> = JWT email</td>
+</tr>
+</tbody></table>
+<p>Uploader: <code>lib/supabase/storageUpload.ts</code> <code>uploadImageToBucket</code>. Inventory UI uses <code>throwOnError: true</code>.</p>
+<h4 id="other-media">Other media</h4>
+<p>Shop/branch galleries and covers also go through <code>uploadImageToBucket</code> with a configured bucket (<code>shop-images</code> in admin product form). Community media extensions: <code>apply-pitstop-2.0-step14d-community-media-extensions.sql</code>. Product rows store <strong>URLs only</strong>, never binary.</p>
+<h3 id="5-7-rpc-functions-commerce-and-governance">5.7 RPC functions (commerce &amp; governance)</h3>
+<table><thead><tr>
+<th>Function</th>
+<th>Execute grant</th>
+<th>Behavior</th>
+</tr></thead><tbody>
+<tr>
+<td><code>place_store_order(fulfillment, fee, name, phone, address, notes)</code></td>
+<td><code>authenticated</code></td>
+<td>Atomic cart → order → stock → clear cart</td>
+</tr>
+<tr>
+<td><code>update_store_order_status(order_id, status)</code></td>
+<td><code>authenticated</code></td>
+<td>Owner/admin only</td>
+</tr>
+<tr>
+<td><code>get_store_owner_stats(shop_id)</code></td>
+<td><code>authenticated</code></td>
+<td>JSON metrics; owner/admin</td>
+</tr>
+<tr>
+<td><code>register_shop_owner(...)</code></td>
+<td><code>authenticated</code></td>
+<td>Inactive shop + <code>pending_owner</code></td>
+</tr>
+<tr>
+<td><code>approve_shop_owner(user_id, shop_id)</code></td>
+<td><code>authenticated</code> (admin inside)</td>
+<td>Activate merchant</td>
+</tr>
+<tr>
+<td><code>reject_shop_owner(user_id, shop_id)</code></td>
+<td><code>authenticated</code> (admin inside)</td>
+<td>Reject request</td>
+</tr>
+<tr>
+<td><code>admin_toggle_shop_premium</code></td>
+<td>admin</td>
+<td>Feature flag</td>
+</tr>
+<tr>
+<td><code>admin_settle_shop_platform_fees</code></td>
+<td>admin</td>
+<td>Ledger timestamp</td>
+</tr>
+<tr>
+<td><code>is_shop_owner</code> / <code>is_platform_admin</code> / <code>can_manage_shop</code> / <code>can_manage_branch</code></td>
+<td>internal</td>
+<td>RLS helpers</td>
+</tr>
+<tr>
+<td>Branch-manager RPCs</td>
+<td>step 3 SQL</td>
+<td>Invite / link / remove manager</td>
+</tr>
+</tbody></table>
+<p><code>get_store_owner_stats</code> JSON keys: <code>total_revenue</code>, <code>total_orders</code>, <code>pending_orders</code>, <code>total_products</code>, <code>low_stock_count</code>. Client maps snake_case and camelCase (<code>storeStatsRepository.ts</code>).</p>
+<hr />
+<h2 id="6-realtime-event-pipelines-and-edge-integrations">6. Realtime event pipelines &amp; edge integrations</h2>
+<h3 id="6-1-publication">6.1 Publication</h3>
+<p><code>complete_system_schema.sql</code> adds to <code>supabase_realtime</code>:</p>
+<ul>
+<li><code>public.store_orders</code> (replica identity FULL)</li>
+<li><code>public.bookings</code> (FULL)</li>
+<li><code>public.products</code> (FULL)</li>
+</ul>
+<p>Additional app listeners also subscribe to <code>shops</code> and <code>shop_branches</code> (<code>lib/booking/shopMapDiscovery.ts</code>).</p>
+<h3 id="6-2-channel-catalog">6.2 Channel catalog</h3>
+<table><thead><tr>
+<th>Channel name</th>
+<th>Table / event</th>
+<th>Consumer</th>
+<th>Effect</th>
+</tr></thead><tbody>
+<tr>
+<td><code>store-dashboard:{shopId}</code></td>
+<td><code>store_orders</code> \*, <code>products</code> \*</td>
+<td><code>StoreOwnerDashboard</code></td>
+<td>Refresh metrics</td>
+</tr>
+<tr>
+<td><code>store-inventory:{shopId}</code></td>
+<td><code>products</code> \*</td>
+<td><code>StoreInventoryManager</code></td>
+<td>Reload SKUs / stock</td>
+</tr>
+<tr>
+<td><code>store-orders:{shopId}</code></td>
+<td><code>store_orders</code> \*</td>
+<td><code>StoreOrdersPanel</code></td>
+<td>New/updated orders</td>
+</tr>
+<tr>
+<td><code>owner-bookings:{shopId}</code></td>
+<td><code>bookings</code> \*</td>
+<td><code>WashOwnerPanel</code></td>
+<td>Silent workspace refresh</td>
+</tr>
+<tr>
+<td><code>merchant-bookings:{shopId}</code> (via <code>subscribeMerchantBookingRealtime</code>)</td>
+<td><code>bookings</code> INSERT/UPDATE</td>
+<td><code>OrderNotifier</code>, wash hub</td>
+<td>In-app alert, vibration, pending queue</td>
+</tr>
+<tr>
+<td>Map discovery channel</td>
+<td><code>shops</code>, <code>shop_branches</code> \*</td>
+<td><code>shopMapDiscovery.ts</code></td>
+<td>Live map pins</td>
+</tr>
+<tr>
+<td>Offers channel</td>
+<td><code>offers</code></td>
+<td><code>offerRepository.ts</code></td>
+<td>Live campaign badges</td>
+</tr>
+</tbody></table>
+<p>Filters are typically <code>shop_id=eq.{id}</code> so tenants do not receive other merchants’ rows. RLS still applies to Realtime payloads.</p>
+<pre><code>Customer place_store_order / createBooking
+        │
+        ▼
+   INSERT store_orders / bookings
+        │
+        ▼
+   supabase_realtime publication
+        │
+        ├── StoreOrdersPanel     (order card appears)
+        ├── StoreOwnerDashboard  (pending + revenue)
+        ├── StoreInventoryManager (stock after decrement)
+        ├── WashOwnerPanel       (queue)
+        └── OrderNotifier        (popup + wash notification center)</code></pre>
+<h3 id="6-3-in-app-merchant-notifier">6.3 In-app merchant notifier</h3>
+<p><code>components/merchant/OrderNotifier.tsx</code> (headless) + <code>lib/notifications/notificationService.ts</code>:</p>
+<ul>
+<li>Scopes rows for branch managers  </li>
+<li>Distinguishes pending insert vs cancellation  </li>
+<li><code>userAlert</code> + optional <code>Vibration</code>  </li>
+<li>Wash center rows via <code>pushWashCenterNotification</code> (<code>lib/booking/wash/washNotificationCenter.ts</code>)  </li>
+<li>Hub: <code>/shop/wash-owner-hub?tab=orders</code></li>
+</ul>
+<h3 id="6-4-push-notifications">6.4 Push notifications</h3>
+<p><strong>Registration:</strong> <code>lib/push/shopPush.ts</code> <code>registerOwnerPushToken</code> on shop tab focus (<code>app/(tabs)/shop.tsx</code>).</p>
+<p><strong>Table:</strong> <code>shop_push_tokens</code> (<code>shop_id</code>, <code>owner_email</code>, <code>expo_push_token</code>, <code>locale</code>, optional <code>branch_id</code>). Unique <code>(shop_id, expo_push_token)</code>.</p>
+<p><strong>Delivery:</strong> HTTP POST <code>https://exp.host/--/api/v2/push/send</code> from the app/server helper (not an Edge Function). Copy is bilingual (new booking / new parts order).</p>
+<p><strong>Customer notifications:</strong> <code>pushCustomerNotification</code> in <code>lib/booking/commerceEvents.ts</code> (approved, declined, reminder, shop reopened, parts order, review reply). Reminders: <code>lib/booking/bookingReminders.ts</code> (local scheduling).</p>
+<h3 id="6-5-edge-functions">6.5 Edge Functions</h3>
+<table><thead><tr>
+<th>Function</th>
+<th>Path</th>
+<th>Role</th>
+</tr></thead><tbody>
+<tr>
+<td><code>approve-merchant</code></td>
+<td><code>supabase/functions/approve-merchant/index.ts</code></td>
+<td>Admin JWT → confirm Auth user + RPC activate shop</td>
+</tr>
+<tr>
+<td><code>reject-merchant</code></td>
+<td><code>supabase/functions/reject-merchant/index.ts</code></td>
+<td>Admin JWT → reject pending merchant</td>
+</tr>
+<tr>
+<td><code>send-booking-confirmation</code></td>
+<td><code>supabase/functions/send-booking-confirmation/index.ts</code></td>
+<td>Email after <code>handleBookingConfirmed</code></td>
+</tr>
+</tbody></table>
+<p>Client invoke: <code>lib/admin/adminRepository.ts</code> (approve/reject with session <code>Authorization</code> header), <code>lib/booking/sendBookingConfirmationEmail.ts</code>.</p>
+<h3 id="6-6-file-storage-workflow">6.6 File storage workflow</h3>
+<pre><code>ImagePicker.launchImageLibraryAsync
+        │
+        ▼
+uploadImageToBucket({ bucket, folderPath, mimeType, webFile })
+        │
+        ├─ fetch local URI → Blob / ArrayBuffer
+        ├─ storage.from(bucket).upload(path, body, { upsert: false })
+        └─ getPublicUrl(path)
+                │
+                ▼
+persist URL on products.image_url  OR  shop_extras / branch image_urls</code></pre>
+<p>Path convention for products: <code>shops/{shopId}/products/{epoch}-{stem}-{rand}.{ext}</code>. Owners cannot write another shop’s folder (Storage RLS on folder segment 2 = <code>shops.id</code>).</p>
+<h3 id="6-7-email-and-other-integrations">6.7 Email &amp; other integrations</h3>
+<table><thead><tr>
+<th>Integration</th>
+<th>Trigger</th>
+</tr></thead><tbody>
+<tr>
+<td>Booking confirmation email</td>
+<td>Status → <code>confirmed</code> (non walk-in)</td>
+</tr>
+<tr>
+<td>Expo Push</td>
+<td>New booking / parts order to registered owner tokens</td>
+</tr>
+<tr>
+<td>OpenAI (optional)</td>
+<td>Historical assistant; current tab is driver network</td>
+</tr>
+<tr>
+<td>OSM / Leaflet</td>
+<td><code>OsmLocationPicker</code>, <code>CategoryShopsMap</code> for discovery and branch pins</td>
+</tr>
+<tr>
+<td>PostGIS</td>
+<td>Nearby shop queries (step 15a)</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="appendix-a-status-transition-cheat-sheets">Appendix A — Status transition cheat sheets</h2>
+<h3 id="store-order-store-order-status">Store order (<code>store_order_status</code>)</h3>
+<table><thead><tr>
+<th>From</th>
+<th>To</th>
+<th>Actor</th>
+<th>RPC / UI</th>
+</tr></thead><tbody>
+<tr>
+<td>(none)</td>
+<td><code>pending</code></td>
+<td>Customer</td>
+<td><code>place_store_order</code></td>
+</tr>
+<tr>
+<td><code>pending</code></td>
+<td><code>preparing</code></td>
+<td>Owner</td>
+<td><code>update_store_order_status</code></td>
+</tr>
+<tr>
+<td><code>pending</code></td>
+<td><code>cancelled</code></td>
+<td>Owner</td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>preparing</code></td>
+<td><code>ready</code></td>
+<td>Owner</td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>ready</code></td>
+<td><code>completed</code></td>
+<td>Owner</td>
+<td>same</td>
+</tr>
+</tbody></table>
+<h3 id="booking-booking-status">Booking (<code>booking_status</code>)</h3>
+<table><thead><tr>
+<th>From</th>
+<th>To</th>
+<th>Actor</th>
+<th>Notes</th>
+</tr></thead><tbody>
+<tr>
+<td>(none)</td>
+<td><code>pending</code></td>
+<td>Customer / walk-in POS</td>
+<td><code>createBooking</code></td>
+</tr>
+<tr>
+<td><code>pending</code></td>
+<td><code>confirmed</code></td>
+<td>Owner</td>
+<td>Email + customer notification</td>
+</tr>
+<tr>
+<td><code>pending</code></td>
+<td><code>cancelled</code></td>
+<td>Owner or customer</td>
+<td>Rejection note optional</td>
+</tr>
+<tr>
+<td><code>confirmed</code></td>
+<td><code>in_progress</code></td>
+<td>Owner</td>
+<td>Active bay work</td>
+</tr>
+<tr>
+<td><code>confirmed</code> / <code>in_progress</code></td>
+<td><code>done</code></td>
+<td>Owner or virtual 60 min</td>
+<td>Loyalty earn on persisted done</td>
+</tr>
+<tr>
+<td><code>confirmed</code></td>
+<td><code>no_show</code></td>
+<td>Owner</td>
+<td>Override prompt</td>
+</tr>
+<tr>
+<td>any operational</td>
+<td><code>suspended_by_shop</code></td>
+<td>Shop closure</td>
+<td>Step 17</td>
+</tr>
+</tbody></table>
+<h3 id="merchant-account">Merchant account</h3>
+<table><thead><tr>
+<th>From</th>
+<th>To</th>
+<th>Actor</th>
+</tr></thead><tbody>
+<tr>
+<td>(none)</td>
+<td><code>pending_owner</code> + inactive shop</td>
+<td>Self-register</td>
+</tr>
+<tr>
+<td><code>pending_owner</code></td>
+<td><code>owner</code> + active shop</td>
+<td>Admin accept</td>
+</tr>
+<tr>
+<td><code>pending_owner</code></td>
+<td>removed</td>
+<td>Admin reject</td>
+</tr>
+<tr>
+<td><code>owner</code></td>
+<td><code>customer</code> (shop deleted)</td>
+<td>Admin <code>deleteMerchant</code></td>
+</tr>
+<tr>
+<td><code>owner</code></td>
+<td>branch_manager accounts</td>
+<td>Owner invite (premium wash)</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="appendix-b-key-source-map">Appendix B — Key source map</h2>
+<table><thead><tr>
+<th>Concern</th>
+<th>Files</th>
+</tr></thead><tbody>
+<tr>
+<td>Root navigation</td>
+<td><code>app/_layout.tsx</code>, <code>app/(tabs)/_layout.tsx</code></td>
+</tr>
+<tr>
+<td>Auth</td>
+<td><code>context/CustomerAuthContext.tsx</code>, <code>context/ShopAuthContext.tsx</code>, <code>lib/shop/shopStaffUser.ts</code></td>
+</tr>
+<tr>
+<td>Store owner UI</td>
+<td><code>components/store/owner/StoreOwnerDashboard.tsx</code>, <code>StoreInventoryManager.tsx</code>, <code>StoreOrdersPanel.tsx</code></td>
+</tr>
+<tr>
+<td>Wash owner UI</td>
+<td><code>components/owner/wash/WashOwnerPanel.tsx</code>, <code>app/shop/wash-owner-hub.tsx</code></td>
+</tr>
+<tr>
+<td>Service owner UI</td>
+<td><code>app/(tabs)/shop.tsx</code></td>
+</tr>
+<tr>
+<td>Dashboard tab config</td>
+<td><code>lib/owner/dashboardConfig.ts</code></td>
+</tr>
+<tr>
+<td>Cart / checkout</td>
+<td><code>context/StoreCartContext.tsx</code>, <code>components/store/StoreCartCheckoutModal.tsx</code></td>
+</tr>
+<tr>
+<td>Catalog</td>
+<td><code>app/store.tsx</code>, <code>app/parts-shop/[shopId].tsx</code>, <code>components/store/StoreProductCard.tsx</code></td>
+</tr>
+<tr>
+<td>Booking checkout</td>
+<td><code>app/book/[shopId].tsx</code>, <code>lib/booking/storage.ts</code></td>
+</tr>
+<tr>
+<td>Admin</td>
+<td><code>components/admin/AdminPanel.tsx</code>, <code>lib/admin/adminRepository.ts</code></td>
+</tr>
+<tr>
+<td>Schema</td>
+<td><code>supabase/schema.sql</code>, <code>supabase/complete_system_schema.sql</code></td>
+</tr>
+<tr>
+<td>Stats RPC</td>
+<td><code>supabase/fix-store-owner-stats-rpc.sql</code></td>
+</tr>
+<tr>
+<td>Storage</td>
+<td><code>supabase/create-product-images-storage.sql</code>, <code>lib/supabase/storageUpload.ts</code></td>
+</tr>
+<tr>
+<td>Types</td>
+<td><code>lib/supabase/database.types.ts</code>, <code>lib/store/types.ts</code>, <code>lib/booking/types.ts</code></td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="appendix-c-operational-notes-for-implementers">Appendix C — Operational notes for implementers</h2>
+<ol>
+<li><strong>Do not insert <code>store_orders</code> from the client.</strong> Always <code>rpc('place_store_order')</code>.</li>
+<li><strong>Do not decrement stock in the app.</strong> The RPC row-locks products (<code>FOR UPDATE</code>) to serialize concurrent checkouts.</li>
+<li><strong>Cart is single-shop.</strong> Split checkout UX if a user added two merchants (currently rejected).</li>
+<li><strong>Product media is one URL column.</strong> Multi-image galleries exist on <strong>shops/branches</strong> (<code>image_urls</code>), not on SKUs.</li>
+<li><strong>Delivery zones are not modeled.</strong> COD uses a customer-typed address and a flat 50 EGP fee.</li>
+<li><strong>“Bays” = <code>shop_branches</code> + slot occupancy</strong>, not a separate bay entity.</li>
+<li><strong>Premium is the main merchant feature flag</strong> (<code>shops.is_premium</code>), toggled only by admins.</li>
+<li><strong>Realtime requires replica identity FULL</strong> on <code>store_orders</code>, <code>bookings</code>, and <code>products</code> for complete row payloads.</li>
+<li><strong>Virtual <code>done</code> is display-only</strong> until an owner persists status; do not book revenue on <code>lifecycleAutoCompleted</code>.</li>
+<li><strong>Admin delete is destructive</strong> and confirmation-gated in UI; bookings cascade with the shop.</li>
+</ol>
+<hr />
+<p>*End of document.*</p>
+</body>
+</html>

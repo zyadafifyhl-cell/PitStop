@@ -27,10 +27,26 @@ export async function openEmailTo(to: string, subject?: string, body?: string): 
   await Linking.openURL(url);
 }
 
+export async function openWhatsAppTo(phone: string, message?: string): Promise<void> {
+  const digits = toWhatsAppDigits(phone);
+  if (!digits) throw new Error('Invalid phone');
+  const text = message ? `?text=${encodeURIComponent(message)}` : '';
+  await Linking.openURL(`https://wa.me/${digits}${text}`);
+}
+
 export async function openSupportWhatsApp(message?: string): Promise<void> {
   const text = message ? `?text=${encodeURIComponent(message)}` : '';
   const url = `https://wa.me/${SUPPORT.whatsAppE164}${text}`;
   await Linking.openURL(url);
+}
+
+export function toWhatsAppDigits(phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('20') && digits.length >= 11) return digits;
+  if (digits.startsWith('0') && digits.length >= 10) return `20${digits.slice(1)}`;
+  if (digits.length === 10) return `20${digits}`;
+  return digits;
 }
 
 export async function openShopInMaps(shop: Shop, locale: 'en' | 'ar'): Promise<void> {

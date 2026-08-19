@@ -84,6 +84,7 @@ function RootStack() {
       <Stack.Screen name="reset-password" options={{ title: t('customer_reset_password_title') }} />
       <Stack.Screen name="shop/wash-owner-hub" options={{ headerShown: false }} />
       <Stack.Screen name="shop/wash-reports" options={{ title: t('wash_report_title') }} />
+      <Stack.Screen name="shop/store-reports" options={{ title: t('store_reports_title') }} />
       <Stack.Screen name="shop/wash-history" options={{ title: t('wash_hub_tab_history') }} />
       <Stack.Screen name="shop/merchant-settings" options={{ title: t('merchant_settings_title') }} />
       <Stack.Screen name="shop/merchant-staff" options={{ title: t('merchant_settings_staff_row') }} />

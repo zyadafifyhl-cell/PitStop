@@ -1,5 +1,6 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Platform, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
 
@@ -52,7 +53,7 @@ export default function TabLayout() {
             default: {},
           }),
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
         headerStyle: {
           backgroundColor: theme.bg,
           borderBottomColor: theme.border,
@@ -77,6 +78,17 @@ export default function TabLayout() {
         options={{
           title: t('tab_my_bookings'),
           tabBarIcon: ({ color }) => <TabBarIcon name="list-alt" color={color} />,
+          headerRight: customerHeaderRight,
+          href: hasCustomerArea || !shop ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="orders"
+        options={{
+          title: t('tab_my_orders'),
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="bag-handle-outline" size={22} color={color} style={{ marginBottom: -2 }} />
+          ),
           headerRight: customerHeaderRight,
           href: hasCustomerArea || !shop ? undefined : null,
         }}

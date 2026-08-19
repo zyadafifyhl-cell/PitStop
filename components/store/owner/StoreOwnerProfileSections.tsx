@@ -30,6 +30,9 @@ type Props = {
   onSaveProfile: () => void;
   onAddImage: () => void;
   onRemoveImage: (url: string) => void;
+  mapPinBusy?: boolean;
+  mapPinCoords?: { latitude: number; longitude: number } | null;
+  onSetMapPin?: () => void;
 };
 
 export function StoreOwnerProfileSections({
@@ -56,8 +59,11 @@ export function StoreOwnerProfileSections({
   onSaveProfile,
   onAddImage,
   onRemoveImage,
+  mapPinBusy,
+  mapPinCoords,
+  onSetMapPin,
 }: Props) {
-  const { t } = useI18n();
+  const { t, tp } = useI18n();
 
   return (
     <>
@@ -107,6 +113,30 @@ export function StoreOwnerProfileSections({
           onChangeText={onChangeProfileAddressAr}
           style={fieldStyle}
         />
+        {onSetMapPin ? (
+          <>
+            <Text style={[styles.inlineTitle, { color: theme.text }]}>{t('store_map_pin_title')}</Text>
+            <Text style={[styles.emptyHint, { color: theme.textMuted, marginTop: 0, marginBottom: 8 }]}>
+              {t('store_map_pin_lead')}
+            </Text>
+            {mapPinCoords ? (
+              <Text style={[styles.emptyHint, { color: theme.accent, marginTop: 0, marginBottom: 8 }]}>
+                {tp('store_map_pin_coords', {
+                  lat: mapPinCoords.latitude.toFixed(5),
+                  lng: mapPinCoords.longitude.toFixed(5),
+                })}
+              </Text>
+            ) : null}
+            <Pressable
+              onPress={onSetMapPin}
+              disabled={mapPinBusy}
+              style={[styles.secondaryBtn, { borderColor: theme.border, opacity: mapPinBusy ? 0.65 : 1 }]}>
+              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
+                {mapPinBusy ? t('store_map_pin_capturing') : t('store_map_pin_button')}
+              </Text>
+            </Pressable>
+          </>
+        ) : null}
         <Text style={[styles.inlineTitle, { color: theme.text }]}>{t('shop_manage_more_info_title')}</Text>
         <TextInput
           placeholder={t('shop_manage_more_info_placeholder')}

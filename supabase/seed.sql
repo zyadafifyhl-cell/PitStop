@@ -56,15 +56,7 @@ values
 
   ('shop-winch-maadi', 'Maadi Rescue Winch', 'ونش إنقاذ المعادي', 'winch', 'maadi', 'Road 9, Maadi', 'طريق 9، المعادي', '+201010101010', 29.9612, 31.2575, 'winch@demo.com', 4.8),
 
-  ('shop-winch-nasr', 'Nasr City Tow Service', 'خدمة ونش مدينة نصر', 'winch', 'nasr-city', 'Makram Ebeid, Nasr City', 'مكرم عبيد، مدينة نصر', '+201020202020', 30.0566, 31.3433, 'winch2@demo.com', 4.6),
-
-  ('shop-parts-nasr', 'Nasr Auto Parts', 'قطع غيار مدينة نصر', 'parts', 'nasr-city', 'Suez Road, Nasr City', 'طريق السويس، مدينة نصر', '+201033445566', 30.059, 31.338, 'parts@demo.com', 4.4),
-
-  ('shop-parts-maadi', 'Maadi Spare Parts Hub', 'مركز قطع غيار المعادي', 'parts', 'maadi', 'Degla Square', 'ميدان دجلة', '+201044556677', 29.955, 31.262, 'parts2@demo.com', 4.6),
-
-  ('shop-accessories-maadi', 'Maadi Auto Accessories', 'إكسسوارات سيارات المعادي', 'accessories', 'maadi', 'Road 9, Maadi', 'طريق 9، المعادي', '+201055112233', 29.958, 31.261, 'accessories@demo.com', 4.5),
-
-  ('shop-accessories-nasr', 'Nasr City Car Accessories', 'إكسسوارات مدينة نصر', 'accessories', 'nasr-city', 'Abbas El Akkad St.', 'شارع عباس العقاد', '+201066223344', 30.052, 31.364, 'accessories2@demo.com', 4.6)
+  ('shop-winch-nasr', 'Nasr City Tow Service', 'خدمة ونش مدينة نصر', 'winch', 'nasr-city', 'Makram Ebeid, Nasr City', 'مكرم عبيد، مدينة نصر', '+201020202020', 30.0566, 31.3433, 'winch2@demo.com', 4.6)
 
 on conflict (id) do update set
 
@@ -89,25 +81,3 @@ on conflict (id) do update set
   owner_email = excluded.owner_email,
 
   rating = excluded.rating;
-
-
-
-insert into public.store (shop_id, category, name, image_url, price_egp, stock_qty) values
-
-  ('shop-parts-nasr', 'parts', 'Brake Pads', null, 850, 12),
-
-  ('shop-parts-nasr', 'parts', 'Engine Oil 5W-30', null, 620, 20),
-
-  ('shop-parts-maadi', 'parts', 'Air Filter', null, 280, 15),
-
-  ('shop-parts-maadi', 'parts', 'Battery 70Ah', null, 2600, 6),
-
-  ('shop-accessories-maadi', 'accessories', 'Phone Holder', null, 350, 25),
-
-  ('shop-accessories-maadi', 'accessories', 'Seat Covers Set', null, 1200, 8),
-
-  ('shop-accessories-nasr', 'accessories', 'LED Interior Lights', null, 420, 14),
-
-  ('shop-accessories-nasr', 'accessories', 'Steering Wheel Cover', null, 180, 30);
-
-

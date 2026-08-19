@@ -12,9 +12,9 @@ export type StoreOrderWithItems = StoreOrder & {
 /**
  * Fetch all orders for the current store owner's shop
  */
-export async function listStoreOwnerOrders(): Promise<StoreOrderWithItems[]> {
+export async function listStoreOwnerOrders(shopId: string): Promise<StoreOrderWithItems[]> {
   const supabase = getSupabase();
-  if (!supabase) return [];
+  if (!supabase || !shopId) return [];
 
   const { data: orders, error } = await supabase
     .from('store_orders')
@@ -22,6 +22,7 @@ export async function listStoreOwnerOrders(): Promise<StoreOrderWithItems[]> {
       *,
       items:store_order_items(*)
     `)
+    .eq('shop_id', shopId)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -82,9 +83,9 @@ export async function updateStoreOrderStatus(
 /**
  * Get single order details
  */
-export async function getStoreOrderById(orderId: string): Promise<StoreOrderWithItems | null> {
+export async function getStoreOrderById(orderId: string, shopId: string): Promise<StoreOrderWithItems | null> {
   const supabase = getSupabase();
-  if (!supabase) return null;
+  if (!supabase || !shopId) return null;
 
   const { data: order, error } = await supabase
     .from('store_orders')
@@ -93,6 +94,7 @@ export async function getStoreOrderById(orderId: string): Promise<StoreOrderWith
       items:store_order_items(*)
     `)
     .eq('id', orderId)
+    .eq('shop_id', shopId)
     .single();
 
   if (error || !order) {

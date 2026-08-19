@@ -6,7 +6,6 @@ import {
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { mapBookingRowFromRemote } from '@/lib/notifications/notificationService';
-import { syncLocalBookingsFromRemote } from '@/lib/booking/storage';
 import type { Booking } from '@/lib/booking/types';
 import type { WashShopStatus } from '@/lib/booking/wash/types';
 import { tp, translate, type Locale } from '@/lib/i18n/strings';
@@ -79,9 +78,6 @@ export async function suspendFutureConfirmedBookingsForBranch(
   }
 
   const bookings = (data ?? []).map((row) => mapClosureRow(row as BookingClosureRow));
-  if (bookings.length) {
-    await syncLocalBookingsFromRemote(bookings);
-  }
   return bookings;
 }
 
@@ -109,9 +105,6 @@ export async function restoreSuspendedBookingsForBranch(
   }
 
   const bookings = (data ?? []).map((row) => mapClosureRow(row as BookingClosureRow));
-  if (bookings.length) {
-    await syncLocalBookingsFromRemote(bookings);
-  }
   return bookings;
 }
 

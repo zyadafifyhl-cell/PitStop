@@ -2,6 +2,8 @@ export type ShopType = 'maintenance' | 'wash' | 'parts' | 'accessories' | 'winch
 
 export type StoreCategory = 'parts' | 'accessories';
 
+export type StoreOperatingStatus = 'open' | 'closed' | 'maintenance';
+
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'done' | 'in_progress' | 'no_show' | 'suspended_by_shop';
 
 export type BookingType = 'app' | 'walk_in';
@@ -229,6 +231,8 @@ export type ShopExtras = {
   activeBranchId?: string;
   /** Store retail: global % discount across category products. */
   storeGlobalDiscountPercent?: number;
+  /** Accessories / spare-parts: customer-facing store operating status. */
+  storeOperatingStatus?: StoreOperatingStatus;
   updatedAt: string;
 };
 

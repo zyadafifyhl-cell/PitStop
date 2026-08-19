@@ -156,6 +156,7 @@ export type DbProduct = {
   sale_price?: number | null;
   stock_quantity: number;
   image_url?: string | null;
+  image_urls?: string[];
   compatibility_type: DbStoreCompatibilityType;
   rating: number;
   rating_count: number;

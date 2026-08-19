@@ -2,6 +2,15 @@ import type { StoreProductCategory } from '@/lib/store/types';
 
 export const STORE_COD_DELIVERY_FEE_EGP = 50;
 
+export const MAX_STORE_PRODUCT_IMAGES = 5;
+
+/** Inclusive threshold used by inventory Low Stock and owner alerts. */
+export const STORE_LOW_STOCK_MAX = 5;
+
+export function isStoreLowStock(quantity: number): boolean {
+  return Number(quantity) <= STORE_LOW_STOCK_MAX;
+}
+
 export const STORE_VEHICLE_BRANDS = [
   'Toyota',
   'Nissan',

@@ -1,5 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { normalizePhoneE164 } from '@/lib/phone';
 import { tabAuthStorage } from '@/lib/storage/webTabAuthStorage';
 import { getSupabase } from '@/lib/supabase/client';
@@ -29,26 +27,10 @@ export async function purgeCustomerLocalData(customerId: string, phone?: string)
     '@pitstop/community-post-likes/v1',
     '@pitstop/community-comment-likes/v1',
     '@pitstop/driver-network/v1',
+    '@pitstop/bookings/v1',
   ];
 
   await tabAuthStorage.multiRemove(keys);
-
-  try {
-    const bookingsRaw = await AsyncStorage.getItem('@pitstop/bookings/v1');
-    if (bookingsRaw) {
-      const parsed = JSON.parse(bookingsRaw) as Array<{ customerId?: string; customerPhone?: string }>;
-      if (Array.isArray(parsed)) {
-        const filtered = parsed.filter((row) => {
-          if (row.customerId && row.customerId === customerId) return false;
-          if (phone && row.customerPhone === phone) return false;
-          return true;
-        });
-        await AsyncStorage.setItem('@pitstop/bookings/v1', JSON.stringify(filtered));
-      }
-    }
-  } catch {
-    /* ignore */
-  }
 }
 
 export type UpdateProfileResult = 'ok' | 'invalid' | 'not_configured' | 'email_taken';

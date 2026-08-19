@@ -1,7 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,12 +18,18 @@ import {
 
 import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
+import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
+import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
-import { StoreOwnerAdminPanel } from '@/components/store/owner/StoreOwnerAdminPanel';
 import { StoreOwnerDashboard } from '@/components/store/owner/StoreOwnerDashboard';
+import { StoreInventoryManager } from '@/components/store/owner/StoreInventoryManager';
+import { StoreOrdersPanel } from '@/components/store/owner/StoreOrdersPanel';
+import { StoreOwnerProfileSections } from '@/components/store/owner/StoreOwnerProfileSections';
+import { StoreOwnerSettings } from '@/components/store/owner/StoreOwnerSettings';
+import type { StoreInventoryListFilter, StoreOrderListFilter } from '@/lib/store/ownerFilters';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -40,14 +46,7 @@ import {
   cancelBookingReminders,
   scheduleBookingReminders,
 } from '@/lib/booking/bookingReminders';
-import {
-  addInventoryItem,
-  listInventoryForShop,
-  listPartsOrdersForShop,
-  updateInventoryStock,
-  updatePartsOrderStatus,
-} from '@/lib/booking/partsStorage';
-import { isStoreShopType, storeCategoryForShopType } from '@/lib/booking/storeCatalog';
+import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import {
   addShopImage,
@@ -59,18 +58,22 @@ import {
   setShopSchedule,
   setShopServicePrice,
   setShopWeeklyHours,
+  setStoreOperatingStatus,
   shopHasSavedSchedule,
 } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { listBookingsForShop, sortBookingsByScheduledAtDesc, updateBookingStatus } from '@/lib/booking/storage';
 import { registerOwnerPushToken } from '@/lib/push/shopPush';
+import { getOwnerNavTabs, type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
+import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
+import { updateShopLocationRemote } from '@/lib/booking/wash/branchRepository';
+import { patchShopCoordinates } from '@/lib/booking/catalogRepository';
 import type {
   Booking,
   OwnerNotification,
   OwnerNotificationResolution,
-  PartsOrder,
   ShopExtras,
-  StoreItem,
+  StoreOperatingStatus,
 } from '@/lib/booking/types';
 import { isWashShopType } from '@/lib/booking/wash/types';
 
@@ -94,15 +97,13 @@ export default function ShopScreen() {
   const [password, setPassword] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
-  const [storeAdminTab, setStoreAdminTab] = useState<'dashboard' | 'profile' | 'operations' | 'management'>('dashboard');
+  const [storeAdminTab, setStoreAdminTab] = useState<OwnerShellTabId>('dashboard');
+  const [storeOrderFilter, setStoreOrderFilter] = useState<StoreOrderListFilter>('all');
+  const [storeInventoryFilter, setStoreInventoryFilter] = useState<StoreInventoryListFilter>('all');
+  const [capturingGps, setCapturingGps] = useState(false);
+  const [storeStatusBusy, setStoreStatusBusy] = useState(false);
+  const [mapPinCoords, setMapPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [loadingBookings, setLoadingBookings] = useState(false);
-  const [inventory, setInventory] = useState<StoreItem[]>([]);
-  const [partsOrders, setPartsOrders] = useState<PartsOrder[]>([]);
-  const [loadingParts, setLoadingParts] = useState(false);
-  const [newPartName, setNewPartName] = useState('');
-  const [newPartPrice, setNewPartPrice] = useState('');
-  const [newPartStock, setNewPartStock] = useState('1');
-  const [newPartImage, setNewPartImage] = useState('');
   const [ownerNotifications, setOwnerNotifications] = useState<OwnerNotification[]>([]);
   const [shopExtras, setShopExtras] = useState<ShopExtras | null>(null);
   const [pickingImage, setPickingImage] = useState(false);
@@ -163,6 +164,16 @@ export default function ShopScreen() {
     setServiceDurationMinutes(String(row.serviceDurationMinutes ?? DEFAULT_SERVICE_DURATION_MINUTES));
   }, [shop]);
 
+  useEffect(() => {
+    if (!shop) {
+      setMapPinCoords(null);
+      return;
+    }
+    if (Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude)) {
+      setMapPinCoords({ latitude: shop.latitude, longitude: shop.longitude });
+    }
+  }, [shop]);
+
   const refreshBookings = useCallback(async () => {
     if (!shop) return;
     setLoadingBookings(true);
@@ -171,37 +182,17 @@ export default function ShopScreen() {
     setLoadingBookings(false);
   }, [shop]);
 
-  const refreshPartsData = useCallback(async () => {
-    if (!shop) return;
-    const category = storeCategoryForShopType(shop.type);
-    if (!category) return;
-    setLoadingParts(true);
-    try {
-      const [invRows, orderRows] = await Promise.all([
-        listInventoryForShop(shop.id, category),
-        listPartsOrdersForShop(shop.id),
-      ]);
-      setInventory(invRows);
-      setPartsOrders(orderRows);
-    } finally {
-      setLoadingParts(false);
-    }
-  }, [shop]);
-
   useFocusEffect(
     useCallback(() => {
       if (!shop) return;
       refreshOwnerNotifications();
       refreshShopExtras();
-      // Store owners (parts/accessories) load inventory, not bookings
-      if (isStoreShopType(shop.type)) {
-        refreshPartsData();
-      } else {
+      if (!isStoreShopType(shop.type)) {
         // Service providers (wash/maintenance) load bookings
         refreshBookings();
         void orderNotifier.refresh();
       }
-    }, [shop, refreshBookings, refreshPartsData, refreshOwnerNotifications, refreshShopExtras, orderNotifier.refresh]),
+    }, [shop, refreshBookings, refreshOwnerNotifications, refreshShopExtras, orderNotifier.refresh]),
   );
 
   useFocusEffect(
@@ -220,6 +211,41 @@ export default function ShopScreen() {
       sortBookingsByScheduledAtDesc(bookings.filter((booking) => booking.status === 'pending')),
     [bookings],
   );
+
+  const serviceOwnerMetrics = useMemo(() => {
+    const today = new Date().toDateString();
+    const completedRevenue = bookings
+      .filter((booking) => booking.status === 'done')
+      .reduce((sum, booking) => sum + Number(booking.servicePriceEgp ?? 0), 0);
+    return [
+      {
+        id: 'revenue',
+        label: t('store_owner_total_revenue'),
+        value: formatEgp(completedRevenue, locale),
+        icon: 'money' as const,
+        tone: 'success' as const,
+      },
+      {
+        id: 'today',
+        label: t('owner_dashboard_today_bookings'),
+        value: bookings.filter((booking) => new Date(booking.scheduledAt).toDateString() === today).length,
+        icon: 'calendar-check-o' as const,
+      },
+      {
+        id: 'pending',
+        label: t('owner_dashboard_pending_requests'),
+        value: activeBookings.length,
+        icon: 'clock-o' as const,
+        tone: 'warning' as const,
+      },
+      {
+        id: 'services',
+        label: t('owner_dashboard_active_services'),
+        value: (shopExtras?.services ?? []).filter((service) => service.active).length,
+        icon: 'wrench' as const,
+      },
+    ];
+  }, [activeBookings.length, bookings, locale, shopExtras?.services, t]);
 
   async function onLogin() {
     const result = await login(email, password);
@@ -242,43 +268,6 @@ export default function ShopScreen() {
 
   async function onLogout() {
     await signOut({ welcomeFocus: 'owner' });
-  }
-
-  async function onAddPart() {
-    if (!shop) return;
-    const category = storeCategoryForShopType(shop.type);
-    if (!category) return;
-    const price = Number(newPartPrice);
-    const stock = Number(newPartStock);
-    if (!newPartName.trim() || Number.isNaN(price) || price < 0 || Number.isNaN(stock) || stock < 0) {
-      Alert.alert(t('parts_owner_invalid_part_title'), t('parts_owner_invalid_part_body'));
-      return;
-    }
-    await addInventoryItem(shop.id, category, {
-      name: newPartName,
-      priceEgp: price,
-      stockQty: stock,
-      imageUrl: newPartImage,
-    });
-    setNewPartName('');
-    setNewPartPrice('');
-    setNewPartStock('1');
-    setNewPartImage('');
-    await refreshPartsData();
-  }
-
-  async function onAdjustStock(partId: string, delta: number) {
-    if (!shop) return;
-    const category = storeCategoryForShopType(shop.type);
-    if (!category) return;
-    await updateInventoryStock(shop.id, category, partId, delta);
-    await refreshPartsData();
-  }
-
-  async function onPartsOrderStatusChange(orderId: string, status: PartsOrder['status']) {
-    if (!shop || !isStoreShopType(shop.type)) return;
-    await updatePartsOrderStatus(shop.id, orderId, status);
-    await refreshPartsData();
   }
 
   function renderBookingCard(item: Booking, showActions: boolean) {
@@ -307,13 +296,6 @@ export default function ShopScreen() {
         ) : null}
       </View>
     );
-  }
-
-  function partsStatusLabel(status: PartsOrder['status']) {
-    if (status === 'pending') return t('parts_status_pending');
-    if (status === 'confirmed') return t('parts_status_confirmed');
-    if (status === 'cancelled') return t('parts_status_cancelled');
-    return t('parts_status_shipped');
   }
 
   function notificationCarType(notification: OwnerNotification): string {
@@ -540,6 +522,8 @@ export default function ShopScreen() {
       const uploadedUrl = await uploadImageToBucket({
         localUri: uri,
         mimeType: asset.mimeType,
+        fileName: asset.fileName,
+        webFile: asset.file,
         bucket: 'shop-assets',
         folderPath: `${shop.id}/cover`,
       });
@@ -701,6 +685,46 @@ export default function ShopScreen() {
     await refreshShopExtras();
   }
 
+  async function onSetStoreMapPin() {
+    if (!shop) return;
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(t('wash_branch_gps_denied_title'), t('wash_branch_gps_denied_body'));
+      return;
+    }
+    setCapturingGps(true);
+    try {
+      const coords = await getFastCurrentPosition();
+      const saved = await updateShopLocationRemote(shop.id, coords.latitude, coords.longitude);
+      setMapPinCoords(coords);
+      patchShopCoordinates(shop.id, coords.latitude, coords.longitude);
+      showSaveNotice(
+        t('wash_branch_gps_saved_title'),
+        saved ? t('wash_branch_gps_saved_body_synced') : t('wash_branch_gps_saved_body_local_only'),
+      );
+    } catch {
+      Alert.alert(
+        t('wash_branch_gps_fail_title'),
+        Platform.OS === 'web' ? t('wash_branch_gps_fail_body_web') : t('wash_branch_gps_fail_body'),
+      );
+    } finally {
+      setCapturingGps(false);
+    }
+  }
+
+  async function onChangeStoreStatus(status: StoreOperatingStatus) {
+    if (!shop) return;
+    setStoreStatusBusy(true);
+    try {
+      const row = await setStoreOperatingStatus(shop.id, status);
+      setShopExtras(row);
+    } catch {
+      Alert.alert(t('merchant_settings_status_fail_title'), t('merchant_settings_status_fail_body'));
+    } finally {
+      setStoreStatusBusy(false);
+    }
+  }
+
   if (!ready) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
@@ -774,7 +798,13 @@ export default function ShopScreen() {
       notificationsLabel={t('shop_notifications_button')}
       notificationCount={pendingNotificationCount}
       onOpenNotifications={() => setNotificationsModalVisible(true)}
-      onOpenSettings={() => router.push('/shop/merchant-settings')}
+      onOpenSettings={() => {
+        if (isStoreShopType(shop.type)) {
+          setStoreAdminTab('settings');
+          return;
+        }
+        router.push('/shop/merchant-settings');
+      }}
       settingsLabel={t('merchant_settings_open')}
     />
   );
@@ -997,12 +1027,27 @@ export default function ShopScreen() {
   );
 
   if (isStoreShopType(shop.type)) {
-    const STORE_TABS = [
-      { id: 'dashboard' as const, labelKey: 'wash_tab_dashboard' as const, icon: 'dashboard' as const },
-      { id: 'profile' as const, labelKey: 'wash_tab_profile' as const, icon: 'id-card-o' as const },
-      { id: 'operations' as const, labelKey: 'wash_tab_operations' as const, icon: 'wrench' as const },
-      { id: 'management' as const, labelKey: 'wash_tab_management' as const, icon: 'users' as const },
-    ];
+    const STORE_TABS = getOwnerNavTabs(shop.type).map((tab) => ({
+      id: tab.id,
+      label: t(tab.labelKey),
+      icon: tab.icon,
+    }));
+    const storeStatus = shopExtras?.storeOperatingStatus ?? 'open';
+    const storeScheduleHint =
+      shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime
+        ? formatShopScheduleLine(
+            shopExtras.workOpenTime,
+            shopExtras.workCloseTime,
+            shopExtras.serviceDurationMinutes ?? DEFAULT_SERVICE_DURATION_MINUTES,
+            locale,
+          )
+        : undefined;
+
+    const onStoreTabChange = (tab: OwnerShellTabId) => {
+      setStoreAdminTab(tab);
+      if (tab === 'management') setStoreOrderFilter('all');
+      if (tab === 'operations') setStoreInventoryFilter('all');
+    };
 
     return (
       <View style={[styles.screen, { backgroundColor: theme.bg }]}>
@@ -1012,107 +1057,150 @@ export default function ShopScreen() {
           {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
 
           {storeAdminTab === 'dashboard' ? (
-            <StoreOwnerDashboard shop={shop} />
+            <StoreOwnerDashboard
+              shop={shop}
+              storeStatus={storeStatus}
+              onNavigate={(target) => {
+                if (target === 'reports') {
+                  router.push('/shop/store-reports');
+                  return;
+                }
+                if (target === 'settings') {
+                  setStoreAdminTab('settings');
+                  return;
+                }
+                if (target === 'pending_orders') {
+                  setStoreOrderFilter('pending');
+                  setStoreAdminTab('management');
+                  return;
+                }
+                if (target === 'active_orders') {
+                  setStoreOrderFilter('active');
+                  setStoreAdminTab('management');
+                  return;
+                }
+                setStoreInventoryFilter('low_stock');
+                setStoreAdminTab('operations');
+              }}
+            />
           ) : null}
 
-          {storeAdminTab === 'profile' ? ownerManageSections : null}
+          {storeAdminTab === 'profile' ? (
+            <StoreOwnerProfileSections
+              theme={theme}
+              fieldStyle={fieldStyle}
+              profileName={profileName}
+              profileNameAr={profileNameAr}
+              profilePhone={profilePhone}
+              profileEmail={profileEmail}
+              profileAddress={profileAddress}
+              profileAddressAr={profileAddressAr}
+              moreInfo={moreInfo}
+              moreInfoAr={moreInfoAr}
+              pickingImage={pickingImage}
+              imageUrls={shopExtras?.imageUrls ?? []}
+              onChangeProfileName={setProfileName}
+              onChangeProfileNameAr={setProfileNameAr}
+              onChangeProfilePhone={setProfilePhone}
+              onChangeProfileEmail={setProfileEmail}
+              onChangeProfileAddress={setProfileAddress}
+              onChangeProfileAddressAr={setProfileAddressAr}
+              onChangeMoreInfo={setMoreInfo}
+              onChangeMoreInfoAr={setMoreInfoAr}
+              onSaveProfile={onSaveProfileInfo}
+              onAddImage={onAddShopImage}
+              onRemoveImage={onRemoveShopImage}
+              mapPinBusy={capturingGps}
+              mapPinCoords={mapPinCoords}
+              onSetMapPin={onSetStoreMapPin}
+            />
+          ) : null}
+
+          {storeAdminTab === 'settings' ? (
+            <StoreOwnerSettings
+              fieldStyle={fieldStyle}
+              workOpenTime={workOpenTime}
+              workCloseTime={workCloseTime}
+              scheduleInlineOk={scheduleInlineOk}
+              scheduleHint={storeScheduleHint}
+              storeStatus={storeStatus}
+              statusBusy={storeStatusBusy}
+              onChangeWorkOpenTime={(value) => {
+                setWorkOpenTime(value);
+                setScheduleInlineOk(false);
+              }}
+              onChangeWorkCloseTime={(value) => {
+                setWorkCloseTime(value);
+                setScheduleInlineOk(false);
+              }}
+              onSaveSchedule={onSaveSchedule}
+              onChangeStoreStatus={onChangeStoreStatus}
+              onOpenNotifications={() => setNotificationsModalVisible(true)}
+            />
+          ) : null}
 
           {storeAdminTab === 'operations' ? (
-            <StoreOwnerAdminPanel
+            <StoreInventoryManager
               shop={shop}
-              shopExtras={shopExtras}
-              onExtrasChange={setShopExtras}
-              mode="inventory"
+              stockFilter={storeInventoryFilter}
+              onStockFilterChange={setStoreInventoryFilter}
             />
           ) : null}
 
           {storeAdminTab === 'management' ? (
-            <>
-              <StoreOwnerAdminPanel
-                shop={shop}
-                shopExtras={shopExtras}
-                onExtrasChange={setShopExtras}
-                mode="discounts"
-              />
-              <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
-                <MerchantCampaignsPanel shopId={shop.id} />
-              </OwnerSectionCard>
-            </>
+            <StoreOrdersPanel
+              shop={shop}
+              statusFilter={storeOrderFilter}
+              onStatusFilterChange={setStoreOrderFilter}
+            />
           ) : null}
         </ScrollView>
 
-        <View style={[styles.bottomTabBar, { backgroundColor: theme.bgElevated, borderTopColor: theme.border }]}>
-          {STORE_TABS.map((tabItem) => {
-            const active = storeAdminTab === tabItem.id;
-            return (
-              <Pressable key={tabItem.id} onPress={() => setStoreAdminTab(tabItem.id)} style={styles.bottomTabItem}>
-                <FontAwesome name={tabItem.icon} size={20} color={active ? theme.accent : theme.textDim} />
-                <Text style={[styles.bottomTabLabel, { color: active ? theme.accent : theme.textDim }]}>
-                  {t(tabItem.labelKey)}
-                </Text>
-              </Pressable>
-            );
-          })}
-          <Pressable onPress={() => router.push('/shop/merchant-settings')} style={styles.bottomTabItem}>
-            <FontAwesome name="cog" size={20} color={theme.textDim} />
-            <Text style={[styles.bottomTabLabel, { color: theme.textDim }]}>{t('tab_settings')}</Text>
-          </Pressable>
-        </View>
+        <OwnerDashboardNav tabs={STORE_TABS} activeTab={storeAdminTab} onChange={onStoreTabChange} />
 
         {ownerModals}
       </View>
     );
   }
 
+  const SERVICE_TABS = getOwnerNavTabs(shop.type).map((tab) => ({
+    id: tab.id,
+    label: t(tab.labelKey),
+    icon: tab.icon,
+  }));
+
   return (
-    <>
-      <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.page}>
-      {ownerProfileHero}
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <ScrollView style={styles.screen} contentContainerStyle={[styles.page, styles.pageWithBottomNav]}>
+        {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
 
-      <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
-        {(
-          [
-            { id: 'workspace' as const, label: t('owner_panel_tab_workspace') },
-            { id: 'history' as const, label: t('owner_panel_tab_history') },
-          ] as const
-        ).map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={() => setPanelTab(item.id)}
-            style={[
-              styles.panelTabBtn,
-              {
-                backgroundColor: panelTab === item.id ? theme.accent : theme.bgElevated,
-                borderColor: panelTab === item.id ? theme.accent : theme.border,
-              },
-            ]}>
-            <Text style={[styles.panelTabText, { color: panelTab === item.id ? theme.onAccent : theme.text }]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+        {storeAdminTab === 'dashboard' ? (
+          <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('shop_welcome_back').replace('{name}', shopName)}>
+            <OwnerMetricsGrid metrics={serviceOwnerMetrics} />
+          </OwnerSectionCard>
+        ) : null}
 
-      {panelTab === 'history' ? (
-        <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="shop" />
-      ) : (
-        <>
-      {ownerManageSections}
+        {storeAdminTab === 'management' ? (
+          <>
+            <OwnerSectionCard theme={theme} title={t('shop_active_requests_title')} subtitle={t('shop_active_requests_lead')}>
+              {loadingBookings ? (
+                <ActivityIndicator color={theme.accent} />
+              ) : activeBookings.length === 0 ? (
+                <Text style={[styles.empty, { color: theme.textMuted }]}>{t('shop_active_requests_empty')}</Text>
+              ) : (
+                activeBookings.map((item) => renderBookingCard(item, true))
+              )}
+            </OwnerSectionCard>
+            <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="shop" />
+          </>
+        ) : null}
 
-      <OwnerSectionCard theme={theme} title={t('shop_active_requests_title')} subtitle={t('shop_active_requests_lead')}>
-        {loadingBookings ? (
-          <ActivityIndicator color={theme.accent} />
-        ) : activeBookings.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textMuted }]}>{t('shop_active_requests_empty')}</Text>
-        ) : (
-          activeBookings.map((item) => renderBookingCard(item, true))
-        )}
-      </OwnerSectionCard>
-        </>
-      )}
+        {storeAdminTab === 'operations' || storeAdminTab === 'profile' ? ownerManageSections : null}
       </ScrollView>
+
+      <OwnerDashboardNav tabs={SERVICE_TABS} activeTab={storeAdminTab} onChange={setStoreAdminTab} />
       {ownerModals}
-    </>
+    </View>
   );
 }
 

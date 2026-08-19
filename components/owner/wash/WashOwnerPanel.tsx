@@ -19,6 +19,8 @@ import {
 
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
+import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
+import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
@@ -33,6 +35,7 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import { getSupabase } from '@/lib/supabase/client';
+import { getOwnerDashboardConfig } from '@/lib/owner/dashboardConfig';
 import {
   deleteCouponRemote,
   listActiveCouponsForShop,
@@ -554,6 +557,24 @@ export function WashOwnerPanel({ shop }: Props) {
       });
     }, [refreshAll, shop.id]),
   );
+
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    const channel = supabase
+      .channel(`owner-bookings:${shop.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings', filter: `shop_id=eq.${shop.id}` },
+        () => {
+          void refreshAll({ silent: true });
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [refreshAll, shop.id]);
 
   useEffect(() => {
     if (!pendingBranchSyncId) return;
@@ -1587,11 +1608,12 @@ export function WashOwnerPanel({ shop }: Props) {
     isBranchManager || (isOwner && managerResolved && !hasAnyBranchManager && !hasDedicatedBranchManager);
   const showCoupons = false;
 
+  const dashboardConfig = getOwnerDashboardConfig(shop.type);
   const TABS = [
-    { id: 'dashboard' as const, labelKey: 'wash_tab_dashboard' as const, icon: 'dashboard' as const },
-    { id: 'profile' as const, labelKey: 'wash_tab_profile' as const, icon: 'id-card-o' as const },
-    { id: 'operations' as const, labelKey: 'wash_tab_operations' as const, icon: 'wrench' as const },
-    { id: 'management' as const, labelKey: 'wash_tab_management' as const, icon: 'users' as const },
+    { id: 'dashboard' as const, label: t('owner_dashboard_overview'), icon: 'dashboard' as const },
+    { id: 'management' as const, label: t(dashboardConfig.activityLabelKey), icon: 'calendar' as const },
+    { id: 'operations' as const, label: t(dashboardConfig.catalogLabelKey), icon: 'wrench' as const },
+    { id: 'profile' as const, label: t('owner_dashboard_profile_settings'), icon: 'cog' as const },
   ];
 
   if (!workspaceReady) {
@@ -1715,19 +1737,37 @@ export function WashOwnerPanel({ shop }: Props) {
 
                 {/* Dashboard overview */}
                 {analytics ? (
-                  <OwnerSectionCard theme={theme} title={t('wash_dashboard_title')} subtitle={t('wash_dashboard_lead')}>
-                    <View style={styles.statGrid}>
-                      {renderStatCard(t('wash_stat_today_bookings'), String(analytics.todayBookings))}
-                      {renderStatCard(t('wash_stat_pending'), String(analytics.pendingRequests), true)}
-                      {isOwner && isPremium ? (
-                        <>
-                          {renderStatCard(t('wash_stat_monthly_revenue'), formatEgp(analytics.monthlyRevenue, locale))}
-                          {renderStatCard(t('wash_stat_avg_rating'), analytics.averageRating.toFixed(1))}
-                          {renderStatCard(t('wash_stat_total_customers'), String(analytics.totalCustomers))}
-                          {renderStatCard(t('wash_stat_returning'), String(analytics.returningCustomers))}
-                        </>
-                      ) : null}
-                    </View>
+                  <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
+                    <OwnerMetricsGrid
+                      metrics={[
+                        {
+                          id: 'revenue',
+                          label: t('store_owner_total_revenue'),
+                          value: formatEgp(analytics.monthlyRevenue, locale),
+                          icon: 'money',
+                          tone: 'success',
+                        },
+                        {
+                          id: 'today',
+                          label: t('owner_dashboard_today_bookings'),
+                          value: analytics.todayBookings,
+                          icon: 'calendar-check-o',
+                        },
+                        {
+                          id: 'pending',
+                          label: t('owner_dashboard_pending_requests'),
+                          value: analytics.pendingRequests,
+                          icon: 'clock-o',
+                          tone: 'warning',
+                        },
+                        {
+                          id: 'services',
+                          label: t('owner_dashboard_active_services'),
+                          value: sortedServices.filter((service) => service.active).length,
+                          icon: 'wrench',
+                        },
+                      ]}
+                    />
                   </OwnerSectionCard>
                 ) : null}
 
@@ -2336,37 +2376,7 @@ export function WashOwnerPanel({ shop }: Props) {
         )}
       </ScrollView>
 
-      {/* Persistent Bottom Tab Bar */}
-      <View style={[styles.bottomTabBar, { backgroundColor: theme.bgElevated, borderTopColor: theme.border }]}>
-        {TABS.map((tabItem) => {
-          const active = adminTab === tabItem.id;
-          return (
-            <Pressable
-              key={tabItem.id}
-              onPress={() => setAdminTab(tabItem.id)}
-              style={styles.bottomTabItem}>
-              <FontAwesome
-                name={tabItem.icon}
-                size={20}
-                color={active ? theme.accent : theme.textDim}
-              />
-              <Text
-                style={[
-                  styles.bottomTabLabel,
-                  { color: active ? theme.accent : theme.textDim },
-                ]}>
-                {t(tabItem.labelKey)}
-              </Text>
-            </Pressable>
-          );
-        })}
-        <Pressable
-          onPress={() => router.push('/shop/merchant-settings')}
-          style={styles.bottomTabItem}>
-          <FontAwesome name="cog" size={20} color={theme.textDim} />
-          <Text style={[styles.bottomTabLabel, { color: theme.textDim }]}>{t('tab_settings')}</Text>
-        </Pressable>
-      </View>
+      <OwnerDashboardNav tabs={TABS} activeTab={adminTab} onChange={setAdminTab} />
 
       <PremiumUpgradeModal visible={premiumModalVisible} onClose={() => setPremiumModalVisible(false)} />
 

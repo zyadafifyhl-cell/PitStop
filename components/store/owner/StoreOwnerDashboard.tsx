@@ -1,366 +1,167 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { router } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { OwnerMetricsGrid, type OwnerMetric } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
-import type { Shop } from '@/lib/booking/types';
+import type { Shop, StoreOperatingStatus } from '@/lib/booking/types';
 import { getStoreOwnerStats, type StoreOwnerStats } from '@/lib/store/storeStatsRepository';
-
-import { StoreInventoryManager } from './StoreInventoryManager';
-import { StoreOrdersPanel } from './StoreOrdersPanel';
+import { getSupabase } from '@/lib/supabase/client';
 
 type Props = {
   shop: Shop;
+  storeStatus?: StoreOperatingStatus;
   onRefresh?: () => void;
+  onNavigate?: (target: 'pending_orders' | 'active_orders' | 'low_stock' | 'reports' | 'settings') => void;
 };
 
-type ActivePanel = 'inventory' | 'orders' | 'profile';
+const EMPTY_STATS: StoreOwnerStats = {
+  totalRevenue: 0,
+  totalOrders: 0,
+  pendingOrders: 0,
+  lowStockCount: 0,
+  totalProducts: 0,
+};
 
-export function StoreOwnerDashboard({ shop, onRefresh }: Props) {
+export function StoreOwnerDashboard({ shop, storeStatus = 'open', onRefresh, onNavigate }: Props) {
   const theme = useAppTheme();
-  const { t } = useI18n();
-  const [stats, setStats] = useState<StoreOwnerStats>({
-    totalRevenue: 0,
-    pendingOrders: 0,
-    lowStockCount: 0,
-    totalProducts: 0,
-  });
+  const { t, locale } = useI18n();
+  const [stats, setStats] = useState<StoreOwnerStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activePanel, setActivePanel] = useState<ActivePanel>('inventory');
-  const [storeOpen, setStoreOpen] = useState(shop.is_open ?? true);
 
   const loadStats = useCallback(async () => {
-    try {
-      const data = await getStoreOwnerStats();
-      setStats(data);
-    } catch (error) {
-      console.error('[StoreOwnerDashboard] loadStats error:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    setStats(await getStoreOwnerStats(shop.id));
+    setLoading(false);
+  }, [shop.id]);
 
   useEffect(() => {
-    loadStats();
+    void loadStats();
   }, [loadStats]);
 
-  const handleRefresh = useCallback(async () => {
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    const channel = supabase
+      .channel(`store-dashboard:${shop.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'store_orders', filter: `shop_id=eq.${shop.id}` },
+        () => void loadStats(),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products', filter: `shop_id=eq.${shop.id}` },
+        () => void loadStats(),
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [loadStats, shop.id]);
+
+  const metrics = useMemo<OwnerMetric[]>(
+    () => [
+      {
+        id: 'revenue',
+        label: t('store_owner_total_revenue'),
+        value: formatEgp(stats.totalRevenue, locale),
+        icon: 'money',
+        tone: 'success',
+        onPress: () => {
+          if (onNavigate) onNavigate('reports');
+          else router.push('/shop/store-reports');
+        },
+      },
+      {
+        id: 'orders',
+        label: t('store_owner_total_orders'),
+        value: stats.totalOrders,
+        icon: 'shopping-bag',
+        onPress: onNavigate ? () => onNavigate('active_orders') : undefined,
+      },
+      {
+        id: 'pending',
+        label: t('store_owner_pending_orders'),
+        value: stats.pendingOrders,
+        icon: 'clock-o',
+        tone: 'warning',
+        onPress: onNavigate ? () => onNavigate('pending_orders') : undefined,
+      },
+      {
+        id: 'stock',
+        label: t('store_owner_low_stock'),
+        value: stats.lowStockCount,
+        icon: 'exclamation-triangle',
+        tone: stats.lowStockCount > 0 ? 'danger' : 'accent',
+        onPress: onNavigate ? () => onNavigate('low_stock') : undefined,
+      },
+    ],
+    [locale, onNavigate, stats, t],
+  );
+
+  const refresh = useCallback(async () => {
     setRefreshing(true);
     await loadStats();
     onRefresh?.();
     setRefreshing(false);
   }, [loadStats, onRefresh]);
 
-  const handleToggleStoreOpen = useCallback(async (value: boolean) => {
-    setStoreOpen(value);
-    // TODO: Update shop.is_open in database
-  }, []);
-
   if (loading) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.surface }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-        <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
-          {t('store_owner_loading_dashboard')}
-        </Text>
+      <View style={styles.loading}>
+        <ActivityIndicator color={theme.accent} size="large" />
       </View>
     );
   }
 
+  const statusLabel =
+    storeStatus === 'closed'
+      ? t('store_status_closed')
+      : storeStatus === 'maintenance'
+        ? t('store_status_maintenance')
+        : t('store_status_open');
+
   return (
     <ScrollView
-      style={[styles.container, { backgroundColor: theme.surface }]}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          tintColor={theme.primary}
-          colors={[theme.primary]}
-        />
-      }
-    >
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.primary }]}>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>{t('store_owner_dashboard')}</Text>
-          <Text style={styles.headerSubtitle}>{shop.name_ar || shop.name_en}</Text>
-        </View>
-        <View style={styles.storeToggle}>
-          <Text style={[styles.toggleLabel, !storeOpen && styles.toggleLabelClosed]}>
-            {storeOpen ? t('store_open') : t('store_closed')}
-          </Text>
-          <Switch
-            value={storeOpen}
-            onValueChange={handleToggleStoreOpen}
-            trackColor={{ false: '#767577', true: theme.success }}
-            thumbColor="#fff"
-          />
-        </View>
-      </View>
-
-      {/* Stats Cards */}
-      <View style={styles.statsGrid}>
-        <OwnerSectionCard
-          title={t('store_owner_total_revenue')}
-          icon="dollar"
-          iconColor={theme.success}
-          style={styles.statCard}
-        >
-          <Text style={[styles.statValue, { color: theme.success }]}>
-            {formatEgp(stats.totalRevenue)}
-          </Text>
-        </OwnerSectionCard>
-
-        <OwnerSectionCard
-          title={t('store_owner_pending_orders')}
-          icon="clock-o"
-          iconColor={theme.warning}
-          style={styles.statCard}
-        >
-          <Text style={[styles.statValue, { color: theme.warning }]}>
-            {stats.pendingOrders}
-          </Text>
-        </OwnerSectionCard>
-
-        <OwnerSectionCard
-          title={t('store_owner_low_stock')}
-          icon="exclamation-triangle"
-          iconColor={stats.lowStockCount > 0 ? theme.error : theme.textSecondary}
-          style={styles.statCard}
-        >
-          <Text
-            style={[
-              styles.statValue,
-              { color: stats.lowStockCount > 0 ? theme.error : theme.textSecondary },
-            ]}
-          >
-            {stats.lowStockCount}
-          </Text>
-        </OwnerSectionCard>
-
-        <OwnerSectionCard
-          title={t('store_owner_total_products')}
-          icon="cubes"
-          iconColor={theme.primary}
-          style={styles.statCard}
-        >
-          <Text style={[styles.statValue, { color: theme.primary }]}>
-            {stats.totalProducts}
-          </Text>
-        </OwnerSectionCard>
-      </View>
-
-      {/* Tab Navigation */}
-      <View style={[styles.tabs, { borderBottomColor: theme.border }]}>
+        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={theme.accent} colors={[theme.accent]} />
+      }>
+      <OwnerSectionCard
+        title={t('owner_dashboard_overview')}
+        subtitle={locale === 'ar' ? shop.nameAr || shop.name : shop.name}>
         <Pressable
-          style={[
-            styles.tab,
-            activePanel === 'inventory' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 2,
-            },
-          ]}
-          onPress={() => setActivePanel('inventory')}
-        >
-          <FontAwesome
-            name="cubes"
-            size={18}
-            color={activePanel === 'inventory' ? theme.primary : theme.textSecondary}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              {
-                color: activePanel === 'inventory' ? theme.primary : theme.textSecondary,
-              },
-            ]}
-          >
-            {t('store_owner_inventory')}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[
-            styles.tab,
-            activePanel === 'orders' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 2,
-            },
-          ]}
-          onPress={() => setActivePanel('orders')}
-        >
-          <FontAwesome
-            name="shopping-bag"
-            size={18}
-            color={activePanel === 'orders' ? theme.primary : theme.textSecondary}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              {
-                color: activePanel === 'orders' ? theme.primary : theme.textSecondary,
-              },
-            ]}
-          >
-            {t('store_owner_orders')}
-          </Text>
-          {stats.pendingOrders > 0 && (
-            <View style={[styles.badge, { backgroundColor: theme.error }]}>
-              <Text style={styles.badgeText}>{stats.pendingOrders}</Text>
-            </View>
-          )}
-        </Pressable>
-
-        <Pressable
-          style={[
-            styles.tab,
-            activePanel === 'profile' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 2,
-            },
-          ]}
-          onPress={() => setActivePanel('profile')}
-        >
-          <FontAwesome
-            name="cog"
-            size={18}
-            color={activePanel === 'profile' ? theme.primary : theme.textSecondary}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              {
-                color: activePanel === 'profile' ? theme.primary : theme.textSecondary,
-              },
-            ]}
-          >
-            {t('store_owner_profile')}
-          </Text>
-        </Pressable>
-      </View>
-
-      {/* Panel Content */}
-      <View style={styles.panelContent}>
-        {activePanel === 'inventory' && (
-          <StoreInventoryManager shop={shop} onRefresh={loadStats} />
-        )}
-        {activePanel === 'orders' && <StoreOrdersPanel shop={shop} onRefresh={loadStats} />}
-        {activePanel === 'profile' && (
-          <OwnerSectionCard title={t('store_owner_profile')} icon="user">
-            <Text style={{ color: theme.textSecondary }}>
-              {t('store_owner_profile_coming_soon')}
+          onPress={onNavigate ? () => onNavigate('settings') : undefined}
+          style={styles.statusRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.statusTitle, { color: theme.text }]}>{statusLabel}</Text>
+            <Text style={[styles.statusHint, { color: theme.textMuted }]}>
+              {t('store_owner_total_products')}: {stats.totalProducts}
             </Text>
-          </OwnerSectionCard>
-        )}
-      </View>
+          </View>
+        </Pressable>
+      </OwnerSectionCard>
+
+      <OwnerMetricsGrid metrics={metrics} />
+      <Pressable
+        onPress={() => router.push('/shop/store-reports')}
+        style={[styles.reportsBtn, { borderColor: theme.border, backgroundColor: theme.card }]}>
+        <Text style={[styles.reportsTitle, { color: theme.text }]}>{t('store_reports_open')}</Text>
+        <Text style={[styles.reportsHint, { color: theme.textMuted }]}>{t('store_reports_lead')}</Text>
+      </Pressable>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-  },
-  header: {
-    padding: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerContent: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: 4,
-  },
-  storeToggle: {
-    alignItems: 'flex-end',
-  },
-  toggleLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  toggleLabelClosed: {
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 12,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    minWidth: 150,
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginTop: 8,
-  },
-  tabs: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    paddingHorizontal: 12,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    gap: 6,
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  badge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-    marginLeft: 4,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  panelContent: {
-    padding: 12,
-  },
+  loading: { minHeight: 220, alignItems: 'center', justifyContent: 'center' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 6 },
+  statusTitle: { fontSize: 15, fontWeight: '900' },
+  statusHint: { marginTop: 4, fontSize: 12, fontWeight: '600' },
+  reportsBtn: { marginTop: 14, borderWidth: 1, borderRadius: 14, padding: 14 },
+  reportsTitle: { fontSize: 14, fontWeight: '900' },
+  reportsHint: { marginTop: 4, fontSize: 12, fontWeight: '600' },
 });

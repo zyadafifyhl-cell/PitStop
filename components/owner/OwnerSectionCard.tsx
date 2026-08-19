@@ -1,21 +1,36 @@
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import type { AppThemeTokens } from '@/constants/Theme';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 type Props = {
-  theme: AppThemeTokens;
+  theme?: Partial<AppThemeTokens>;
   title: string;
   subtitle?: string;
+  icon?: React.ComponentProps<typeof FontAwesome>['name'];
+  iconColor?: string;
+  style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 };
 
-export function OwnerSectionCard({ theme, title, subtitle, children }: Props) {
+export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, style, children }: Props) {
+  const contextTheme = useAppTheme();
+  const cardColor = theme?.card ?? contextTheme?.card ?? '#1e293b';
+  const borderColor = theme?.border ?? contextTheme?.border ?? 'rgba(255,255,255,0.08)';
+  const accentColor = theme?.accentSoft ?? contextTheme?.accentSoft ?? 'rgba(0,82,255,0.22)';
+  const titleColor = theme?.text ?? contextTheme?.text ?? '#ffffff';
+  const subtitleColor = theme?.textMuted ?? contextTheme?.textMuted ?? '#94a3b8';
+
   return (
-    <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <View style={[styles.topAccent, { backgroundColor: theme.accentSoft }]} />
-      <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
-      {subtitle ? <Text style={[styles.subtitle, { color: theme.textMuted }]}>{subtitle}</Text> : null}
+    <View style={[styles.card, { backgroundColor: cardColor, borderColor }, style]}>
+      <View style={[styles.topAccent, { backgroundColor: accentColor }]} />
+      <View style={styles.titleRow}>
+        {icon ? <FontAwesome name={icon} size={17} color={iconColor ?? contextTheme?.accent ?? '#3b82f6'} /> : null}
+        <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
+      </View>
+      {subtitle ? <Text style={[styles.subtitle, { color: subtitleColor }]}>{subtitle}</Text> : null}
       {children}
     </View>
   );
@@ -41,6 +56,7 @@ const styles = StyleSheet.create({
     right: 0,
     height: 1.5,
   },
-  title: { fontSize: 17, fontWeight: '900', marginBottom: 4 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  title: { flex: 1, fontSize: 17, fontWeight: '900' },
   subtitle: { fontSize: 13, lineHeight: 19, marginBottom: 12 },
 });
