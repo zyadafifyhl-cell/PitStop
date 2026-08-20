@@ -54,10 +54,12 @@
 <p><strong>Audience:</strong> Engineers, product stakeholders, operations, and auditors  </p>
 <p><strong>Stack:</strong> Expo Router (React Native / web) · Supabase Auth · PostgreSQL · RLS · Realtime · Storage · Edge Functions  </p>
 <p><strong>Canonical schema sources:</strong> <code>supabase/schema.sql</code>, <code>supabase/complete_system_schema.sql</code>, incremental <code>apply-pitstop-2.0-step*.sql</code>  </p>
-<p><strong>Last aligned to codebase:</strong> 18 August 2026</p>
+<p><strong>Last aligned to codebase:</strong> 20 August 2026</p>
+<p><strong>Production retail update:</strong> store owner 5-tab shell, completed-only revenue, order restock on cancel, customer <code>/(tabs)/orders</code> tab, tax invoice receipt, multi-image SKUs, and cart stock caps. See the delta section below plus 2.2–2.7, 3.1, 3.3–3.5, Appendix A, and Appendix C.</p>
 <hr />
 <h2 id="table-of-contents">Table of contents</h2>
 <ol>
+<li><a href="#august-2026-production-retail-delta">August 2026 production retail delta</a></li>
 <li><a href="#1-executive-overview--platform-roles">Executive overview and platform roles</a></li>
 <li><a href="#2-owner--merchant-ecosystem--dashboards">Owner / merchant ecosystem and dashboards</a></li>
 <li><a href="#3-customer-user-journey--checkout-flow">Customer user journey and checkout flow</a></li>
@@ -65,6 +67,71 @@
 <li><a href="#5-database-schema--supabase-topology">Database schema and Supabase topology</a></li>
 <li><a href="#6-realtime-event-pipelines--edge-integrations">Realtime event pipelines and edge integrations</a></li>
 </ol>
+<hr />
+<h2 id="august-2026-production-retail-delta">August 2026 production retail delta</h2>
+<p>This section is the current source of truth for retail work shipped after the 18 August 2026 snapshot. Service shop shells (<code>wash</code> / <code>maintenance</code> / <code>winch</code>) stay on the 4-tab layout unless a later section says otherwise.</p>
+<h3 id="delta-store-owner-shell">Store owner shell (5 tabs)</h3>
+<ul>
+<li>Tab ids come from <code>lib/owner/dashboardConfig.ts</code> <code>getOwnerNavTabs(shopType)</code>.</li>
+<li><strong>Store</strong> (<code>parts</code>, <code>accessories</code>): Overview, Orders, Inventory (AR المخزن), Profile, Settings.</li>
+<li><strong>Service</strong>: Overview, Bookings, Services, combined Profile &amp; Settings. Header cog still opens <code>/shop/merchant-settings</code>.</li>
+<li>Store header cog switches to the in-shell Settings tab (<code>components/store/owner/StoreOwnerSettings.tsx</code>).</li>
+<li>Profile is customer-facing shop info + GPS pin: <code>components/store/owner/StoreOwnerProfileSections.tsx</code>.</li>
+<li>Operating status Open / Closed / Maintenance is persisted as <code>shop_extras.storeOperatingStatus</code> via <code>setStoreOperatingStatus</code> in <code>lib/booking/shopExtrasStorage.ts</code>. Overview shows a read-only chip that navigates to Settings.</li>
+<li>Metric cards: pending → Orders filter, revenue → <code>/shop/store-reports</code>, low stock → Inventory filter (<code>lib/store/ownerFilters.ts</code>).</li>
+</ul>
+<h3 id="delta-order-lifecycle">Order lifecycle, revenue, restock</h3>
+<ul>
+<li>DB enum remains <code>preparing</code>; UI copy is Processing / قيد التجهيز.</li>
+<li>Owner RPC <code>update_store_order_status</code> (<code>supabase/store_order_lifecycle_refactor.sql</code>): pending → preparing | ready | cancelled; preparing → ready | cancelled; ready → completed | cancelled; completed → cancelled (void).</li>
+<li>Any transition to <code>cancelled</code> restocks line items atomically (row lock + increment <code>stock_quantity</code>).</li>
+<li>Revenue in <code>get_store_owner_stats</code> and <code>get_store_sales_report</code> counts <code>status = completed</code> only.</li>
+<li>Customer cancel (pending only): RPC <code>cancel_own_store_order</code> (<code>supabase/customer_cancel_store_order.sql</code>) — same restock path. Owner RPC is still used for merchant status changes.</li>
+</ul>
+<h3 id="delta-customer-orders">Customer My Orders + tax invoice</h3>
+<ul>
+<li>Dedicated tab <code>app/(tabs)/orders.tsx</code>, registered in <code>app/(tabs)/_layout.tsx</code> (icon <code>bag-handle-outline</code>).</li>
+<li>Customer tab map: Home, Bookings, <strong>Orders</strong>, Favorites, Driver Network, Account. Bookings is service bookings only.</li>
+<li>List: <code>components/customer/CustomerStoreOrdersList.tsx</code> via <code>listStoreOrdersForUser(userId)</code> in <code>lib/store/productRepository.ts</code>. Cards: <code>CustomerStoreOrderCard.tsx</code>.</li>
+<li>Actions: cancel pending, Call / WhatsApp (<code>lib/linking/contact.ts</code> <code>openWhatsAppTo</code>), Buy again via <code>StoreCartContext.addProduct</code>.</li>
+<li>Tax invoice modal: <code>components/customer/StoreOrderInvoiceModal.tsx</code>. Print/Save: <code>lib/store/storeOrderInvoice.ts</code> + <code>expo-print</code>. Title “Tax Invoice / فاتورة شراء”. Pickup delivery line is Free / مجاناً.</li>
+</ul>
+<h3 id="delta-catalog-checkout">Catalog, cart, checkout</h3>
+<ul>
+<li>SKU media: <code>products.image_url</code> (cover) + <code>products.image_urls</code> text[] max 5. Customer slider: <code>StoreProductImageSlider</code>. Helpers: <code>lib/store/productImages.ts</code>. Instant local previews in <code>AddProductModal</code>; upload on save.</li>
+<li>Cart stock caps: <code>lib/store/stockLimits.ts</code> + <code>StoreQuantityStepper</code>. Checkout overstock banner; RPC still raises insufficient-stock on race.</li>
+<li><code>place_store_order(..., p_shop_id)</code> scopes cart lines to one merchant so mixed carts can be fulfilled one shop at a time.</li>
+</ul>
+<h3 id="delta-migrations">Canonical SQL / client files for this delta</h3>
+<table><thead><tr>
+<th>Concern</th>
+<th>File</th>
+</tr></thead><tbody>
+<tr>
+<td>Lifecycle + restock + completed-only revenue</td>
+<td><code>supabase/store_order_lifecycle_refactor.sql</code></td>
+</tr>
+<tr>
+<td>Multi-image SKUs, per-shop checkout, sales report</td>
+<td><code>supabase/store_enhancements_production.sql</code></td>
+</tr>
+<tr>
+<td>Customer cancel</td>
+<td><code>supabase/customer_cancel_store_order.sql</code></td>
+</tr>
+<tr>
+<td>Product-images Storage RLS</td>
+<td><code>supabase/fix_storage_rls_product_images.sql</code> (if present in repo)</td>
+</tr>
+<tr>
+<td>Owner nav</td>
+<td><code>lib/owner/dashboardConfig.ts</code>, <code>components/owner/OwnerDashboardNav.tsx</code></td>
+</tr>
+<tr>
+<td>Store owner settings / profile</td>
+<td><code>StoreOwnerSettings.tsx</code>, <code>StoreOwnerProfileSections.tsx</code></td>
+</tr>
+</tbody></table>
 <hr />
 <h2 id="1-executive-overview-and-platform-roles">1. Executive overview &amp; platform roles</h2>
 <h3 id="1-1-platform-purpose">1.1 Platform purpose</h3>
@@ -104,8 +171,8 @@
                                   pending_owner)
               │                          │                          │
               ▼                          ▼                          ▼
-     /(tabs) home, book,         /(tabs)/shop dashboards      /admin
-     store, bookings             + /shop/* merchant routes
+     /(tabs) home, bookings,     /(tabs)/shop dashboards      /admin
+     orders, store               + /shop/* merchant routes
               │                          │                          │
               └──────────────────────────┼──────────────────────────┘
                                          ▼
@@ -303,9 +370,9 @@ public.shops  (tenant root)
     ├── not logged in     → email/password merchant login form
     ├── isAdmin           → redirect /admin
     ├── shop.type = wash  → components/owner/wash/WashOwnerPanel.tsx
-    ├── parts|accessories → Store owner shell (STORE_TABS)
-    └── maintenance|winch → Service owner shell (SERVICE_TABS)</code></pre>
-<p>Shared bottom navigation: <code>components/owner/OwnerDashboardNav.tsx</code>. Tab ids are the same four strings for every merchant category; <strong>labels and content change</strong> via <code>lib/owner/dashboardConfig.ts</code>.</p>
+    ├── parts|accessories → Store owner shell (5 tabs via getOwnerNavTabs)
+    └── maintenance|winch → Service owner shell (4 tabs)</code></pre>
+<p>Shared bottom navigation: <code>components/owner/OwnerDashboardNav.tsx</code>. Tab ids come from <code>lib/owner/dashboardConfig.ts</code> → <code>getOwnerNavTabs(shopType)</code>. <strong>Store merchants have five tabs</strong> (Profile and Settings are split). Service merchants keep four tabs with combined Profile &amp; Settings.</p>
 <table><thead><tr>
 <th>Tab id</th>
 <th>Store merchants (<code>parts</code>, <code>accessories</code>)</th>
@@ -313,23 +380,28 @@ public.shops  (tenant root)
 </tr></thead><tbody>
 <tr>
 <td><code>dashboard</code></td>
-<td>Overview + metrics</td>
+<td>Overview / نظرة عامة — metrics + read-only status</td>
 <td>Overview + metrics</td>
 </tr>
 <tr>
 <td><code>management</code></td>
-<td>Orders (<code>store_owner_orders</code>)</td>
-<td>Bookings / queue (<code>owner_dashboard_bookings</code>)</td>
+<td>Orders / الطلبات — <code>StoreOrdersPanel</code></td>
+<td>Bookings / queue</td>
 </tr>
 <tr>
 <td><code>operations</code></td>
-<td>Inventory (<code>store_owner_inventory</code>)</td>
-<td>Services catalog (<code>owner_dashboard_services</code>)</td>
+<td>Inventory / المخزن — <code>StoreInventoryManager</code></td>
+<td>Services catalog</td>
 </tr>
 <tr>
 <td><code>profile</code></td>
-<td>Profile, gallery, campaigns</td>
-<td>Profile, hours, GPS, gallery</td>
+<td>Profile / الملف التعريفي — customer-facing shop info, cover, avatar, gallery, GPS pin</td>
+<td>Combined Profile &amp; Settings</td>
+</tr>
+<tr>
+<td><code>settings</code></td>
+<td>Settings / الإعدادات — Open/Closed/Maintenance, hours, password, locale, legal, logout</td>
+<td><em>n/a — cog still opens <code>/shop/merchant-settings</code></em></td>
 </tr>
 </tbody></table>
 <h3 id="2-1-merchant-categories">2.1 Merchant categories</h3>
@@ -398,11 +470,12 @@ public.shops  (tenant root)
 │ OwnerProfileHeader  (cover, avatar, notifications, cog)  │
 ├──────────────────────────────────────────────────────────┤
 │ Tab body (ScrollView)                                    │
-│   dashboard | management | operations | profile          │
+│   dashboard | management | operations | profile | settings │
+│   (store: 5 tabs; service: 4 tabs, no standalone settings) │
 ├──────────────────────────────────────────────────────────┤
-│ OwnerDashboardNav  (absolute bottom bar, 4 tabs)         │
+│ OwnerDashboardNav  (absolute bottom bar)                 │
 └──────────────────────────────────────────────────────────┘</code></pre>
-<p>Merchant account settings (password, terms, privacy, locale, sign-out) live at <code>/shop/merchant-settings</code> (<code>app/shop/merchant-settings.tsx</code>), opened from the header cog. Customer tab bar is <strong>hidden</strong> while a shop session is active (<code>app/(tabs)/_layout.tsx</code>).</p>
+<p>For <strong>store</strong> owners, the header cog switches to the in-shell Settings tab. Account password / terms / privacy also remain at <code>/shop/merchant-settings</code>. Service owners still open that route from the cog. Customer tab bar is <strong>hidden</strong> while a shop session is active (<code>app/(tabs)/_layout.tsx</code>).</p>
 <hr />
 <h3 id="2-3-overview-and-key-metrics">2.3 Overview &amp; key metrics</h3>
 <h4 id="store-merchants">Store merchants</h4>
@@ -417,8 +490,8 @@ public.shops  (tenant root)
 <tr>
 <td><code>revenue</code></td>
 <td><code>store_owner_total_revenue</code></td>
-<td><code>sum(store_orders.total_price)</code> where status ∈ pending, preparing, ready, completed</td>
-<td>Cancelled excluded</td>
+<td><code>sum(store_orders.total_price)</code> where <code>status = completed</code> only</td>
+<td>Pending / preparing / ready are operational, not revenue. Sales report RPC matches this rule.</td>
 </tr>
 <tr>
 <td><code>orders</code></td>
@@ -439,7 +512,7 @@ public.shops  (tenant root)
 <td>Danger if &gt; 0</td>
 </tr>
 </tbody></table>
-<p>Also shown: total products, local Open/Closed switch (UI state in dashboard; shop availability for checkout is <code>shops.is_active</code>).</p>
+<p>Overview shows a <strong>read-only</strong> store status chip (Open / Closed / Maintenance) that navigates to Settings. Status is persisted on <code>shop_extras.storeOperatingStatus</code> via <code>setStoreOperatingStatus</code>. Metric cards are tappable: pending → Orders filter, revenue → <code>/shop/store-reports</code>, low stock → Inventory filter.</p>
 <p><strong>Realtime:</strong> channel <code>store-dashboard:{shopId}</code> listens to <code>store_orders</code> and <code>products</code> filtered by <code>shop_id</code>.</p>
 <h4 id="wash-merchants">Wash merchants</h4>
 <p><strong>Analytics:</strong> <code>lib/booking/wash/washAnalytics.ts</code> → <code>WashAnalyticsSnapshot</code></p>
@@ -535,11 +608,11 @@ public.shops  (tenant root)
 </tr>
 <tr>
 <td>Image upload</td>
-<td><code>uploadImageToBucket</code> → bucket <code>product-images</code>, path <code>shops/{shopId}/products/{timestamp}-...</code></td>
+<td><code>uploadImageToBucket</code> → bucket <code>product-images</code>. Instant local previews in <code>AddProductModal</code>; upload on save. Web uses File/Blob + <code>window.fetch</code>.</td>
 </tr>
 <tr>
-<td>Product image column</td>
-<td><code>products.image_url</code> (<strong>one primary image per SKU</strong> in current schema)</td>
+<td>Product images</td>
+<td><code>products.image_url</code> (cover) plus <code>products.image_urls</code> (up to 5). Customer UI: <code>StoreProductImageSlider</code>. Helpers: <code>lib/store/productImages.ts</code>.</td>
 </tr>
 <tr>
 <td>Delete</td>
@@ -554,6 +627,7 @@ public.shops  (tenant root)
 <td>channel <code>store-inventory:{shopId}</code> on <code>products</code></td>
 </tr>
 </tbody></table>
+<p><strong>Stock caps (customer cart):</strong> <code>lib/store/stockLimits.ts</code> clamps quantity to live <code>stock_quantity</code>. <code>StoreQuantityStepper</code> cannot exceed stock. Checkout shows an overstock banner; <code>place_store_order</code> still raises insufficient-stock if the race is lost.</p>
 <p><strong>Sub-categories (canonical ids):</strong></p>
 <table><thead><tr>
 <th><code>spare_parts</code></th>
@@ -604,7 +678,7 @@ public.shops  (tenant root)
                        ┌─────────┐
                        │ pending │  new order, stock already decremented
                        └───┬─────┘
-                           │ owner: Preparing
+                           │ owner: Processing (DB: preparing)
                            ▼
                        ┌───────────┐
                        │ preparing │
@@ -617,29 +691,35 @@ public.shops  (tenant root)
                              │ owner: Completed
                              ▼
                       ┌───────────┐
-                      │ completed │  terminal (revenue counted)
+                      │ completed │  revenue counted
                       └───────────┘
 
-       pending ──owner: Cancelled──► cancelled   (terminal; excluded from revenue)</code></pre>
-<p>UI actions in <code>StoreOrdersPanel</code> (order detail modal):</p>
+  pending / preparing / ready / completed ──Cancel──► cancelled
+       (restock line items atomically; excluded from revenue)
+  pending ──customer cancel_own_store_order──► cancelled  (pending only)</code></pre>
+<p>UI actions in <code>StoreOrdersPanel</code> (order detail modal). DB enum stays <code>preparing</code>; UI copy is Processing / قيد التجهيز.</p>
 <table><thead><tr>
 <th>Current status</th>
 <th>Allowed owner actions</th>
 </tr></thead><tbody>
 <tr>
 <td><code>pending</code></td>
-<td><code>preparing</code>, <code>cancelled</code></td>
+<td><code>preparing</code>, <code>ready</code>, <code>cancelled</code></td>
 </tr>
 <tr>
 <td><code>preparing</code></td>
-<td><code>ready</code></td>
+<td><code>ready</code>, <code>cancelled</code></td>
 </tr>
 <tr>
 <td><code>ready</code></td>
+<td><code>completed</code>, <code>cancelled</code></td>
+</tr>
+<tr>
 <td><code>completed</code></td>
+<td><code>cancelled</code> (void + restock)</td>
 </tr>
 <tr>
-<td><code>completed</code> / <code>cancelled</code></td>
+<td><code>cancelled</code></td>
 <td>none</td>
 </tr>
 </tbody></table>
@@ -755,7 +835,7 @@ public.shops  (tenant root)
 <td>Working hours</td>
 <td>Per-day <code>weekly_hours</code> on branch</td>
 <td><code>setShopSchedule</code> / <code>setShopWeeklyHours</code></td>
-<td>Profile tab (hours optional; retail uses <code>shops.is_active</code>)</td>
+<td>Settings tab hours + <code>storeOperatingStatus</code> (Open/Closed/Maintenance). Checkout still requires <code>shops.is_active</code>.</td>
 </tr>
 <tr>
 <td>Gallery</td>
@@ -773,7 +853,7 @@ public.shops  (tenant root)
 <td>Map pin</td>
 <td>GPS capture + <code>OsmLocationPicker</code></td>
 <td>Shop lat/lng on <code>shops</code></td>
-<td>Shop lat/lng for store map</td>
+<td>Profile tab GPS pin → shop lat/lng for store map</td>
 </tr>
 <tr>
 <td>Delivery</td>
@@ -791,9 +871,16 @@ public.shops  (tenant root)
 <td>Legal</td>
 <td><code>/shop/merchant-terms</code>, <code>/shop/merchant-privacy</code></td>
 <td>same</td>
-<td>same</td>
+<td>Settings tab rows + <code>/shop/merchant-terms</code>, <code>/shop/merchant-privacy</code></td>
+</tr>
+<tr>
+<td>Operating status</td>
+<td>Branch <code>shop_status</code></td>
+<td>Shop extras / hours</td>
+<td><code>shop_extras.storeOperatingStatus</code> via Settings tab</td>
 </tr>
 </tbody></table>
+<p>Retail Settings UI: <code>components/store/owner/StoreOwnerSettings.tsx</code> (status, hours, password, language, legal, logout). Retail Profile UI: <code>components/store/owner/StoreOwnerProfileSections.tsx</code>.</p>
 <p>Campaigns panel (<code>components/merchant/MerchantCampaignsPanel.tsx</code>) is embedded on profile/operations depending on type.</p>
 <hr />
 <h2 id="3-customer-user-journey-and-checkout-flow">3. Customer user journey &amp; checkout flow</h2>
@@ -816,7 +903,12 @@ public.shops  (tenant root)
 <tr>
 <td><code>/(tabs)/bookings</code></td>
 <td><code>app/(tabs)/bookings.tsx</code></td>
-<td>My bookings + ratings</td>
+<td>My Bookings — service bookings only</td>
+</tr>
+<tr>
+<td><code>/(tabs)/orders</code></td>
+<td><code>app/(tabs)/orders.tsx</code></td>
+<td>My Orders — retail store orders</td>
 </tr>
 <tr>
 <td><code>/(tabs)/favorites</code></td>
@@ -937,12 +1029,14 @@ public.shops  (tenant root)
          signed-in → StoreCartContext (optimistic) → cart_items UPSERT
     → StoreCartCheckoutModal
          fulfillment: COD (address required, +50 EGP) | pickup
-         placeStoreOrder() RPC
-    → success alert; cart cleared server-side
-    → order appears in owner StoreOrdersPanel via Realtime</code></pre>
-<p>Cart state: <code>context/StoreCartContext.tsx</code> backed by <code>lib/store/cartRepository.ts</code>. Unique key <code>(user_id, product_id)</code>.</p>
+         stock-capped qty + overstock banner
+         placeStoreOrder(..., p_shop_id) RPC
+    → success alert; that shop’s cart lines cleared server-side
+    → order appears in owner StoreOrdersPanel via Realtime
+    → customer tracks it on /(tabs)/orders (invoice / cancel pending / buy again)</code></pre>
+<p>Cart state: <code>context/StoreCartContext.tsx</code> backed by <code>lib/store/cartRepository.ts</code>. Unique key <code>(user_id, product_id)</code>. Quantity is clamped to live stock in <code>lib/store/stockLimits.ts</code>.</p>
 <h3 id="3-4-atomic-store-checkout-place-store-order">3.4 Atomic store checkout (<code>place_store_order</code>)</h3>
-<p>Security definer RPC. Canonical body: <code>supabase/complete_system_schema.sql</code>. Client: <code>lib/store/productRepository.ts</code> <code>placeStoreOrder</code>.</p>
+<p>Security definer RPC. Canonical body: <code>supabase/store_enhancements_production.sql</code> (also mirrored in <code>complete_system_schema.sql</code>). Client: <code>lib/store/productRepository.ts</code> <code>placeStoreOrder</code>. Signature includes optional <code>p_shop_id</code> so a mixed cart can check out one merchant at a time.</p>
 <pre><code>BEGIN  (implicit in PL/pgSQL function)
 
 1. AUTH
@@ -950,6 +1044,7 @@ public.shops  (tenant root)
    else raise 'Not authenticated'
 
 2. CART SHAPE
+   optional p_shop_id filters cart lines to that merchant
    lock products FOR UPDATE (ordered by product id)
    cart not empty
    all products active and have shop_id
@@ -981,8 +1076,8 @@ public.shops  (tenant root)
 8. RETURN order uuid
 
 END</code></pre>
-<p><strong>Reservation model:</strong> there is no separate <code>reservations</code> table. Stock is <strong>decremented at order insert</strong>. Cancellation does <strong>not</strong> automatically restock in <code>update_store_order_status</code> (status-only update). Restock, if required operationally, is a follow-up inventory edit.</p>
-<p><strong>Single-merchant rule:</strong> mixed-shop carts fail with <code>Checkout supports products from one merchant at a time</code>.</p>
+<p><strong>Reservation model:</strong> there is no separate <code>reservations</code> table. Stock is <strong>decremented at order insert</strong>. Cancellation <strong>does restock</strong> atomically: owner <code>update_store_order_status(..., cancelled)</code> and customer <code>cancel_own_store_order</code> lock product rows and increment <code>stock_quantity</code> by each line qty.</p>
+<p><strong>Single-merchant rule:</strong> mixed-shop carts fail with <code>Checkout supports products from one merchant at a time</code> unless the client passes <code>p_shop_id</code> and only that shop’s lines are checked out.</p>
 <h3 id="3-5-customer-post-purchase">3.5 Customer post-purchase</h3>
 <table><thead><tr>
 <th>Artifact</th>
@@ -998,7 +1093,19 @@ END</code></pre>
 </tr>
 <tr>
 <td>Store orders</td>
-<td>same bookings tab / order cards when wired through <code>listStoreOrdersForUser</code></td>
+<td><code>/(tabs)/orders</code> via <code>listStoreOrdersForUser</code> → <code>CustomerStoreOrdersList</code> / <code>CustomerStoreOrderCard</code></td>
+</tr>
+<tr>
+<td>Tax invoice (print / save)</td>
+<td><code>StoreOrderInvoiceModal</code> + <code>lib/store/storeOrderInvoice.ts</code> + <code>expo-print</code></td>
+</tr>
+<tr>
+<td>Customer cancel (pending only)</td>
+<td>RPC <code>cancel_own_store_order</code> — restocks, then status <code>cancelled</code></td>
+</tr>
+<tr>
+<td>Buy again</td>
+<td><code>StoreCartContext.addProduct</code> from order lines</td>
 </tr>
 <tr>
 <td>Reviews</td>
@@ -1524,7 +1631,12 @@ shop_extras (shop_id PK, payload jsonb)</code></pre>
 <tr>
 <td><code>image_url</code></td>
 <td>text</td>
-<td>Public Storage URL</td>
+<td>Public Storage URL (cover; kept in sync with <code>image_urls[1]</code>)</td>
+</tr>
+<tr>
+<td><code>image_urls</code></td>
+<td>text[] default <code>{}</code>, max 5</td>
+<td>Gallery; trigger keeps cover + array aligned (<code>store_enhancements_production.sql</code>)</td>
 </tr>
 <tr>
 <td><code>compatibility_type</code></td>
@@ -1828,8 +1940,9 @@ shop_extras (shop_id PK, payload jsonb)</code></pre>
 <p><strong>Store orders:</strong></p>
 <ul>
 <li>SELECT: buyer (<code>user_id</code>) OR admin OR shop owner</li>
-<li>UPDATE: admin or shop owner (status workflow)</li>
+<li>UPDATE: admin or shop owner (status workflow via RPC, not a raw client UPDATE)</li>
 <li>INSERT: not granted to clients; <strong>only</strong> <code>place_store_order</code> (security definer)</li>
+<li>Customer cancel: <strong>only</strong> via <code>cancel_own_store_order</code> (pending + buyer + restock)</li>
 </ul>
 <p><strong>Order items:</strong> SELECT if parent order is readable by the same rules.</p>
 <p><strong>Bookings:</strong></p>
@@ -1871,7 +1984,7 @@ shop_extras (shop_id PK, payload jsonb)</code></pre>
 </tr>
 <tr>
 <td>INSERT/UPDATE/DELETE</td>
-<td>authenticated AND folder shop id matches <code>shops.owner_email</code> = JWT email</td>
+<td>authenticated AND folder shop id matches owner (see <code>supabase/fix_storage_rls_product_images.sql</code>)</td>
 </tr>
 </tbody></table>
 <p>Uploader: <code>lib/supabase/storageUpload.ts</code> <code>uploadImageToBucket</code>. Inventory UI uses <code>throwOnError: true</code>.</p>
@@ -1884,19 +1997,29 @@ shop_extras (shop_id PK, payload jsonb)</code></pre>
 <th>Behavior</th>
 </tr></thead><tbody>
 <tr>
-<td><code>place_store_order(fulfillment, fee, name, phone, address, notes)</code></td>
+<td><code>place_store_order(fulfillment, fee, name, phone, address, notes, shop_id)</code></td>
 <td><code>authenticated</code></td>
-<td>Atomic cart → order → stock → clear cart</td>
+<td>Atomic cart → order → stock → clear that shop’s cart lines. Optional <code>p_shop_id</code>.</td>
 </tr>
 <tr>
 <td><code>update_store_order_status(order_id, status)</code></td>
 <td><code>authenticated</code></td>
-<td>Owner/admin only</td>
+<td>Owner/admin. Restocks on cancel. Allows pending→ready and completed→cancelled (void).</td>
+</tr>
+<tr>
+<td><code>cancel_own_store_order(order_id)</code></td>
+<td><code>authenticated</code></td>
+<td>Buyer only; pending → cancelled + restock</td>
 </tr>
 <tr>
 <td><code>get_store_owner_stats(shop_id)</code></td>
 <td><code>authenticated</code></td>
-<td>JSON metrics; owner/admin</td>
+<td>JSON metrics; owner/admin. Revenue = completed only.</td>
+</tr>
+<tr>
+<td><code>get_store_sales_report(shop_id, from, to)</code></td>
+<td><code>authenticated</code></td>
+<td>Completed-order sales report for <code>/shop/store-reports</code></td>
 </tr>
 <tr>
 <td><code>register_shop_owner(...)</code></td>
@@ -2057,7 +2180,7 @@ uploadImageToBucket({ bucket, folderPath, mimeType, webFile })
         └─ getPublicUrl(path)
                 │
                 ▼
-persist URL on products.image_url  OR  shop_extras / branch image_urls</code></pre>
+persist URL(s) on products.image_url + products.image_urls  OR  shop_extras / branch image_urls</code></pre>
 <p>Path convention for products: <code>shops/{shopId}/products/{epoch}-{stem}-{rand}.{ext}</code>. Owners cannot write another shop’s folder (Storage RLS on folder segment 2 = <code>shops.id</code>).</p>
 <h3 id="6-7-email-and-other-integrations">6.7 Email &amp; other integrations</h3>
 <table><thead><tr>
@@ -2108,9 +2231,15 @@ persist URL on products.image_url  OR  shop_extras / branch image_urls</code></p
 </tr>
 <tr>
 <td><code>pending</code></td>
-<td><code>cancelled</code></td>
+<td><code>ready</code></td>
 <td>Owner</td>
-<td>same</td>
+<td>same (skip processing)</td>
+</tr>
+<tr>
+<td><code>pending</code></td>
+<td><code>cancelled</code></td>
+<td>Owner or customer</td>
+<td>Owner RPC, or <code>cancel_own_store_order</code> (pending only). Restocks.</td>
 </tr>
 <tr>
 <td><code>preparing</code></td>
@@ -2119,10 +2248,28 @@ persist URL on products.image_url  OR  shop_extras / branch image_urls</code></p
 <td>same</td>
 </tr>
 <tr>
+<td><code>preparing</code></td>
+<td><code>cancelled</code></td>
+<td>Owner</td>
+<td>same; restocks</td>
+</tr>
+<tr>
 <td><code>ready</code></td>
 <td><code>completed</code></td>
 <td>Owner</td>
-<td>same</td>
+<td>same; now counts as revenue</td>
+</tr>
+<tr>
+<td><code>ready</code></td>
+<td><code>cancelled</code></td>
+<td>Owner</td>
+<td>same; restocks</td>
+</tr>
+<tr>
+<td><code>completed</code></td>
+<td><code>cancelled</code></td>
+<td>Owner</td>
+<td>void + restock; drops out of revenue</td>
 </tr>
 </tbody></table>
 <h3 id="booking-booking-status">Booking (<code>booking_status</code>)</h3>
@@ -2223,7 +2370,11 @@ persist URL on products.image_url  OR  shop_extras / branch image_urls</code></p
 </tr>
 <tr>
 <td>Store owner UI</td>
-<td><code>components/store/owner/StoreOwnerDashboard.tsx</code>, <code>StoreInventoryManager.tsx</code>, <code>StoreOrdersPanel.tsx</code></td>
+<td><code>StoreOwnerDashboard.tsx</code>, <code>StoreInventoryManager.tsx</code>, <code>StoreOrdersPanel.tsx</code>, <code>StoreOwnerSettings.tsx</code>, <code>StoreOwnerProfileSections.tsx</code>, <code>AddProductModal.tsx</code></td>
+</tr>
+<tr>
+<td>Customer store orders</td>
+<td><code>app/(tabs)/orders.tsx</code>, <code>CustomerStoreOrdersList.tsx</code>, <code>CustomerStoreOrderCard.tsx</code>, <code>StoreOrderInvoiceModal.tsx</code></td>
 </tr>
 <tr>
 <td>Wash owner UI</td>
@@ -2239,11 +2390,15 @@ persist URL on products.image_url  OR  shop_extras / branch image_urls</code></p
 </tr>
 <tr>
 <td>Cart / checkout</td>
-<td><code>context/StoreCartContext.tsx</code>, <code>components/store/StoreCartCheckoutModal.tsx</code></td>
+<td><code>context/StoreCartContext.tsx</code>, <code>StoreCartCheckoutModal.tsx</code>, <code>lib/store/stockLimits.ts</code>, <code>StoreQuantityStepper.tsx</code></td>
 </tr>
 <tr>
 <td>Catalog</td>
-<td><code>app/store.tsx</code>, <code>app/parts-shop/[shopId].tsx</code>, <code>components/store/StoreProductCard.tsx</code></td>
+<td><code>app/store.tsx</code>, <code>app/parts-shop/[shopId].tsx</code>, <code>StoreProductCard.tsx</code>, <code>StoreProductImageSlider.tsx</code>, <code>lib/store/productImages.ts</code></td>
+</tr>
+<tr>
+<td>Sales reports</td>
+<td><code>app/shop/store-reports.tsx</code>, <code>lib/store/salesReportRepository.ts</code></td>
 </tr>
 <tr>
 <td>Booking checkout</td>
@@ -2258,12 +2413,12 @@ persist URL on products.image_url  OR  shop_extras / branch image_urls</code></p
 <td><code>supabase/schema.sql</code>, <code>supabase/complete_system_schema.sql</code></td>
 </tr>
 <tr>
-<td>Stats RPC</td>
-<td><code>supabase/fix-store-owner-stats-rpc.sql</code></td>
+<td>Stats / lifecycle SQL</td>
+<td><code>supabase/store_order_lifecycle_refactor.sql</code>, <code>supabase/store_enhancements_production.sql</code>, <code>supabase/customer_cancel_store_order.sql</code>, <code>supabase/fix-store-owner-stats-rpc.sql</code></td>
 </tr>
 <tr>
 <td>Storage</td>
-<td><code>supabase/create-product-images-storage.sql</code>, <code>lib/supabase/storageUpload.ts</code></td>
+<td><code>supabase/create-product-images-storage.sql</code>, <code>supabase/fix_storage_rls_product_images.sql</code>, <code>lib/supabase/storageUpload.ts</code></td>
 </tr>
 <tr>
 <td>Types</td>
@@ -2274,10 +2429,13 @@ persist URL on products.image_url  OR  shop_extras / branch image_urls</code></p
 <h2 id="appendix-c-operational-notes-for-implementers">Appendix C — Operational notes for implementers</h2>
 <ol>
 <li><strong>Do not insert <code>store_orders</code> from the client.</strong> Always <code>rpc('place_store_order')</code>.</li>
-<li><strong>Do not decrement stock in the app.</strong> The RPC row-locks products (<code>FOR UPDATE</code>) to serialize concurrent checkouts.</li>
-<li><strong>Cart is single-shop.</strong> Split checkout UX if a user added two merchants (currently rejected).</li>
-<li><strong>Product media is one URL column.</strong> Multi-image galleries exist on <strong>shops/branches</strong> (<code>image_urls</code>), not on SKUs.</li>
-<li><strong>Delivery zones are not modeled.</strong> COD uses a customer-typed address and a flat 50 EGP fee.</li>
+<li><strong>Do not decrement or restock stock in the app.</strong> Checkout and cancel RPCs row-lock products (<code>FOR UPDATE</code>).</li>
+<li><strong>Cart checkout is single-shop.</strong> Pass <code>p_shop_id</code> to check out one merchant from a mixed cart.</li>
+<li><strong>SKU media is multi-image.</strong> Cover <code>image_url</code> plus <code>image_urls</code> (max 5). Shop/branch galleries remain separate JSON arrays.</li>
+<li><strong>Revenue is completed-only.</strong> Pending / preparing / ready are operational, not GMV.</li>
+<li><strong>Cancel restocks.</strong> Owner cancel at any non-cancelled status, and customer cancel while pending, both increment stock.</li>
+<li><strong>Customer store orders live on <code>/(tabs)/orders</code></strong>, not on the bookings tab.</li>
+<li><strong>Delivery zones are not modeled.</strong> COD uses a customer-typed address and a flat 50 EGP fee. Pickup delivery line is Free / مجاناً on the tax invoice.</li>
 <li><strong>“Bays” = <code>shop_branches</code> + slot occupancy</strong>, not a separate bay entity.</li>
 <li><strong>Premium is the main merchant feature flag</strong> (<code>shops.is_premium</code>), toggled only by admins.</li>
 <li><strong>Realtime requires replica identity FULL</strong> on <code>store_orders</code>, <code>bookings</code>, and <code>products</code> for complete row payloads.</li>
