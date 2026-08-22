@@ -22,6 +22,7 @@ import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
 import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
+import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
 import { StoreOwnerDashboard } from '@/components/store/owner/StoreOwnerDashboard';
@@ -725,6 +726,30 @@ export default function ShopScreen() {
     }
   }
 
+  async function onChangeWinchEnabled(next: boolean) {
+    if (!shop) return;
+    const previous = winchEnabled;
+    setWinchEnabled(next);
+    try {
+      const row = await setShopProfileInfo(shop.id, {
+        profileName,
+        profileNameAr,
+        profileAddress,
+        profileAddressAr,
+        profilePhone,
+        profileEmail,
+        moreInfo,
+        moreInfoAr,
+        winchEnabled: next,
+        winchPhone,
+      });
+      setShopExtras(row);
+    } catch {
+      setWinchEnabled(previous);
+      Alert.alert(t('merchant_settings_status_fail_title'), t('merchant_settings_status_fail_body'));
+    }
+  }
+
   if (!ready) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
@@ -798,18 +823,12 @@ export default function ShopScreen() {
       notificationsLabel={t('shop_notifications_button')}
       notificationCount={pendingNotificationCount}
       onOpenNotifications={() => setNotificationsModalVisible(true)}
-      onOpenSettings={() => {
-        if (isStoreShopType(shop.type)) {
-          setStoreAdminTab('settings');
-          return;
-        }
-        router.push('/shop/merchant-settings');
-      }}
+      onOpenSettings={() => setStoreAdminTab('settings')}
       settingsLabel={t('merchant_settings_open')}
     />
   );
 
-  const ownerManageSections = (
+  const ownerProfileSections = (
     <>
       <OwnerSectionCard theme={theme} title={t('shop_manage_profile_title')} subtitle={t('shop_manage_lead')}>
         <TextInput placeholder={t('shop_manage_profile_name_placeholder')} placeholderTextColor={theme.textDim} value={profileName} onChangeText={setProfileName} style={fieldStyle} />
@@ -835,23 +854,40 @@ export default function ShopScreen() {
           multiline
           style={[fieldStyle, styles.noteInput]}
         />
-        {shop.type === 'maintenance' ? (
+        {(shop.type === 'maintenance' || shop.type === 'winch') ? (
           <>
             <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('shop_manage_winch_title')}</Text>
-            <View style={styles.actions}>
-              <Pressable onPress={() => setWinchEnabled(true)} style={[styles.chipBtn, { backgroundColor: winchEnabled ? theme.accent : theme.bgElevated, borderColor: theme.border }]}>
-                <Text style={[styles.chipBtnText, { color: winchEnabled ? theme.onAccent : theme.text }]}>{t('shop_manage_winch_enable')}</Text>
-              </Pressable>
-              <Pressable onPress={() => setWinchEnabled(false)} style={[styles.chipBtn, { backgroundColor: !winchEnabled ? theme.accent : theme.bgElevated, borderColor: theme.border }]}>
-                <Text style={[styles.chipBtnText, { color: !winchEnabled ? theme.onAccent : theme.text }]}>{t('shop_manage_winch_disable')}</Text>
-              </Pressable>
-            </View>
-            <TextInput placeholder={t('shop_manage_winch_phone_placeholder')} placeholderTextColor={theme.textDim} keyboardType="phone-pad" value={winchPhone} onChangeText={setWinchPhone} editable={winchEnabled} style={[fieldStyle, { opacity: winchEnabled ? 1 : 0.55 }]} />
+            <TextInput
+              placeholder={t('shop_manage_winch_phone_placeholder')}
+              placeholderTextColor={theme.textDim}
+              keyboardType="phone-pad"
+              value={winchPhone}
+              onChangeText={setWinchPhone}
+              style={fieldStyle}
+            />
           </>
         ) : null}
         <Pressable onPress={onSaveProfileInfo} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
           <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_save_profile')}</Text>
         </Pressable>
+      </OwnerSectionCard>
+
+      <OwnerSectionCard theme={theme} title={t('store_map_pin_title')} subtitle={t('store_map_pin_lead')}>
+        <Pressable
+          onPress={onSetStoreMapPin}
+          disabled={capturingGps}
+          style={[styles.secondaryBtn, { borderColor: theme.accent, opacity: capturingGps ? 0.65 : 1 }]}>
+          <Text style={[styles.secondaryBtnText, { color: theme.accent }]}>
+            {capturingGps ? t('store_map_pin_capturing') : t('store_map_pin_button')}
+          </Text>
+        </Pressable>
+        {mapPinCoords ? (
+          <Text style={[styles.meta, { color: theme.textMuted, marginTop: 8 }]}>
+            {t('store_map_pin_coords')
+              .replace('{lat}', mapPinCoords.latitude.toFixed(5))
+              .replace('{lng}', mapPinCoords.longitude.toFixed(5))}
+          </Text>
+        ) : null}
       </OwnerSectionCard>
 
       <OwnerSectionCard theme={theme} title={t('shop_profile_album')} subtitle={t('shop_manage_image_label')}>
@@ -873,7 +909,11 @@ export default function ShopScreen() {
           <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('shop_manage_profile_image_hint')}</Text>
         )}
       </OwnerSectionCard>
+    </>
+  );
 
+  const ownerOperationsSections = (
+    <>
       <OwnerSectionCard theme={theme} title={t('shop_manage_price_label')}>
         <TextInput placeholder={t('shop_manage_price_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newServicePrice} onChangeText={setNewServicePrice} style={fieldStyle} />
         <Pressable onPress={onSaveServicePrice} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
@@ -881,52 +921,111 @@ export default function ShopScreen() {
         </Pressable>
       </OwnerSectionCard>
 
-      {!isStoreShopType(shop.type) ? (
-        <OwnerSectionCard theme={theme} title={t('shop_manage_schedule_title')} subtitle={t('shop_manage_schedule_lead')}>
-          <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 8 }]}>{t('shop_manage_time_format_hint')}</Text>
-          <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_open_label')}</Text>
-          <TextInput placeholder="12:00" placeholderTextColor={theme.textDim} value={workOpenTime} onChangeText={(v) => { setWorkOpenTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
-          <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_close_label')}</Text>
-          <TextInput placeholder="22:00" placeholderTextColor={theme.textDim} value={workCloseTime} onChangeText={(v) => { setWorkCloseTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
-          <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_duration_label')}</Text>
-          <TextInput placeholder="30" placeholderTextColor={theme.textDim} keyboardType="numeric" value={serviceDurationMinutes} onChangeText={(v) => { setServiceDurationMinutes(v); setScheduleInlineOk(false); }} style={fieldStyle} />
-          {shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime && shopExtras.serviceDurationMinutes ? (
-            <Text style={[styles.meta, { color: theme.accent, marginBottom: 8 }]}>
-              {formatShopScheduleLine(
-                shopExtras.workOpenTime,
-                shopExtras.workCloseTime,
-                shopExtras.serviceDurationMinutes,
-                locale,
-              )}
-            </Text>
-          ) : null}
-          {scheduleInlineOk ? (
-            <Text style={[styles.meta, { color: theme.accent, fontWeight: '800', marginBottom: 8 }]}>
-              ✓ {t('shop_schedule_saved_customer_hint')}
-            </Text>
-          ) : null}
-          <Pressable onPress={onSaveSchedule} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_save_schedule')}</Text>
-          </Pressable>
-        </OwnerSectionCard>
-      ) : null}
-
-      {!isStoreShopType(shop.type) ? (
-        <OwnerSectionCard theme={theme} title={t('shop_profile_services')} subtitle={t('shop_manage_services_lead')}>
-          {(shopExtras?.services?.length ? shopExtras.services : []).slice(0, 6).map((service) => (
-            <Text key={service.id} style={[styles.meta, { color: theme.textMuted }]}>
-              {locale === 'ar' ? service.nameAr || service.name : service.name} · {service.priceEgp} EGP · {service.durationMinutes} min
-            </Text>
-          ))}
-          {!shopExtras?.services?.length ? (
-            <Text style={[styles.meta, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
-          ) : null}
-        </OwnerSectionCard>
-      ) : null}
+      <OwnerSectionCard theme={theme} title={t('shop_profile_services')} subtitle={t('shop_manage_services_lead')}>
+        {(shopExtras?.services?.length ? shopExtras.services : []).slice(0, 6).map((service) => (
+          <Text key={service.id} style={[styles.meta, { color: theme.textMuted }]}>
+            {locale === 'ar' ? service.nameAr || service.name : service.name} · {service.priceEgp} EGP · {service.durationMinutes} min
+          </Text>
+        ))}
+        {!shopExtras?.services?.length ? (
+          <Text style={[styles.meta, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
+        ) : null}
+      </OwnerSectionCard>
 
       <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
         <MerchantCampaignsPanel shopId={shop.id} />
       </OwnerSectionCard>
+    </>
+  );
+
+  const shopOperatingStatus = shopExtras?.storeOperatingStatus ?? 'open';
+
+  const ownerSettingsSections = (
+    <>
+      <OwnerSectionCard theme={theme} title={t('shop_operating_status_title')} subtitle={t('shop_operating_status_lead')}>
+        <View style={styles.actions}>
+          {([
+            { id: 'open' as const, labelKey: 'store_status_open' as const },
+            { id: 'closed' as const, labelKey: 'store_status_closed' as const },
+            { id: 'maintenance' as const, labelKey: 'store_status_maintenance' as const },
+          ]).map((option) => {
+            const active = shopOperatingStatus === option.id;
+            return (
+              <Pressable
+                key={option.id}
+                disabled={storeStatusBusy}
+                onPress={() => onChangeStoreStatus(option.id)}
+                style={[
+                  styles.chipBtn,
+                  {
+                    backgroundColor: active ? theme.accent : theme.bgElevated,
+                    borderColor: active ? theme.accent : theme.border,
+                    opacity: storeStatusBusy ? 0.7 : 1,
+                  },
+                ]}>
+                <Text style={[styles.chipBtnText, { color: active ? theme.onAccent : theme.text }]}>
+                  {t(option.labelKey)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </OwnerSectionCard>
+
+      <OwnerSectionCard theme={theme} title={t('shop_manage_schedule_title')} subtitle={t('shop_manage_schedule_lead')}>
+        <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 8 }]}>{t('shop_manage_time_format_hint')}</Text>
+        <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_open_label')}</Text>
+        <TextInput placeholder="12:00" placeholderTextColor={theme.textDim} value={workOpenTime} onChangeText={(v) => { setWorkOpenTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
+        <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_close_label')}</Text>
+        <TextInput placeholder="22:00" placeholderTextColor={theme.textDim} value={workCloseTime} onChangeText={(v) => { setWorkCloseTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
+        <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_duration_label')}</Text>
+        <TextInput placeholder="30" placeholderTextColor={theme.textDim} keyboardType="numeric" value={serviceDurationMinutes} onChangeText={(v) => { setServiceDurationMinutes(v); setScheduleInlineOk(false); }} style={fieldStyle} />
+        {shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime && shopExtras.serviceDurationMinutes ? (
+          <Text style={[styles.meta, { color: theme.accent, marginBottom: 8 }]}>
+            {formatShopScheduleLine(
+              shopExtras.workOpenTime,
+              shopExtras.workCloseTime,
+              shopExtras.serviceDurationMinutes,
+              locale,
+            )}
+          </Text>
+        ) : null}
+        {scheduleInlineOk ? (
+          <Text style={[styles.meta, { color: theme.accent, fontWeight: '800', marginBottom: 8 }]}>
+            ✓ {t('shop_schedule_saved_customer_hint')}
+          </Text>
+        ) : null}
+        <Pressable onPress={onSaveSchedule} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+          <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_manage_save_schedule')}</Text>
+        </Pressable>
+      </OwnerSectionCard>
+
+      {(shop.type === 'maintenance' || shop.type === 'winch') ? (
+        <OwnerSectionCard theme={theme} title={t('shop_manage_winch_title')}>
+          <View style={styles.actions}>
+            <Pressable
+              onPress={() => void onChangeWinchEnabled(true)}
+              style={[styles.chipBtn, { backgroundColor: winchEnabled ? theme.accent : theme.bgElevated, borderColor: theme.border }]}>
+              <Text style={[styles.chipBtnText, { color: winchEnabled ? theme.onAccent : theme.text }]}>{t('shop_manage_winch_enable')}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void onChangeWinchEnabled(false)}
+              style={[styles.chipBtn, { backgroundColor: !winchEnabled ? theme.accent : theme.bgElevated, borderColor: theme.border }]}>
+              <Text style={[styles.chipBtnText, { color: !winchEnabled ? theme.onAccent : theme.text }]}>{t('shop_manage_winch_disable')}</Text>
+            </Pressable>
+          </View>
+        </OwnerSectionCard>
+      ) : null}
+
+      <OwnerAccountSettings
+        extraPreferenceRows={[
+          {
+            label: t('store_notifications_row'),
+            subtitle: t('store_notifications_subtitle'),
+            onPress: () => setNotificationsModalVisible(true),
+          },
+        ]}
+      />
     </>
   );
 
@@ -1175,9 +1274,21 @@ export default function ShopScreen() {
         {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
 
         {storeAdminTab === 'dashboard' ? (
-          <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('shop_welcome_back').replace('{name}', shopName)}>
-            <OwnerMetricsGrid metrics={serviceOwnerMetrics} />
-          </OwnerSectionCard>
+          <>
+            <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('shop_welcome_back').replace('{name}', shopName)}>
+              <Pressable onPress={() => setStoreAdminTab('settings')} style={{ paddingTop: 4, marginBottom: 10 }}>
+                <Text style={[styles.meta, { color: theme.text, fontWeight: '800' }]}>
+                  {shopOperatingStatus === 'closed'
+                    ? t('store_status_closed')
+                    : shopOperatingStatus === 'maintenance'
+                      ? t('store_status_maintenance')
+                      : t('store_status_open')}
+                </Text>
+                <Text style={[styles.meta, { color: theme.textMuted }]}>{t('shop_operating_status_hint')}</Text>
+              </Pressable>
+              <OwnerMetricsGrid metrics={serviceOwnerMetrics} />
+            </OwnerSectionCard>
+          </>
         ) : null}
 
         {storeAdminTab === 'management' ? (
@@ -1195,7 +1306,9 @@ export default function ShopScreen() {
           </>
         ) : null}
 
-        {storeAdminTab === 'operations' || storeAdminTab === 'profile' ? ownerManageSections : null}
+        {storeAdminTab === 'operations' ? ownerOperationsSections : null}
+        {storeAdminTab === 'profile' ? ownerProfileSections : null}
+        {storeAdminTab === 'settings' ? ownerSettingsSections : null}
       </ScrollView>
 
       <OwnerDashboardNav tabs={SERVICE_TABS} activeTab={storeAdminTab} onChange={setStoreAdminTab} />

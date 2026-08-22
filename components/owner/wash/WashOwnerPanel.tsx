@@ -23,6 +23,8 @@ import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
 import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
+import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
+import { MerchantNavRow } from '@/components/owner/merchant/MerchantNavRow';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
@@ -35,7 +37,7 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import { getSupabase } from '@/lib/supabase/client';
-import { getOwnerDashboardConfig } from '@/lib/owner/dashboardConfig';
+import { getOwnerNavTabs, type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
 import {
   deleteCouponRemote,
   listActiveCouponsForShop,
@@ -345,7 +347,7 @@ export function WashOwnerPanel({ shop }: Props) {
   }, [pendingBranchSyncId]);
   const [walkInModalVisible, setWalkInModalVisible] = useState(false);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
-  const [adminTab, setAdminTab] = useState<'dashboard' | 'profile' | 'operations' | 'management'>('dashboard');
+  const [adminTab, setAdminTab] = useState<OwnerShellTabId>('dashboard');
 
   const orderNotifier = useMerchantOrderNotifier({
     shopId: shop.id,
@@ -1608,13 +1610,11 @@ export function WashOwnerPanel({ shop }: Props) {
     isBranchManager || (isOwner && managerResolved && !hasAnyBranchManager && !hasDedicatedBranchManager);
   const showCoupons = false;
 
-  const dashboardConfig = getOwnerDashboardConfig(shop.type);
-  const TABS = [
-    { id: 'dashboard' as const, label: t('owner_dashboard_overview'), icon: 'dashboard' as const },
-    { id: 'management' as const, label: t(dashboardConfig.activityLabelKey), icon: 'calendar' as const },
-    { id: 'operations' as const, label: t(dashboardConfig.catalogLabelKey), icon: 'wrench' as const },
-    { id: 'profile' as const, label: t('owner_dashboard_profile_settings'), icon: 'cog' as const },
-  ];
+  const TABS = getOwnerNavTabs(shop.type).map((tab) => ({
+    id: tab.id,
+    label: t(tab.labelKey),
+    icon: tab.icon,
+  }));
 
   if (!workspaceReady) {
     return (
@@ -1627,26 +1627,30 @@ export function WashOwnerPanel({ shop }: Props) {
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+        {(adminTab === 'dashboard' || adminTab === 'profile') && (
+          <OwnerProfileHeader
+            theme={theme}
+            shopName={shopName}
+            typeLabel={shopTypeLabel(shop.type, locale)}
+            welcomeLine={t('wash_welcome_back').replace('{name}', shopName)}
+            coverImage={coverImage}
+            profileImage={profileImage}
+            pickingImage={pickingImage}
+            coverEditLabel={t('wash_manage_set_cover_image')}
+            notificationsLabel={t('wash_notifications_button')}
+            notificationCount={orderNotifier.pendingCount}
+            accountRoleLabel={accountRoleLabel}
+            accountEmail={accountEmail}
+            onEditCover={onSetCoverImage}
+            onEditProfile={onSetProfileImage}
+            onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=orders')}
+            onOpenSettings={() => setAdminTab('settings')}
+            settingsLabel={t('merchant_settings_open')}
+          />
+        )}
+
         {adminTab === 'dashboard' && (
           <>
-            <OwnerProfileHeader
-              theme={theme}
-              shopName={shopName}
-              typeLabel={shopTypeLabel(shop.type, locale)}
-              welcomeLine={t('wash_welcome_back').replace('{name}', shopName)}
-              coverImage={coverImage}
-              profileImage={profileImage}
-              pickingImage={pickingImage}
-              coverEditLabel={t('wash_manage_set_cover_image')}
-              notificationsLabel={t('wash_notifications_button')}
-              notificationCount={orderNotifier.pendingCount}
-              accountRoleLabel={accountRoleLabel}
-              accountEmail={accountEmail}
-              onEditCover={onSetCoverImage}
-              onEditProfile={onSetProfileImage}
-              onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=orders')}
-            />
-
             <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
               {(
                 [
@@ -1771,65 +1775,25 @@ export function WashOwnerPanel({ shop }: Props) {
                   </OwnerSectionCard>
                 ) : null}
 
-                {/* Shop status */}
-                <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('wash_status_lead')}>
-                  <View style={styles.actions}>
-                    {(['open', 'closed', 'busy', 'vacation'] as WashShopStatus[]).map((status) => (
-                      <Pressable
-                        key={status}
-                        onPress={() => onSaveShopStatus(status)}
+                {/* Shop status — read-only; edit in Settings */}
+                <Pressable onPress={() => setAdminTab('settings')}>
+                  <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('shop_operating_status_hint')}>
+                    <View style={styles.actions}>
+                      <View
                         style={[
                           styles.chipBtn,
                           {
-                            backgroundColor: shopStatus === status ? theme.accent : theme.bgElevated,
-                            borderColor: shopStatus === status ? theme.accent : theme.border,
+                            backgroundColor: theme.accent,
+                            borderColor: theme.accent,
                           },
                         ]}>
-                        <Text
-                          style={[
-                            styles.chipBtnText,
-                            { color: shopStatus === status ? theme.onAccent : theme.text },
-                          ]}>
-                          {t(washStatusLabelKey(status))}
+                        <Text style={[styles.chipBtnText, { color: theme.onAccent }]}>
+                          {t(washStatusLabelKey(shopStatus))}
                         </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  {shopStatus === 'vacation' ? (
-                    <>
-                      <BookingDatePicker
-                        valueYmd={vacationReturnDate || toYmdLocal(new Date())}
-                        onChangeYmd={setVacationReturnDate}
-                        locale={locale}
-                        label={t('wash_vacation_return_date')}
-                        pickHint={t('book_date_pick_hint')}
-                        minimumDate={new Date()}
-                        borderColor={theme.border}
-                        backgroundColor={theme.bgElevated}
-                        textColor={theme.text}
-                      />
-                      <TextInput
-                        placeholder={t('wash_vacation_message_placeholder')}
-                        placeholderTextColor={theme.textDim}
-                        value={vacationMessage}
-                        onChangeText={setVacationMessage}
-                        multiline
-                        style={[fieldStyle, styles.noteInput]}
-                      />
-                      <TextInput
-                        placeholder={t('wash_vacation_message_ar_placeholder')}
-                        placeholderTextColor={theme.textDim}
-                        value={vacationMessageAr}
-                        onChangeText={setVacationMessageAr}
-                        multiline
-                        style={[fieldStyle, styles.noteInput]}
-                      />
-                      <Pressable onPress={onSaveVacationDetails} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-                        <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_vacation_save')}</Text>
-                      </Pressable>
-                    </>
-                  ) : null}
-                </OwnerSectionCard>
+                      </View>
+                    </View>
+                  </OwnerSectionCard>
+                </Pressable>
 
                 {/* Analytics widgets */}
                 {analytics ? (
@@ -1990,58 +1954,67 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         )}
 
-        {adminTab === 'operations' && (
+        {adminTab === 'settings' && (
           <>
-            {/* Services CRUD */}
-            <PremiumFeatureGate>
-              <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
-                <Pressable onPress={() => openServiceEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_service_add')}</Text>
-                </Pressable>
-                {sortedServices.length === 0 ? (
-                  <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
-                ) : (
-                  sortedServices.map((service, index) => (
-                    <View key={service.id} style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.metaStrong, { color: theme.text }]}>
-                          {serviceLabel(service, locale)}
-                          {service.visible === false ? ` (${t('wash_service_hidden')})` : ''}
-                        </Text>
-                        <Text style={[styles.meta, { color: theme.textMuted }]}>
-                          {formatEgp(service.priceEgp, locale)} · {service.durationMinutes} {t('wash_service_minutes')}
-                        </Text>
-                      </View>
-                      <View style={styles.actions}>
-                        <Pressable onPress={() => onMoveService(service.id, -1)} disabled={index === 0} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === 0 ? 0.4 : 1 }]}>
-                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↑</Text>
-                        </Pressable>
-                        <Pressable onPress={() => onMoveService(service.id, 1)} disabled={index === sortedServices.length - 1} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === sortedServices.length - 1 ? 0.4 : 1 }]}>
-                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↓</Text>
-                        </Pressable>
-                        <Pressable onPress={() => openServiceEditor(service)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                          <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_service_edit')}</Text>
-                        </Pressable>
-                        <Pressable onPress={() => onToggleServiceVisibility(service.id)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                          <Text style={[styles.chipBtnText, { color: theme.text }]}>
-                            {service.visible === false ? t('wash_service_show') : t('wash_service_hide')}
-                          </Text>
-                        </Pressable>
-                        <Pressable onPress={() => onDeleteService(service.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                          <Text style={styles.actionText}>{t('wash_service_delete')}</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </OwnerSectionCard>
-            </PremiumFeatureGate>
-
-            <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
-              <MerchantCampaignsPanel shopId={shop.id} />
+            <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('wash_status_lead')}>
+              <View style={styles.actions}>
+                {(['open', 'closed', 'busy', 'vacation'] as WashShopStatus[]).map((status) => (
+                  <Pressable
+                    key={status}
+                    onPress={() => onSaveShopStatus(status)}
+                    style={[
+                      styles.chipBtn,
+                      {
+                        backgroundColor: shopStatus === status ? theme.accent : theme.bgElevated,
+                        borderColor: shopStatus === status ? theme.accent : theme.border,
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        styles.chipBtnText,
+                        { color: shopStatus === status ? theme.onAccent : theme.text },
+                      ]}>
+                      {t(washStatusLabelKey(status))}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {shopStatus === 'vacation' ? (
+                <>
+                  <BookingDatePicker
+                    valueYmd={vacationReturnDate || toYmdLocal(new Date())}
+                    onChangeYmd={setVacationReturnDate}
+                    locale={locale}
+                    label={t('wash_vacation_return_date')}
+                    pickHint={t('book_date_pick_hint')}
+                    minimumDate={new Date()}
+                    borderColor={theme.border}
+                    backgroundColor={theme.bgElevated}
+                    textColor={theme.text}
+                  />
+                  <TextInput
+                    placeholder={t('wash_vacation_message_placeholder')}
+                    placeholderTextColor={theme.textDim}
+                    value={vacationMessage}
+                    onChangeText={setVacationMessage}
+                    multiline
+                    style={[fieldStyle, styles.noteInput]}
+                  />
+                  <TextInput
+                    placeholder={t('wash_vacation_message_ar_placeholder')}
+                    placeholderTextColor={theme.textDim}
+                    value={vacationMessageAr}
+                    onChangeText={setVacationMessageAr}
+                    multiline
+                    style={[fieldStyle, styles.noteInput]}
+                  />
+                  <Pressable onPress={onSaveVacationDetails} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+                    <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_vacation_save')}</Text>
+                  </Pressable>
+                </>
+              ) : null}
             </OwnerSectionCard>
 
-            {/* Weekly hours */}
             <OwnerSectionCard theme={theme} title={t('wash_hours_title')} subtitle={t('wash_hours_lead')}>
               <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_hours_pick_day')}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
@@ -2111,6 +2084,77 @@ export function WashOwnerPanel({ shop }: Props) {
               <Pressable onPress={onSaveWeeklyHours} style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
                 <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_hours_save')}</Text>
               </Pressable>
+            </OwnerSectionCard>
+
+            <OwnerSectionCard theme={theme} title={t('merchant_settings_business_title')}>
+              <MerchantNavRow
+                theme={theme}
+                label={t('merchant_settings_hours_row')}
+                subtitle={t('merchant_settings_hours_subtitle')}
+                onPress={() => router.push('/shop/merchant-hours')}
+              />
+              <MerchantNavRow
+                theme={theme}
+                label={t('merchant_settings_staff_row')}
+                subtitle={t('merchant_settings_staff_subtitle')}
+                onPress={() => router.push('/shop/merchant-staff')}
+                showDivider={false}
+              />
+            </OwnerSectionCard>
+
+            <OwnerAccountSettings />
+          </>
+        )}
+
+        {adminTab === 'operations' && (
+          <>
+            {/* Services CRUD */}
+            <PremiumFeatureGate>
+              <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
+                <Pressable onPress={() => openServiceEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_service_add')}</Text>
+                </Pressable>
+                {sortedServices.length === 0 ? (
+                  <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
+                ) : (
+                  sortedServices.map((service, index) => (
+                    <View key={service.id} style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.metaStrong, { color: theme.text }]}>
+                          {serviceLabel(service, locale)}
+                          {service.visible === false ? ` (${t('wash_service_hidden')})` : ''}
+                        </Text>
+                        <Text style={[styles.meta, { color: theme.textMuted }]}>
+                          {formatEgp(service.priceEgp, locale)} · {service.durationMinutes} {t('wash_service_minutes')}
+                        </Text>
+                      </View>
+                      <View style={styles.actions}>
+                        <Pressable onPress={() => onMoveService(service.id, -1)} disabled={index === 0} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === 0 ? 0.4 : 1 }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↑</Text>
+                        </Pressable>
+                        <Pressable onPress={() => onMoveService(service.id, 1)} disabled={index === sortedServices.length - 1} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === sortedServices.length - 1 ? 0.4 : 1 }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↓</Text>
+                        </Pressable>
+                        <Pressable onPress={() => openServiceEditor(service)} style={[styles.chipBtn, { borderColor: theme.border }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_service_edit')}</Text>
+                        </Pressable>
+                        <Pressable onPress={() => onToggleServiceVisibility(service.id)} style={[styles.chipBtn, { borderColor: theme.border }]}>
+                          <Text style={[styles.chipBtnText, { color: theme.text }]}>
+                            {service.visible === false ? t('wash_service_show') : t('wash_service_hide')}
+                          </Text>
+                        </Pressable>
+                        <Pressable onPress={() => onDeleteService(service.id)} style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+                          <Text style={styles.actionText}>{t('wash_service_delete')}</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </OwnerSectionCard>
+            </PremiumFeatureGate>
+
+            <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+              <MerchantCampaignsPanel shopId={shop.id} />
             </OwnerSectionCard>
 
             {/* Coupons hidden by request */}
@@ -2973,7 +3017,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 90,
+    paddingBottom: 96,
   },
   bottomTabBar: {
     flexDirection: 'row',

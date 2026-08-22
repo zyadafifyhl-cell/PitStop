@@ -34,6 +34,8 @@ export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange 
             <FontAwesome name={tab.icon} size={compact ? 17 : 19} color={active ? theme.accent : theme.textDim} />
             <Text
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
               style={[styles.label, compact && styles.labelCompact, { color: active ? theme.accent : theme.textDim }]}>
               {tab.label}
             </Text>

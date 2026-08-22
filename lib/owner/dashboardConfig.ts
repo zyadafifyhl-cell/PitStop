@@ -40,30 +40,23 @@ export function getOwnerDashboardConfig(shopType: ShopType): OwnerDashboardConfi
     mode: 'service',
     activityLabelKey: 'owner_dashboard_bookings',
     catalogLabelKey: 'owner_dashboard_services',
-    profileLabelKey: 'owner_dashboard_profile_settings',
+    profileLabelKey: 'owner_dashboard_profile',
+    settingsLabelKey: 'owner_dashboard_settings',
     activityMetricKey: 'owner_dashboard_today_bookings',
     pendingMetricKey: 'owner_dashboard_pending_requests',
     catalogMetricKey: 'owner_dashboard_active_services',
   };
 }
 
-/** Store owners get 5 tabs; service shops keep the combined Profile & Settings tab. */
+/** Every merchant type uses the same 5-tab shell; labels/icons change by business mode. */
 export function getOwnerNavTabs(shopType: ShopType): OwnerNavTabConfig[] {
   const config = getOwnerDashboardConfig(shopType);
-  if (config.mode === 'store') {
-    return [
-      { id: 'dashboard', labelKey: 'owner_dashboard_overview', icon: 'dashboard' },
-      { id: 'management', labelKey: config.activityLabelKey, icon: 'shopping-bag' },
-      { id: 'operations', labelKey: config.catalogLabelKey, icon: 'cubes' },
-      { id: 'profile', labelKey: 'owner_dashboard_profile', icon: 'user' },
-      { id: 'settings', labelKey: 'owner_dashboard_settings', icon: 'cog' },
-    ];
-  }
-
+  const isStore = config.mode === 'store';
   return [
     { id: 'dashboard', labelKey: 'owner_dashboard_overview', icon: 'dashboard' },
-    { id: 'management', labelKey: config.activityLabelKey, icon: 'calendar' },
-    { id: 'operations', labelKey: config.catalogLabelKey, icon: 'wrench' },
-    { id: 'profile', labelKey: 'owner_dashboard_profile_settings', icon: 'cog' },
+    { id: 'management', labelKey: config.activityLabelKey, icon: isStore ? 'shopping-bag' : 'calendar' },
+    { id: 'operations', labelKey: config.catalogLabelKey, icon: isStore ? 'cubes' : 'wrench' },
+    { id: 'profile', labelKey: 'owner_dashboard_profile', icon: 'user' },
+    { id: 'settings', labelKey: 'owner_dashboard_settings', icon: 'cog' },
   ];
 }
