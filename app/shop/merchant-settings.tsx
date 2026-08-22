@@ -5,7 +5,6 @@ import * as Linking from 'expo-linking';
 import {
   ActivityIndicator,
   Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { getActiveWashBranch, getWashBranchState, type WashBranchContext } from '@/lib/booking/wash/washBranchStorage';
+import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 
 export default function MerchantSettingsScreen() {
   const theme = useAppTheme();
@@ -84,24 +84,18 @@ export default function MerchantSettingsScreen() {
   }
 
   function onSignOutPress() {
-    const doSignOut = async () => {
-      await clearLocalPitstopCache();
-      await signOut({ welcomeFocus: 'owner' });
-    };
-    if (Platform.OS === 'web') {
-      void doSignOut();
-      return;
-    }
-    Alert.alert(t('merchant_settings_sign_out_confirm_title'), t('merchant_settings_sign_out_confirm_body'), [
-      { text: t('alert_cancel'), style: 'cancel' },
-      {
-        text: t('merchant_settings_sign_out'),
-        style: 'destructive',
-        onPress: () => {
-          void doSignOut();
-        },
+    if (signingOut) return;
+    showCustomConfirm({
+      title: t('merchant_settings_sign_out_confirm_title'),
+      message: t('merchant_settings_sign_out_confirm_body'),
+      confirmLabel: t('merchant_settings_sign_out'),
+      cancelLabel: t('alert_cancel'),
+      destructive: true,
+      onConfirm: async () => {
+        await clearLocalPitstopCache();
+        await signOut({ welcomeFocus: 'owner' });
       },
-    ]);
+    });
   }
 
   function onToggleLanguage() {

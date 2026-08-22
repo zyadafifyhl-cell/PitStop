@@ -169,17 +169,34 @@ export async function listAllActiveOffers(): Promise<ShopOffer[]> {
   const supabase = getSupabase();
   if (supabase) {
     const now = nowIso();
-    const { data, error } = await supabase
+    // Join shops so offers from every merchant type (wash, maintenance, winch,
+    // parts, accessories) are included as long as the shop row exists.
+    let { data, error } = await supabase
       .from('offers')
-      .select('*')
+      .select('*, shops!inner(id, type)')
       .eq('is_active', true)
       .lte('start_date', now)
       .or(`expires_at.is.null,expires_at.gt.${now}`)
-      .gt('end_date', now)
+      .gte('end_date', now)
       .order('created_at', { ascending: false });
 
+    if (error) {
+      const fallback = await supabase
+        .from('offers')
+        .select('*')
+        .eq('is_active', true)
+        .lte('start_date', now)
+        .or(`expires_at.is.null,expires_at.gt.${now}`)
+        .gte('end_date', now)
+        .order('created_at', { ascending: false });
+      data = fallback.data;
+      error = fallback.error;
+    }
+
     if (!error && data) {
-      const offers = (data as DbOfferRow[]).map(mapDbOfferRow).filter((offer) => isOfferLive(offer));
+      const offers = (data as Array<DbOfferRow & { shops?: unknown }>)
+        .map(({ shops: _shops, ...offerRow }) => mapDbOfferRow(offerRow))
+        .filter((offer) => isOfferLive(offer));
       const grouped = new Map<string, ShopOffer[]>();
       for (const offer of offers) {
         const shopId = offer.shopId ?? '';

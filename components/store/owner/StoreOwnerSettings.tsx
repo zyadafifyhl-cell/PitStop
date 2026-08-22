@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
-import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { MerchantNavRow } from '@/components/owner/merchant/MerchantNavRow';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
@@ -11,6 +11,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import type { StoreOperatingStatus } from '@/lib/booking/types';
 import type { TranslationKey } from '@/lib/i18n/strings';
+import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 
 type Props = {
   fieldStyle: object[];
@@ -67,24 +68,18 @@ export function StoreOwnerSettings({
   }
 
   function onSignOutPress() {
-    const doSignOut = async () => {
-      await clearLocalPitstopCache();
-      await signOut({ welcomeFocus: 'owner' });
-    };
-    if (Platform.OS === 'web') {
-      void doSignOut();
-      return;
-    }
-    Alert.alert(t('merchant_settings_sign_out_confirm_title'), t('merchant_settings_sign_out_confirm_body'), [
-      { text: t('alert_cancel'), style: 'cancel' },
-      {
-        text: t('merchant_settings_sign_out'),
-        style: 'destructive',
-        onPress: () => {
-          void doSignOut();
-        },
+    if (signingOut) return;
+    showCustomConfirm({
+      title: t('merchant_settings_sign_out_confirm_title'),
+      message: t('merchant_settings_sign_out_confirm_body'),
+      confirmLabel: t('merchant_settings_sign_out'),
+      cancelLabel: t('alert_cancel'),
+      destructive: true,
+      onConfirm: async () => {
+        await clearLocalPitstopCache();
+        await signOut({ welcomeFocus: 'owner' });
       },
-    ]);
+    });
   }
 
   function onOpenSupport() {

@@ -34,7 +34,7 @@ import {
 } from '@/lib/booking/customerOrderPresentation';
 import { formatEgp } from '@/lib/booking/reporting';
 import { addShopReview, getCustomerShopReview } from '@/lib/booking/reviewsStorage';
-import { clearCustomerBookingHistory, getBookingForCustomer, updateBookingStatus } from '@/lib/booking/storage';
+import { clearCustomerBookingHistory, cancelCustomerServiceBooking, getBookingForCustomer, wouldApplyLateCancelPenalty } from '@/lib/booking/storage';
 import type { Booking } from '@/lib/booking/types';
 import { fetchBranchProfile } from '@/lib/booking/wash/branchRepository';
 import { formatPhoneDisplay, openPhone, openSupportEmail } from '@/lib/linking/contact';
@@ -90,6 +90,7 @@ export default function OrderDetailsScreen() {
   const lineItems = booking ? orderLineItems(booking, locale) : [];
   const displayStatus = booking ? resolveCustomerDisplayStatus(booking, nowMs) : null;
   const canCancel = booking ? canCustomerCancelBooking(booking, nowMs) : false;
+  const lateCancelPenalty = booking ? wouldApplyLateCancelPenalty(booking, nowMs) : false;
 
   useEffect(() => {
     if (!canCancel) setCancelVisible(false);
@@ -99,10 +100,16 @@ export default function OrderDetailsScreen() {
     if (!booking || !canCustomerCancelBooking(booking, Date.now())) return;
     setCancelling(true);
     try {
-      const updated = await updateBookingStatus(booking.id, 'cancelled', booking);
-      if (!updated) return;
+      const result = await cancelCustomerServiceBooking(booking.id, booking);
+      if (!result) {
+        Alert.alert(t('book_cancel_title'), t('book_cancel_failed'));
+        return;
+      }
       setCancelVisible(false);
-      setBooking(updated);
+      setBooking(result.booking);
+      if (result.penaltyApplied > 0) {
+        Alert.alert(t('book_cancel_success'), t('book_cancel_penalty_applied'));
+      }
     } finally {
       setCancelling(false);
     }
@@ -266,7 +273,9 @@ export default function OrderDetailsScreen() {
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>{t('book_cancel_title')}</Text>
-            <Text style={[styles.modalBody, { color: theme.textMuted }]}>{t('book_cancel_body')}</Text>
+            <Text style={[styles.modalBody, { color: theme.textMuted }]}>
+              {lateCancelPenalty ? t('book_cancel_body_late') : t('book_cancel_body')}
+            </Text>
             <View style={styles.modalActions}>
               <Pressable
                 onPress={() => setCancelVisible(false)}

@@ -14,7 +14,6 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { getAreaById } from '@/lib/booking/areas';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
@@ -25,6 +24,7 @@ import {
 } from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
 import { listAllActiveOffers, subscribeOffersRealtime } from '@/lib/booking/offerRepository';
+import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { listCustomerVehicles } from '@/lib/booking/vehicleStorage';
 import { formatOfferBadge, isOfferLive, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 
@@ -56,7 +56,6 @@ export default function HomeScreen() {
   const { t, tp, locale } = useI18n();
   const theme = useAppTheme();
   const { customer, isGuest } = useCustomerAuth();
-  const { signOut, busy: signingOut } = useAppSignOut();
   const { ready: catalogReady, version: catalogVersion } = useShopCatalog();
   const [nextBookingSnapshot, setNextBookingSnapshot] = useState<Booking | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -64,7 +63,6 @@ export default function HomeScreen() {
     Array<{ shopId: string; shopName: string; shopArea: string; shopType: ShopType; offer: ShopOffer }>
   >([]);
   const [serviceSearch, setServiceSearch] = useState('');
-  const [serviceFilter, setServiceFilter] = useState<'all' | 'wash'>('all');
   const [vehicleRefreshKey, setVehicleRefreshKey] = useState(0);
 
   const offerBadgeMessages = useMemo(
@@ -100,12 +98,11 @@ export default function HomeScreen() {
           storeCategory: 'accessories' as const,
         },
       ].filter((card) => {
-        if (serviceFilter === 'wash' && card.type !== 'wash') return false;
         const q = serviceSearch.trim().toLowerCase();
         if (!q) return true;
         return card.title.toLowerCase().includes(q) || card.subtitle.toLowerCase().includes(q);
       }),
-    [t, serviceSearch, serviceFilter],
+    [t, serviceSearch],
   );
 
   const loadLiveOffers = useCallback(async () => {
@@ -115,7 +112,8 @@ export default function HomeScreen() {
 
     for (const offer of activeOffers.filter((row) => isOfferLive(row))) {
       const shop = getShopById(offer.shopId ?? '');
-      if (!shop || (shop.type !== 'wash' && shop.type !== 'maintenance')) continue;
+      // Include every merchant type: wash, maintenance, winch, parts, accessories.
+      if (!shop) continue;
       const shopName = locale === 'ar' ? shop.nameAr : shop.name;
       const area = getAreaById(shop.areaId);
       const shopArea =
@@ -127,8 +125,12 @@ export default function HomeScreen() {
     setLiveOffers(cards.slice(0, 8));
   }, [catalogReady, catalogVersion, locale]);
 
-  async function onSignOut() {
-    await signOut();
+  function openFeaturedOffer(shopId: string, shopType: ShopType, offerId: string) {
+    if (isStoreShopType(shopType)) {
+      router.push({ pathname: '/store', params: { shopId } });
+      return;
+    }
+    router.push(`/shop-profile/${shopId}?offerId=${encodeURIComponent(offerId)}` as Href);
   }
 
   const refreshHomeData = useCallback(async () => {
@@ -290,34 +292,6 @@ export default function HomeScreen() {
           style={[styles.searchInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
         />
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
-          {(
-            [
-              { id: 'all' as const, label: t('home_filter_all') },
-              { id: 'wash' as const, label: t('home_filter_wash') },
-            ] as const
-          ).map((chip) => {
-            const active = serviceFilter === chip.id;
-            return (
-              <Pressable key={chip.id} onPress={() => setServiceFilter(chip.id)} style={styles.filterChipWrap}>
-                {active ? (
-                  <LinearGradient
-                    colors={[theme.accent, theme.warm]}
-                    start={{ x: 0, y: 0.2 }}
-                    end={{ x: 1, y: 0.8 }}
-                    style={styles.filterChipActive}>
-                    <Text style={styles.filterChipTextActive}>{chip.label}</Text>
-                  </LinearGradient>
-                ) : (
-                  <View style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                    <Text style={[styles.filterChipText, { color: theme.textMuted }]}>{chip.label}</Text>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
         {serviceCards.map((card) => (
           <Pressable
             key={card.type}
@@ -352,38 +326,36 @@ export default function HomeScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.offersCarousel}>
-            {liveOffers.map(({ shopId, shopName, shopArea, shopType, offer }) => (
-              <Pressable
-                key={offer.id}
-                onPress={() =>
-                  router.push(`/shop-profile/${shopId}?offerId=${encodeURIComponent(offer.id)}` as Href)
-                }
-                style={[styles.offerCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-                <Text style={[styles.offerEyebrow, { color: theme.warm }]}>{shopTypeLabel(shopType, locale)}</Text>
-                <Text style={[styles.offerTitle, { color: theme.text }]} numberOfLines={2}>
-                  {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
-                </Text>
-                <View style={[styles.offerBadgeCapsule, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
-                  <Text style={[styles.offerBadgeCapsuleText, { color: theme.warm }]}>
-                    {formatOfferBadge(offer, offerBadgeMessages)}
+            {liveOffers.map(({ shopId, shopName, shopArea, shopType, offer }) => {
+              const description = offer.description?.trim();
+              return (
+                <Pressable
+                  key={offer.id}
+                  onPress={() => openFeaturedOffer(shopId, shopType, offer.id)}
+                  style={[styles.offerCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                  <Text style={[styles.offerEyebrow, { color: theme.warm }]}>{shopTypeLabel(shopType, locale)}</Text>
+                  <View style={[styles.offerBadgeCapsule, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
+                    <Text style={[styles.offerBadgeCapsuleText, { color: theme.warm }]}>
+                      {formatOfferBadge(offer, offerBadgeMessages)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.offerTitle, { color: theme.text }]} numberOfLines={2}>
+                    {locale === 'ar' ? offer.titleAr || offer.title : offer.title}
                   </Text>
-                </View>
-                <Text style={[styles.offerMeta, { color: theme.text }]} numberOfLines={1}>
-                  {shopName} — {shopArea}
-                </Text>
-              </Pressable>
-            ))}
+                  {description ? (
+                    <Text style={[styles.offerMeta, { color: theme.textMuted }]} numberOfLines={2}>
+                      {description}
+                    </Text>
+                  ) : null}
+                  <Text style={[styles.offerMeta, { color: theme.text }]} numberOfLines={1}>
+                    {shopName} — {shopArea}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
         )}
       </CurvyCard>
-
-      {(customer || isGuest) ? (
-        <Pressable onPress={onSignOut} disabled={signingOut} style={styles.signOut}>
-          <Text style={[styles.signOutText, { color: theme.textDim, opacity: signingOut ? 0.5 : 1 }]}>
-            {isGuest ? t('guest_gate_sign_in') : t('home_sign_out')}
-          </Text>
-        </Pressable>
-      ) : null}
       </ScrollView>
     </View>
   );
@@ -499,17 +471,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
   },
-  filtersRow: { gap: 8, paddingBottom: 16 },
-  filterChipWrap: { borderRadius: 999, overflow: 'hidden' },
-  filterChip: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-  },
-  filterChipActive: { borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11 },
-  filterChipText: { fontSize: 15, fontWeight: '900' },
-  filterChipTextActive: { fontSize: 15, fontWeight: '900', color: '#000000' },
   serviceRow: {
     borderWidth: 1,
     borderRadius: 20,
@@ -549,6 +510,4 @@ const styles = StyleSheet.create({
   offerBadgeCapsuleText: { fontSize: 12, fontWeight: '800' },
   offerEyebrow: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },
   offerMeta: { color: AppTheme.textMuted, fontSize: 14, lineHeight: 20 },
-  signOut: { marginTop: 20, alignItems: 'center', paddingVertical: 12 },
-  signOutText: { color: AppTheme.textDim, fontSize: 14, fontWeight: '600' },
 });

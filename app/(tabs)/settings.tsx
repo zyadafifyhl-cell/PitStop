@@ -16,6 +16,7 @@ import {
   openSupportPhone,
   openSupportWhatsApp,
 } from '@/lib/linking/contact';
+import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 
 export default function SettingsScreen() {
   const { t, locale, setLocale, isRTL } = useI18n();
@@ -43,8 +44,18 @@ export default function SettingsScreen() {
     }
   }
 
-  async function onSignOut() {
-    await signOut();
+  function onSignOut() {
+    if (signingOut) return;
+    showCustomConfirm({
+      title: t('settings_sign_out_confirm_title'),
+      message: t('settings_sign_out_confirm_body'),
+      confirmLabel: t('home_sign_out'),
+      cancelLabel: t('alert_cancel'),
+      destructive: true,
+      onConfirm: async () => {
+        await signOut();
+      },
+    });
   }
 
   return (

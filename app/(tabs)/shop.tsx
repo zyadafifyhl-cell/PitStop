@@ -41,6 +41,7 @@ import {
 import { formatEgp } from '@/lib/booking/reporting';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
+import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { userAlert } from '@/lib/ui/userAlert';
 import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, DEFAULT_SERVICE_DURATION_MINUTES, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
 import {
@@ -267,8 +268,17 @@ export default function ShopScreen() {
     }
   }
 
-  async function onLogout() {
-    await signOut({ welcomeFocus: 'owner' });
+  function onLogout() {
+    showCustomConfirm({
+      title: t('merchant_settings_sign_out_confirm_title'),
+      message: t('merchant_settings_sign_out_confirm_body'),
+      confirmLabel: t('merchant_settings_sign_out'),
+      cancelLabel: t('alert_cancel'),
+      destructive: true,
+      onConfirm: async () => {
+        await signOut({ welcomeFocus: 'owner' });
+      },
+    });
   }
 
   function renderBookingCard(item: Booking, showActions: boolean) {
@@ -1185,34 +1195,39 @@ export default function ShopScreen() {
           ) : null}
 
           {storeAdminTab === 'profile' ? (
-            <StoreOwnerProfileSections
-              theme={theme}
-              fieldStyle={fieldStyle}
-              profileName={profileName}
-              profileNameAr={profileNameAr}
-              profilePhone={profilePhone}
-              profileEmail={profileEmail}
-              profileAddress={profileAddress}
-              profileAddressAr={profileAddressAr}
-              moreInfo={moreInfo}
-              moreInfoAr={moreInfoAr}
-              pickingImage={pickingImage}
-              imageUrls={shopExtras?.imageUrls ?? []}
-              onChangeProfileName={setProfileName}
-              onChangeProfileNameAr={setProfileNameAr}
-              onChangeProfilePhone={setProfilePhone}
-              onChangeProfileEmail={setProfileEmail}
-              onChangeProfileAddress={setProfileAddress}
-              onChangeProfileAddressAr={setProfileAddressAr}
-              onChangeMoreInfo={setMoreInfo}
-              onChangeMoreInfoAr={setMoreInfoAr}
-              onSaveProfile={onSaveProfileInfo}
-              onAddImage={onAddShopImage}
-              onRemoveImage={onRemoveShopImage}
-              mapPinBusy={capturingGps}
-              mapPinCoords={mapPinCoords}
-              onSetMapPin={onSetStoreMapPin}
-            />
+            <>
+              <StoreOwnerProfileSections
+                theme={theme}
+                fieldStyle={fieldStyle}
+                profileName={profileName}
+                profileNameAr={profileNameAr}
+                profilePhone={profilePhone}
+                profileEmail={profileEmail}
+                profileAddress={profileAddress}
+                profileAddressAr={profileAddressAr}
+                moreInfo={moreInfo}
+                moreInfoAr={moreInfoAr}
+                pickingImage={pickingImage}
+                imageUrls={shopExtras?.imageUrls ?? []}
+                onChangeProfileName={setProfileName}
+                onChangeProfileNameAr={setProfileNameAr}
+                onChangeProfilePhone={setProfilePhone}
+                onChangeProfileEmail={setProfileEmail}
+                onChangeProfileAddress={setProfileAddress}
+                onChangeProfileAddressAr={setProfileAddressAr}
+                onChangeMoreInfo={setMoreInfo}
+                onChangeMoreInfoAr={setMoreInfoAr}
+                onSaveProfile={onSaveProfileInfo}
+                onAddImage={onAddShopImage}
+                onRemoveImage={onRemoveShopImage}
+                mapPinBusy={capturingGps}
+                mapPinCoords={mapPinCoords}
+                onSetMapPin={onSetStoreMapPin}
+              />
+              <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+                <MerchantCampaignsPanel shopId={shop.id} />
+              </OwnerSectionCard>
+            </>
           ) : null}
 
           {storeAdminTab === 'settings' ? (

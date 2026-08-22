@@ -96,6 +96,8 @@ create table if not exists public.users (
   shop_id text references public.shops(id) on delete set null,
   branch_id uuid,
   is_active boolean not null default true,
+  pending_penalty_fee_egp numeric not null default 0
+    check (pending_penalty_fee_egp >= 0),
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -262,6 +264,9 @@ create table if not exists public.bookings (
   booking_type public.booking_type not null default 'app',
   scheduled_at timestamptz not null,
   status public.booking_status not null default 'pending',
+  cancellation_penalty_applied_egp numeric not null default 0
+    check (cancellation_penalty_applied_egp >= 0),
+  late_cancelled_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

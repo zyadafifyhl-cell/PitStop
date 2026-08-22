@@ -606,6 +606,71 @@ export async function updateBookingStatus(
   return updated;
 }
 
+export const LATE_CANCEL_WINDOW_HOURS = 4;
+export const LATE_CANCEL_PENALTY_EGP = 20;
+
+/** Preview whether cancel_customer_service_booking would charge the 20 EGP fee. */
+export function wouldApplyLateCancelPenalty(booking: Booking, nowMs = Date.now()): boolean {
+  if (booking.shopType !== 'wash' && booking.shopType !== 'maintenance') return false;
+  const scheduledMs = new Date(booking.scheduledAt).getTime();
+  if (Number.isNaN(scheduledMs)) return false;
+  return (scheduledMs - nowMs) / 3_600_000 < LATE_CANCEL_WINDOW_HOURS;
+}
+
+export type CancelCustomerServiceBookingResult = {
+  booking: Booking;
+  penaltyApplied: number;
+  hoursBefore: number;
+};
+
+/**
+ * Customer cancel for wash/maintenance bookings via SECURITY DEFINER RPC.
+ * Applies the 4-hour / 20 EGP late-cancellation rule atomically in Postgres.
+ */
+export async function cancelCustomerServiceBooking(
+  bookingId: string,
+  fallback?: Booking,
+): Promise<CancelCustomerServiceBookingResult | null> {
+  const supabase = getSupabase();
+  if (!supabase || !isUuid(bookingId)) return null;
+
+  const { data, error } = await supabase.rpc('cancel_customer_service_booking', {
+    p_booking_id: bookingId,
+  });
+  if (error) {
+    console.warn('cancelCustomerServiceBooking:', error.message);
+    return null;
+  }
+
+  const payload = (data ?? {}) as {
+    success?: boolean;
+    penalty_applied?: number | string;
+    hours_before?: number | string;
+  };
+  const penaltyApplied = Number(payload.penalty_applied ?? 0);
+  const hoursBefore = Number(payload.hours_before ?? 0);
+
+  const { data: row, error: fetchError } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('id', bookingId)
+    .maybeSingle();
+
+  let updated: Booking | null = null;
+  if (!fetchError && row) {
+    updated = mapBookingRow(row as BookingRow);
+  } else if (fallback) {
+    updated = { ...fallback, status: 'cancelled' };
+  }
+  if (!updated) return null;
+
+  if (fallback?.status !== 'cancelled') {
+    await notifyWashOwnerBooking(updated, 'cancelled_booking');
+  }
+
+  return { booking: updated, penaltyApplied, hoursBefore };
+}
+
 export async function deleteBookingForShop(shopId: string, bookingId: string): Promise<boolean> {
   const supabase = getSupabase();
   if (!supabase || !isUuid(bookingId)) return false;
