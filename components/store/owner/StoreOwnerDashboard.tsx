@@ -15,7 +15,8 @@ type Props = {
   shop: Shop;
   storeStatus?: StoreOperatingStatus;
   onRefresh?: () => void;
-  onNavigate?: (target: 'pending_orders' | 'active_orders' | 'low_stock' | 'reports' | 'settings') => void;
+  onNavigate?: (target: 'pending_orders' | 'active_orders' | 'low_stock' | 'reports' | 'management') => void;
+  onPendingOrdersChange?: (count: number) => void;
 };
 
 const EMPTY_STATS: StoreOwnerStats = {
@@ -26,7 +27,13 @@ const EMPTY_STATS: StoreOwnerStats = {
   totalProducts: 0,
 };
 
-export function StoreOwnerDashboard({ shop, storeStatus = 'open', onRefresh, onNavigate }: Props) {
+export function StoreOwnerDashboard({
+  shop,
+  storeStatus = 'open',
+  onRefresh,
+  onNavigate,
+  onPendingOrdersChange,
+}: Props) {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
   const [stats, setStats] = useState<StoreOwnerStats>(EMPTY_STATS);
@@ -41,6 +48,10 @@ export function StoreOwnerDashboard({ shop, storeStatus = 'open', onRefresh, onN
   useEffect(() => {
     void loadStats();
   }, [loadStats]);
+
+  useEffect(() => {
+    onPendingOrdersChange?.(stats.pendingOrders);
+  }, [stats.pendingOrders, onPendingOrdersChange]);
 
   useEffect(() => {
     const supabase = getSupabase();
@@ -134,7 +145,7 @@ export function StoreOwnerDashboard({ shop, storeStatus = 'open', onRefresh, onN
         title={t('owner_dashboard_overview')}
         subtitle={locale === 'ar' ? shop.nameAr || shop.name : shop.name}>
         <Pressable
-          onPress={onNavigate ? () => onNavigate('settings') : undefined}
+          onPress={onNavigate ? () => onNavigate('management') : undefined}
           style={styles.statusRow}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.statusTitle, { color: theme.text }]}>{statusLabel}</Text>

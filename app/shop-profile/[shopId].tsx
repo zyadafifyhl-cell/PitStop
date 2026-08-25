@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { ShopProfileLoadingScreen } from '@/components/shop/ShopProfileLoadingScreen';
+import { ShopProfileStoreSection } from '@/components/shop/ShopProfileStoreSection';
 import { WorkingHoursTable } from '@/components/ui/WorkingHoursTable';
 import { ShopMediaImage } from '@/components/ui/ShopMediaImage';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -400,6 +401,8 @@ export default function ShopProfileScreen() {
         })
         )}
       </View>
+
+      <ShopProfileStoreSection shopId={shop.id} shopType={shop.type} shopName={shopName} />
 
       <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('shop_profile_working_hours')}</Text>

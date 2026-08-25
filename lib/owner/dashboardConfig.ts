@@ -54,7 +54,11 @@ export function getOwnerNavTabs(shopType: ShopType): OwnerNavTabConfig[] {
   const isStore = config.mode === 'store';
   return [
     { id: 'dashboard', labelKey: 'owner_dashboard_overview', icon: 'dashboard' },
-    { id: 'management', labelKey: config.activityLabelKey, icon: isStore ? 'shopping-bag' : 'calendar' },
+    {
+      id: 'management',
+      labelKey: isStore ? config.activityLabelKey : 'owner_dashboard_management',
+      icon: isStore ? 'shopping-bag' : 'calendar',
+    },
     { id: 'operations', labelKey: config.catalogLabelKey, icon: isStore ? 'cubes' : 'wrench' },
     { id: 'profile', labelKey: 'owner_dashboard_profile', icon: 'user' },
     { id: 'settings', labelKey: 'owner_dashboard_settings', icon: 'cog' },

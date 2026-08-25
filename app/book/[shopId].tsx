@@ -19,6 +19,7 @@ import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { ServiceMultiPicker } from '@/components/booking/ServiceMultiPicker';
+import { ShopProfileStoreSection } from '@/components/shop/ShopProfileStoreSection';
 import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
@@ -816,6 +817,8 @@ export default function BookShopScreen() {
             bogoPricing={bogoPricing}
           />
         ) : null}
+
+        <ShopProfileStoreSection shopId={shop.id} shopType={shop.type} shopName={shopName} />
 
         <View style={styles.shopContactRow}>
           <Pressable

@@ -330,17 +330,17 @@ using (auth.uid() = user_id);
 
 drop policy if exists products_public_read on public.products;
 create policy products_public_read on public.products for select
-using (is_active or public.is_platform_admin() or public.is_shop_owner(shop_id));
+using (is_active or public.is_platform_admin() or public.can_manage_shop(shop_id));
 drop policy if exists products_owner_insert on public.products;
 create policy products_owner_insert on public.products for insert to authenticated
-with check (public.is_platform_admin() or public.is_shop_owner(shop_id));
+with check (public.is_platform_admin() or public.can_manage_shop(shop_id));
 drop policy if exists products_owner_update on public.products;
 create policy products_owner_update on public.products for update to authenticated
-using (public.is_platform_admin() or public.is_shop_owner(shop_id))
-with check (public.is_platform_admin() or public.is_shop_owner(shop_id));
+using (public.is_platform_admin() or public.can_manage_shop(shop_id))
+with check (public.is_platform_admin() or public.can_manage_shop(shop_id));
 drop policy if exists products_owner_delete on public.products;
 create policy products_owner_delete on public.products for delete to authenticated
-using (public.is_platform_admin() or public.is_shop_owner(shop_id));
+using (public.is_platform_admin() or public.can_manage_shop(shop_id));
 
 drop policy if exists store_orders_customer_or_owner_read on public.store_orders;
 create policy store_orders_customer_or_owner_read on public.store_orders for select to authenticated

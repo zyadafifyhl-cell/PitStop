@@ -9,8 +9,6 @@ import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
-import type { StoreOperatingStatus } from '@/lib/booking/types';
-import type { TranslationKey } from '@/lib/i18n/strings';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 
 type Props = {
@@ -19,20 +17,11 @@ type Props = {
   workCloseTime: string;
   scheduleInlineOk: boolean;
   scheduleHint?: string;
-  storeStatus: StoreOperatingStatus;
-  statusBusy?: boolean;
   onChangeWorkOpenTime: (value: string) => void;
   onChangeWorkCloseTime: (value: string) => void;
   onSaveSchedule: () => void;
-  onChangeStoreStatus: (status: StoreOperatingStatus) => void;
   onOpenNotifications: () => void;
 };
-
-const STATUS_OPTIONS: { id: StoreOperatingStatus; labelKey: TranslationKey }[] = [
-  { id: 'open', labelKey: 'store_status_open' },
-  { id: 'closed', labelKey: 'store_status_closed' },
-  { id: 'maintenance', labelKey: 'store_status_maintenance' },
-];
 
 export function StoreOwnerSettings({
   fieldStyle,
@@ -40,12 +29,9 @@ export function StoreOwnerSettings({
   workCloseTime,
   scheduleInlineOk,
   scheduleHint,
-  storeStatus,
-  statusBusy,
   onChangeWorkOpenTime,
   onChangeWorkCloseTime,
   onSaveSchedule,
-  onChangeStoreStatus,
   onOpenNotifications,
 }: Props) {
   const theme = useAppTheme();
@@ -102,32 +88,6 @@ export function StoreOwnerSettings({
 
   return (
     <>
-      <OwnerSectionCard theme={theme} title={t('store_status_title')} subtitle={t('store_status_lead')}>
-        <View style={styles.statusRow}>
-          {STATUS_OPTIONS.map((option) => {
-            const active = storeStatus === option.id;
-            return (
-              <Pressable
-                key={option.id}
-                disabled={statusBusy}
-                onPress={() => onChangeStoreStatus(option.id)}
-                style={[
-                  styles.statusChip,
-                  {
-                    backgroundColor: active ? theme.accent : theme.bgElevated,
-                    borderColor: active ? theme.accent : theme.border,
-                    opacity: statusBusy ? 0.7 : 1,
-                  },
-                ]}>
-                <Text style={[styles.statusChipText, { color: active ? theme.onAccent : theme.text }]}>
-                  {t(option.labelKey)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </OwnerSectionCard>
-
       <OwnerSectionCard theme={theme} title={t('shop_manage_schedule_title')} subtitle={t('store_settings_hours_lead')}>
         <Text style={[styles.meta, { color: theme.textMuted }]}>{t('shop_manage_time_format_hint')}</Text>
         <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_open_label')}</Text>
@@ -218,14 +178,6 @@ export function StoreOwnerSettings({
 }
 
 const styles = StyleSheet.create({
-  statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 4 },
-  statusChip: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  statusChipText: { fontSize: 13, fontWeight: '800' },
   label: { fontSize: 13, fontWeight: '800', marginTop: 10, marginBottom: 6 },
   meta: { fontSize: 13, lineHeight: 19, marginBottom: 8 },
   primaryBtn: { marginTop: 14, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },

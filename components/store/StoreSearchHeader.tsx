@@ -10,16 +10,29 @@ type Props = {
   onChangeQuery: (value: string) => void;
   cartCount: number;
   onOpenCart: () => void;
+  title?: string;
+  subtitle?: string;
 };
 
-export function StoreSearchHeader({ query, onChangeQuery, cartCount, onOpenCart }: Props) {
+export function StoreSearchHeader({
+  query,
+  onChangeQuery,
+  cartCount,
+  onOpenCart,
+  title,
+  subtitle,
+}: Props) {
   const theme = useAppTheme();
   const { t, isRTL } = useI18n();
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.title, { color: theme.text }, isRTL && styles.rtl]}>{t('store_title')}</Text>
-      <Text style={[styles.subtitle, { color: theme.textMuted }, isRTL && styles.rtl]}>{t('store_subtitle')}</Text>
+      <Text style={[styles.title, { color: theme.text }, isRTL && styles.rtl]}>
+        {title ?? t('store_title')}
+      </Text>
+      <Text style={[styles.subtitle, { color: theme.textMuted }, isRTL && styles.rtl]}>
+        {subtitle ?? t('store_subtitle')}
+      </Text>
       <View style={[styles.searchRow, isRTL && styles.searchRowRtl]}>
         <View style={[styles.searchField, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
           <FontAwesome name="search" size={16} color={theme.textDim} />

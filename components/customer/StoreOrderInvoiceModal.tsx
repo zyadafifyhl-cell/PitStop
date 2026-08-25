@@ -7,6 +7,7 @@ import type { AppThemeTokens } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import type { CustomerStoreOrder } from '@/lib/store/types';
+import { resolveStoreOrderCustomerNotes } from '@/lib/store/orderNotes';
 import {
   CUSTOMER_STORE_STATUS_LABEL,
   CUSTOMER_STORE_STATUS_TONE,
@@ -53,6 +54,7 @@ export function StoreOrderInvoiceModal({
     : '';
   const paymentLabel = order ? t(storeOrderPaymentLabelKey(order.fulfillmentMethod)) : '';
   const deliveryFree = Boolean(order && (order.fulfillmentMethod === 'pickup' || order.deliveryFee <= 0));
+  const customerNotes = order ? resolveStoreOrderCustomerNotes(order) : '';
   const dash = { borderBottomColor: theme.border };
 
   const invoiceCopy = useMemo(
@@ -155,10 +157,17 @@ export function StoreOrderInvoiceModal({
                         ? `${t('customer_store_invoice_delivery_address')}: ${order.deliveryAddress?.trim() || '—'}`
                         : `${t('customer_store_invoice_store_address')}: ${shopAddress || '—'}`}
                     </Text>
-                    {isDelivery && order.deliveryNotes?.trim() ? (
-                      <Text style={[styles.muted, { color: theme.textMuted }]}>
-                        {t('customer_store_invoice_notes')}: {order.deliveryNotes.trim()}
-                      </Text>
+                    {customerNotes ? (
+                      <View
+                        style={[
+                          styles.notesCallout,
+                          { borderColor: theme.accent, backgroundColor: theme.accentSoft },
+                        ]}>
+                        <Text style={[styles.notesCalloutTitle, { color: theme.accent }]}>
+                          {t('customer_store_invoice_notes')}
+                        </Text>
+                        <Text style={[styles.notesCalloutBody, { color: theme.text }]}>{customerNotes}</Text>
+                      </View>
                     ) : null}
                     <View style={[styles.badge, { borderColor: theme.accent, backgroundColor: theme.accentSoft }]}>
                       <Text style={[styles.badgeText, { color: theme.accent }]}>{paymentLabel}</Text>
@@ -268,6 +277,16 @@ const styles = StyleSheet.create({
   label: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },
   value: { fontSize: 15, fontWeight: '800' },
   muted: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  notesCallout: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  notesCalloutTitle: { fontSize: 11, fontWeight: '900' },
+  notesCalloutBody: { fontSize: 13, fontWeight: '700', lineHeight: 18 },
   badge: {
     alignSelf: 'flex-start',
     borderWidth: 1,

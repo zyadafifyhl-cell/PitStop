@@ -118,11 +118,17 @@ export async function createStoreProduct(draft: StoreProductDraft): Promise<Stor
   const supabase = getSupabase();
   if (!supabase) return null;
 
+  const shopId = draft.shopId?.trim();
+  if (!shopId) {
+    console.warn('createStoreProduct: shopId is required');
+    return null;
+  }
+
   const { data: productRow, error } = await supabase
     .from('products')
     .insert({
       name: draft.name.trim(),
-      shop_id: draft.shopId ?? null,
+      shop_id: shopId,
       description: draft.description?.trim() || null,
       category: draft.category,
       sub_category: draft.subCategory,
@@ -263,6 +269,7 @@ type OrderRow = {
   customer_phone?: string | null;
   delivery_address?: string | null;
   delivery_notes?: string | null;
+  notes?: string | null;
   created_at: string;
   updated_at: string;
   shops?: {
@@ -301,6 +308,7 @@ function mapOrder(row: OrderRow): StoreOrder {
     customerPhone: row.customer_phone ?? undefined,
     deliveryAddress: row.delivery_address ?? undefined,
     deliveryNotes: row.delivery_notes ?? undefined,
+    notes: row.notes ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

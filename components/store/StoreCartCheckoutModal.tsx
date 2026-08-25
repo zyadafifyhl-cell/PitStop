@@ -31,9 +31,11 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   onInventoryChanged?: () => void;
+  /** When set (e.g. from a wash shop profile), prefer checkout for this shop. */
+  preferredShopId?: string;
 };
 
-export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged }: Props) {
+export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, preferredShopId }: Props) {
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
   const { customer } = useCustomerAuth();
@@ -67,10 +69,18 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged }:
       setSelectedShopId(null);
       return;
     }
-    if (!selectedShopId || !groups.some((group) => group.shopId === selectedShopId)) {
-      setSelectedShopId(groups[0].shopId);
+    const preferred =
+      preferredShopId && groups.some((group) => group.shopId === preferredShopId)
+        ? preferredShopId
+        : null;
+    if (preferred && selectedShopId !== preferred) {
+      setSelectedShopId(preferred);
+      return;
     }
-  }, [groups, selectedShopId]);
+    if (!selectedShopId || !groups.some((group) => group.shopId === selectedShopId)) {
+      setSelectedShopId(preferred ?? groups[0].shopId);
+    }
+  }, [groups, preferredShopId, selectedShopId]);
 
   const fulfillmentOptions = useMemo(
     () =>

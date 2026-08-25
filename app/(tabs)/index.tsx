@@ -89,13 +89,13 @@ export default function HomeScreen() {
           type: 'parts' as const,
           title: t('service_parts_title'),
           subtitle: t('service_parts_sub'),
-          storeCategory: 'spare_parts' as const,
+          href: '/service/parts' as Href,
         },
         {
           type: 'accessories' as const,
           title: t('service_accessories_title'),
           subtitle: t('service_accessories_sub'),
-          storeCategory: 'accessories' as const,
+          href: '/service/accessories' as Href,
         },
       ].filter((card) => {
         const q = serviceSearch.trim().toLowerCase();
@@ -296,10 +296,6 @@ export default function HomeScreen() {
           <Pressable
             key={card.type}
             onPress={() => {
-              if ('storeCategory' in card && card.storeCategory) {
-                router.push({ pathname: '/store', params: { category: card.storeCategory } });
-                return;
-              }
               if ('href' in card && card.href) {
                 router.push(card.href);
               }

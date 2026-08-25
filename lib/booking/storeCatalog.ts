@@ -1,12 +1,30 @@
 import type { ShopType, StoreCategory } from '@/lib/booking/types';
+import type { StoreProductCategory } from '@/lib/store/types';
 
 export function isStoreShopType(type: ShopType): boolean {
   return type === 'parts' || type === 'accessories';
 }
 
-export function storeProductCategoryForShopType(type: ShopType): 'spare_parts' | 'accessories' | null {
+/** Any merchant that can run an in-shop retail catalog (including wash/service). */
+export function shopSupportsInShopStore(type: ShopType): boolean {
+  return (
+    type === 'parts' ||
+    type === 'accessories' ||
+    type === 'wash' ||
+    type === 'maintenance' ||
+    type === 'winch'
+  );
+}
+
+/**
+ * Maps shop type → products.category enum.
+ * Wash / maintenance / winch sell on-shelf accessories (shampoos, microfibers, etc.).
+ */
+export function storeProductCategoryForShopType(type: ShopType): StoreProductCategory | null {
   if (type === 'parts') return 'spare_parts';
-  if (type === 'accessories') return 'accessories';
+  if (type === 'accessories' || type === 'wash' || type === 'maintenance' || type === 'winch') {
+    return 'accessories';
+  }
   return null;
 }
 

@@ -25,6 +25,9 @@ type Props = {
   settingsLabel?: string;
 };
 
+const COVER_HEIGHT = 150;
+const AVATAR_SIZE = 80;
+
 export function OwnerProfileHeader({
   theme,
   shopName,
@@ -46,6 +49,7 @@ export function OwnerProfileHeader({
 }: Props) {
   return (
     <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      {/* Cover banner — controls only; no shop text on the image */}
       <View style={styles.coverWrap}>
         {coverImage ? (
           <Image source={{ uri: coverImage }} style={styles.coverImage} contentFit="cover" />
@@ -68,7 +72,9 @@ export function OwnerProfileHeader({
             <FontAwesome name="bell" size={16} color={theme.text} />
             {notificationCount > 0 ? (
               <View style={[styles.notifBadge, { backgroundColor: theme.danger }]}>
-                <Text style={styles.notifBadgeText}>{notificationCount > 9 ? '9+' : notificationCount}</Text>
+                <Text style={styles.notifBadgeText}>
+                  {notificationCount > 99 ? '99+' : String(notificationCount)}
+                </Text>
               </View>
             ) : null}
           </Pressable>
@@ -82,41 +88,45 @@ export function OwnerProfileHeader({
         </Pressable>
       </View>
 
-      <View style={styles.heroBody}>
-        <View style={styles.avatarRow}>
-          <Pressable onPress={onEditProfile} disabled={pickingImage} style={styles.avatarPress}>
-            <View style={[styles.avatarRing, { borderColor: theme.card, backgroundColor: theme.card }]}>
-              {profileImage ? (
-                <Image source={{ uri: profileImage }} style={styles.avatar} contentFit="cover" />
-              ) : (
-                <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: theme.bgElevated }]}>
-                  <FontAwesome name="building" size={28} color={theme.textDim} />
-                </View>
-              )}
-            </View>
-            <View style={[styles.avatarBadge, { backgroundColor: theme.accent, borderColor: theme.card }]}>
-              <FontAwesome name="pencil" size={10} color={theme.onAccent} />
-            </View>
-          </Pressable>
-
-          <View style={styles.heroTextWrap}>
-            <Text style={[styles.heroTitle, { color: theme.text }]} numberOfLines={2}>
-              {shopName}
-            </Text>
-            <View style={[styles.typeBadge, { backgroundColor: theme.accentSoft }]}>
-              <Text style={[styles.typeBadgeText, { color: theme.accent }]}>{typeLabel}</Text>
-            </View>
-            <Text style={[styles.heroSub, { color: theme.textMuted }]} numberOfLines={2}>
-              {welcomeLine}
-            </Text>
-            {accountRoleLabel && accountEmail ? (
-              <Text style={[styles.accountLine, { color: theme.accent }]} numberOfLines={2}>
-                {accountRoleLabel} · {accountEmail}
-              </Text>
-            ) : null}
+      {/* Body: avatar overlaps banner edge; all text sits on card background below */}
+      <View style={[styles.heroBody, { backgroundColor: theme.card }]}>
+        <Pressable
+          onPress={onEditProfile}
+          disabled={pickingImage}
+          style={[
+            styles.avatarFloat,
+            { marginLeft: 16, borderColor: theme.bg, backgroundColor: theme.bg },
+          ]}>
+          <View style={[styles.avatarRing, { borderColor: theme.card, backgroundColor: theme.card }]}>
+            {profileImage ? (
+              <Image source={{ uri: profileImage }} style={styles.avatar} contentFit="cover" />
+            ) : (
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: theme.bgElevated }]}>
+                <FontAwesome name="building" size={26} color={theme.textDim} />
+              </View>
+            )}
           </View>
-        </View>
+          <View style={[styles.avatarBadge, { backgroundColor: theme.accent, borderColor: theme.card }]}>
+            <FontAwesome name="pencil" size={10} color={theme.onAccent} />
+          </View>
+        </Pressable>
 
+        <View style={styles.detailsBlock}>
+          <Text style={[styles.heroTitle, { color: theme.text }]} numberOfLines={2}>
+            {shopName}
+          </Text>
+          <View style={[styles.typeBadge, { backgroundColor: theme.accentSoft }]}>
+            <Text style={[styles.typeBadgeText, { color: theme.accent }]}>{typeLabel}</Text>
+          </View>
+          <Text style={[styles.heroSub, { color: theme.textMuted }]} numberOfLines={2}>
+            {welcomeLine}
+          </Text>
+          {accountRoleLabel && accountEmail ? (
+            <Text style={[styles.accountLine, { color: theme.accent }]} numberOfLines={2}>
+              {accountRoleLabel} · {accountEmail}
+            </Text>
+          ) : null}
+        </View>
       </View>
     </View>
   );
@@ -135,7 +145,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   coverWrap: { position: 'relative' },
-  coverImage: { width: '100%', height: 160 },
+  coverImage: { width: '100%', height: COVER_HEIGHT },
   notifBtn: {
     position: 'absolute',
     right: 12,
@@ -152,14 +162,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
   },
-  notifBadgeText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  notifBadgeText: { color: '#fff', fontSize: 11, fontWeight: '900' },
   coverEditBtn: {
     position: 'absolute',
     right: 12,
@@ -177,37 +187,49 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   coverEditText: { fontSize: 12, fontWeight: '800' },
-  heroBody: { paddingHorizontal: 14, paddingBottom: 14 },
-  avatarRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, marginTop: -36 },
-  avatarPress: { position: 'relative' },
-  avatarRing: {
-    borderWidth: 4,
-    borderRadius: 48,
-    padding: 2,
+  heroBody: {
+    paddingBottom: 16,
+    paddingHorizontal: 16,
   },
-  avatar: { width: 88, height: 88, borderRadius: 44 },
+  avatarFloat: {
+    marginTop: -(AVATAR_SIZE / 2),
+    alignSelf: 'flex-start',
+    borderWidth: 4,
+    borderRadius: (AVATAR_SIZE + 8) / 2,
+    position: 'relative',
+    zIndex: 2,
+  },
+  avatarRing: {
+    borderWidth: 3,
+    borderRadius: AVATAR_SIZE / 2 + 3,
+    padding: 2,
+    overflow: 'hidden',
+  },
+  avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2 },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
   avatarBadge: {
     position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    right: 0,
+    bottom: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroTextWrap: { flex: 1, paddingBottom: 4 },
-  heroTitle: { fontSize: 22, fontWeight: '900', marginBottom: 6 },
+  detailsBlock: {
+    marginTop: 8,
+    gap: 6,
+  },
+  heroTitle: { fontSize: 20, fontWeight: '900' },
   typeBadge: {
     alignSelf: 'flex-start',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    marginBottom: 6,
   },
   typeBadgeText: { fontSize: 11, fontWeight: '800' },
-  heroSub: { fontSize: 13, lineHeight: 18 },
-  accountLine: { fontSize: 12, fontWeight: '800', marginTop: 6 },
+  heroSub: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  accountLine: { fontSize: 12, fontWeight: '800', marginTop: 2 },
 });

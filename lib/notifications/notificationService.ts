@@ -14,6 +14,8 @@ import {
   filterPendingQueueBookingsForStaff,
 } from '@/lib/booking/wash/bookingDispatch';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
+import { formatEgp } from '@/lib/booking/reporting';
+import { sendShopPushForStoreOrder } from '@/lib/push/shopPush';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import { getSupabase } from '@/lib/supabase/client';
 import { userAlert } from '@/lib/ui/userAlert';
@@ -365,6 +367,147 @@ export function subscribeMerchantBookingRealtime(
     if (current.listeners.size === 0) {
       void supabase.removeChannel(current.channel);
       activeMerchantBookingChannels.delete(channelName);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Store orders (retail) — web + native realtime alerts
+// ---------------------------------------------------------------------------
+
+export type MerchantStoreOrderRealtimeRow = {
+  id: string;
+  shop_id: string;
+  total_price: number | string;
+  status?: string;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  fulfillment_method?: string | null;
+  created_at?: string | null;
+};
+
+export type MerchantStoreOrderRealtimeHandlers = {
+  onInsert?: (order: MerchantStoreOrderRealtimeRow) => void;
+  onUpdate?: (order: MerchantStoreOrderRealtimeRow) => void;
+};
+
+type MerchantStoreOrderListener = {
+  id: string;
+  handlers: MerchantStoreOrderRealtimeHandlers;
+};
+
+type MerchantStoreOrderChannelState = {
+  channel: RealtimeChannel;
+  listeners: Map<string, MerchantStoreOrderListener>;
+};
+
+const activeMerchantStoreOrderChannels = new Map<string, MerchantStoreOrderChannelState>();
+let merchantStoreOrderListenerSeq = 0;
+
+function merchantStoreOrderChannelName(shopId: string): string {
+  return `store-orders:${shopId}`;
+}
+
+export async function triggerMerchantStoreOrderAlert(
+  order: MerchantStoreOrderRealtimeRow,
+  locale: 'en' | 'ar',
+): Promise<void> {
+  if (Platform.OS !== 'web') {
+    Vibration.vibrate([0, 500, 200, 500]);
+  }
+
+  const shortId = order.id.replace(/-/g, '').slice(0, 8).toUpperCase();
+  const total = formatEgp(Number(order.total_price) || 0, locale);
+  userAlert(
+    locale === 'ar' ? 'طلب جديد' : 'New Store Order',
+    locale === 'ar'
+      ? `طلب #${shortId} وصل — ${total}`
+      : `Order #${shortId} received — ${total}`,
+  );
+
+  if (order.shop_id) {
+    void sendShopPushForStoreOrder({
+      shopId: order.shop_id,
+      orderId: order.id,
+      totalEgp: Number(order.total_price) || 0,
+    });
+  }
+}
+
+/**
+ * Shared realtime subscription for `public.store_orders` INSERT/UPDATE.
+ * Works on web and native (Supabase Realtime WebSocket).
+ */
+export function subscribeMerchantStoreOrderRealtime(
+  shopId: string,
+  handlers: MerchantStoreOrderRealtimeHandlers,
+): () => void {
+  const supabase = getSupabase();
+  if (!supabase || !shopId) return () => {};
+
+  const channelName = merchantStoreOrderChannelName(shopId);
+  const listenerId = `store-order-listener-${++merchantStoreOrderListenerSeq}`;
+
+  let state = activeMerchantStoreOrderChannels.get(channelName);
+  if (!state) {
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'store_orders',
+          filter: `shop_id=eq.${shopId}`,
+        },
+        (payload) => {
+          const current = activeMerchantStoreOrderChannels.get(channelName);
+          if (!current) return;
+          const row = payload.new as MerchantStoreOrderRealtimeRow;
+          if (!row?.id || row.shop_id !== shopId) return;
+          for (const listener of current.listeners.values()) {
+            listener.handlers.onInsert?.(row);
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'store_orders',
+          filter: `shop_id=eq.${shopId}`,
+        },
+        (payload) => {
+          const current = activeMerchantStoreOrderChannels.get(channelName);
+          if (!current) return;
+          const row = payload.new as MerchantStoreOrderRealtimeRow;
+          if (!row?.id || row.shop_id !== shopId) return;
+          for (const listener of current.listeners.values()) {
+            listener.handlers.onUpdate?.(row);
+          }
+        },
+      );
+
+    channel.subscribe((status) => {
+      if (__DEV__) {
+        console.log('Realtime subscription status:', status, channelName);
+      }
+    });
+
+    state = { channel, listeners: new Map() };
+    activeMerchantStoreOrderChannels.set(channelName, state);
+  }
+
+  state.listeners.set(listenerId, { id: listenerId, handlers });
+
+  return () => {
+    const current = activeMerchantStoreOrderChannels.get(channelName);
+    if (!current) return;
+    current.listeners.delete(listenerId);
+    if (current.listeners.size === 0) {
+      void supabase.removeChannel(current.channel);
+      activeMerchantStoreOrderChannels.delete(channelName);
     }
   };
 }

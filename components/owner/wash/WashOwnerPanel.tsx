@@ -29,7 +29,11 @@ import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
+import { MerchantNotificationsModal } from '@/components/merchant/MerchantNotificationsModal';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
+import { StoreInventoryManager } from '@/components/store/owner/StoreInventoryManager';
+import { StoreOrdersPanel } from '@/components/store/owner/StoreOrdersPanel';
+import type { StoreOrderListFilter } from '@/lib/store/ownerFilters';
 import { OsmLocationPicker } from '@/components/maps/OsmLocationPicker';
 import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
 import { useI18n } from '@/context/I18nContext';
@@ -59,18 +63,14 @@ import {
   formatEgp,
   toYmdLocal,
 } from '@/lib/booking/reporting';
-import {
-  listShopReviews,
-  setReviewHidden,
-  setReviewOwnerReply,
-  setReviewReported,
-} from '@/lib/booking/reviewsStorage';
+import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
+import { listShopReviews } from '@/lib/booking/reviewsStorage';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { openPhone } from '@/lib/linking/contact';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
-import type { Booking, BookingStatus, Shop, ShopDayHours, ShopReview, ShopService } from '@/lib/booking/types';
+import type { Booking, BookingStatus, Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
 import { computeWashAnalytics } from '@/lib/booking/wash/washAnalytics';
 import {
   getBranchWorkspaceCache,
@@ -272,7 +272,6 @@ export function WashOwnerPanel({ shop }: Props) {
   const [activeBranch, setActiveBranch] = useState<WashBranch | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [analytics, setAnalytics] = useState<WashAnalyticsSnapshot | null>(null);
-  const [reviews, setReviews] = useState<ShopReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [pickingImage, setPickingImage] = useState(false);
 
@@ -315,7 +314,6 @@ export function WashOwnerPanel({ shop }: Props) {
   const [rejectNote, setRejectNote] = useState('');
   const [rejectBusy, setRejectBusy] = useState(false);
 
-  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
   const [employees, setEmployees] = useState<DbBranchEmployee[]>([]);
   const [newEmployeeName, setNewEmployeeName] = useState('');
@@ -348,6 +346,9 @@ export function WashOwnerPanel({ shop }: Props) {
   const [walkInModalVisible, setWalkInModalVisible] = useState(false);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
   const [adminTab, setAdminTab] = useState<OwnerShellTabId>('dashboard');
+  const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
+  const [storeOrderFilter, setStoreOrderFilter] = useState<StoreOrderListFilter>('all');
+  const [focusStoreOrderId, setFocusStoreOrderId] = useState<string | null>(null);
 
   const orderNotifier = useMerchantOrderNotifier({
     shopId: shop.id,
@@ -355,6 +356,11 @@ export function WashOwnerPanel({ shop }: Props) {
     activeBranchId: activeBranch?.id,
     locale,
   });
+
+  const openNotificationsModal = useCallback(() => {
+    void orderNotifier.refreshStoreOrders();
+    setNotificationsModalVisible(true);
+  }, [orderNotifier.refreshStoreOrders]);
 
   const formSetters = useMemo(
     () => ({
@@ -415,7 +421,6 @@ export function WashOwnerPanel({ shop }: Props) {
       setAnalytics(cached.analytics);
       if (shopCached) {
         setBookings(shopCached.bookings);
-        setReviews(shopCached.reviews);
       }
       setEmployees(cached.employees);
       setBranchManager(cached.branchManager);
@@ -474,7 +479,6 @@ export function WashOwnerPanel({ shop }: Props) {
         setBranchState(stateWithCoupons);
         syncBranchForms(branchWithCoupons);
         setBookings(scopedBookings);
-        setReviews(reviewRows);
         setAnalytics(statsWithOperationalPending);
         setEmployees(meta.employees);
         setBranchManager(meta.branchManager);
@@ -645,10 +649,6 @@ export function WashOwnerPanel({ shop }: Props) {
   const sortedServices = useMemo(
     () => (activeBranch?.services ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
     [activeBranch?.services],
-  );
-  const visibleReviews = useMemo(
-    () => reviews.filter((review) => !review.hidden),
-    [reviews],
   );
 
   function requestPremiumUpgrade() {
@@ -1208,20 +1208,6 @@ export function WashOwnerPanel({ shop }: Props) {
     syncBranchForms(branch);
   }
 
-  async function onMoveService(serviceId: string, direction: -1 | 1) {
-    if (!activeBranch) return;
-    const services = activeBranch.services.slice().sort((a, b) => a.sortOrder - b.sortOrder);
-    const idx = services.findIndex((s) => s.id === serviceId);
-    const swapIdx = idx + direction;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= services.length) return;
-    const a = services[idx].sortOrder;
-    services[idx].sortOrder = services[swapIdx].sortOrder;
-    services[swapIdx].sortOrder = a;
-    services.sort((x, y) => x.sortOrder - y.sortOrder);
-    const branch = await saveWashBranchServices(shop, services, branchCtx);
-    syncBranchForms(branch);
-  }
-
   function updateDayHours(day: ShopDayHours['day'], patch: Partial<ShopDayHours>) {
     setWeeklyHours((rows) => {
       const base = rows.length ? rows : defaultWeeklyHours();
@@ -1469,46 +1455,6 @@ export function WashOwnerPanel({ shop }: Props) {
     }
   }
 
-  async function onSaveReviewReply(reviewId: string) {
-    const reply = replyDrafts[reviewId]?.trim();
-    if (!reply) return;
-    await setReviewOwnerReply(shop.id, reviewId, reply);
-    const rows = await listShopReviews(shop.id);
-    setReviews(rows);
-    setReplyDrafts((prev) => ({ ...prev, [reviewId]: '' }));
-  }
-
-  async function onToggleReviewHidden(reviewId: string, hidden: boolean) {
-    await setReviewHidden(shop.id, reviewId, hidden);
-    const rows = await listShopReviews(shop.id);
-    setReviews(rows);
-  }
-
-  async function onReportReview(review: ShopReview) {
-    await setReviewReported(shop.id, review.id, true);
-    await setReviewHidden(shop.id, review.id, true);
-    if (review.customerId) {
-      const supabase = getSupabase();
-      if (supabase) {
-        await supabase.from('notifications').insert({
-          user_id: review.customerId,
-          shop_id: shop.id,
-          review_id: review.id,
-          type: 'review_dismissed',
-          title: locale === 'ar' ? 'تم حذف التقييم' : 'Review removed',
-          body:
-            locale === 'ar'
-              ? 'تم حذف تقييمك بواسطة إدارة المغسلة لمخالفته السياسات.'
-              : 'Your review was removed by the wash merchant moderation team.',
-          is_read: false,
-          created_at: new Date().toISOString(),
-        });
-      }
-    }
-    setReviews((prev) => prev.filter((row) => row.id !== review.id));
-    showNotice(t('wash_review_reported_title'), t('wash_review_reported_body'));
-  }
-
   function renderStatCard(label: string, value: string, accent?: boolean) {
     return (
       <View style={[styles.statCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
@@ -1616,6 +1562,158 @@ export function WashOwnerPanel({ shop }: Props) {
     icon: tab.icon,
   }));
 
+  const shopStatusCard = (
+    <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('wash_status_lead')}>
+      <View style={styles.actions}>
+        {(['open', 'closed', 'busy', 'vacation'] as WashShopStatus[]).map((status) => (
+          <Pressable
+            key={status}
+            onPress={() => onSaveShopStatus(status)}
+            style={[
+              styles.chipBtn,
+              {
+                backgroundColor: shopStatus === status ? theme.accent : theme.bgElevated,
+                borderColor: shopStatus === status ? theme.accent : theme.border,
+              },
+            ]}>
+            <Text
+              style={[
+                styles.chipBtnText,
+                { color: shopStatus === status ? theme.onAccent : theme.text },
+              ]}>
+              {t(washStatusLabelKey(status))}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {shopStatus === 'vacation' ? (
+        <>
+          <BookingDatePicker
+            valueYmd={vacationReturnDate || toYmdLocal(new Date())}
+            onChangeYmd={setVacationReturnDate}
+            locale={locale}
+            label={t('wash_vacation_return_date')}
+            pickHint={t('book_date_pick_hint')}
+            minimumDate={new Date()}
+            borderColor={theme.border}
+            backgroundColor={theme.bgElevated}
+            textColor={theme.text}
+          />
+          <TextInput
+            placeholder={t('wash_vacation_message_placeholder')}
+            placeholderTextColor={theme.textDim}
+            value={vacationMessage}
+            onChangeText={setVacationMessage}
+            multiline
+            style={[fieldStyle, styles.noteInput]}
+          />
+          <TextInput
+            placeholder={t('wash_vacation_message_ar_placeholder')}
+            placeholderTextColor={theme.textDim}
+            value={vacationMessageAr}
+            onChangeText={setVacationMessageAr}
+            multiline
+            style={[fieldStyle, styles.noteInput]}
+          />
+          <Pressable onPress={onSaveVacationDetails} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
+            <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_vacation_save')}</Text>
+          </Pressable>
+        </>
+      ) : null}
+    </OwnerSectionCard>
+  );
+
+  const weeklyHoursCard = (
+    <OwnerSectionCard theme={theme} title={t('wash_hours_title')} subtitle={t('wash_hours_lead')}>
+      <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_hours_pick_day')}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        {EDITOR_DAY_ORDER.map((day) => (
+          <Pressable
+            key={day}
+            onPress={() => setSelectedHoursDay(day)}
+            style={[
+              styles.filterChip,
+              {
+                backgroundColor: selectedHoursDay === day ? theme.accent : theme.bgElevated,
+                borderColor: selectedHoursDay === day ? theme.accent : theme.border,
+              },
+            ]}>
+            <Text style={{ color: selectedHoursDay === day ? theme.onAccent : theme.text, fontWeight: '800', fontSize: 12 }}>
+              {WASH_DAY_LABELS[day][locale === 'ar' ? 'ar' : 'en']}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <View style={[styles.dayRow, { borderColor: theme.border }]}>
+        <Text style={[styles.dayName, { color: theme.text }]}>
+          {WASH_DAY_LABELS[selectedDayRow.day][locale === 'ar' ? 'ar' : 'en']}
+        </Text>
+        <View style={[styles.dayToggleRow, styles.actions]}>
+          <Pressable
+            onPress={() => updateDayHours(selectedDayRow.day, { closed: false })}
+            style={[
+              styles.chipBtn,
+              styles.dayToggleBtn,
+              {
+                backgroundColor: !selectedDayRow.closed ? theme.accent : theme.bgElevated,
+                borderColor: !selectedDayRow.closed ? theme.accent : theme.border,
+              },
+            ]}>
+            <Text
+              style={[
+                styles.chipBtnText,
+                { color: !selectedDayRow.closed ? theme.onAccent : theme.text },
+              ]}>
+              {t('wash_hours_open')}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => updateDayHours(selectedDayRow.day, { closed: true })}
+            style={[
+              styles.chipBtn,
+              styles.dayToggleBtn,
+              {
+                backgroundColor: selectedDayRow.closed ? theme.danger : theme.bgElevated,
+                borderColor: selectedDayRow.closed ? theme.danger : theme.border,
+              },
+            ]}>
+            <Text style={[styles.chipBtnText, { color: selectedDayRow.closed ? '#fff' : theme.text }]}>
+              {t('wash_hours_closed')}
+            </Text>
+          </Pressable>
+        </View>
+        {!selectedDayRow.closed ? (
+          <>
+            <TextInput placeholder={t('wash_hours_open_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.openTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { openTime: v })} style={fieldStyle} />
+            <TextInput placeholder={t('wash_hours_close_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.closeTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { closeTime: v })} style={fieldStyle} />
+          </>
+        ) : null}
+      </View>
+      <Pressable onPress={onSaveWeeklyHours} style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
+        <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_hours_save')}</Text>
+      </Pressable>
+    </OwnerSectionCard>
+  );
+
+  const businessSetupCard = (
+    <OwnerSectionCard theme={theme} title={t('merchant_settings_business_title')}>
+      <MerchantNavRow
+        theme={theme}
+        label={t('merchant_settings_hours_row')}
+        subtitle={t('merchant_settings_hours_subtitle')}
+        onPress={() => router.push('/shop/merchant-hours')}
+      />
+      <MerchantNavRow
+        theme={theme}
+        label={t('merchant_settings_staff_row')}
+        subtitle={t('merchant_settings_staff_subtitle')}
+        onPress={() => router.push('/shop/merchant-staff')}
+        showDivider={false}
+      />
+    </OwnerSectionCard>
+  );
+
   if (!workspaceReady) {
     return (
       <View style={[styles.container, styles.workspaceBoot, { backgroundColor: theme.bg }]}>
@@ -1638,12 +1736,12 @@ export function WashOwnerPanel({ shop }: Props) {
             pickingImage={pickingImage}
             coverEditLabel={t('wash_manage_set_cover_image')}
             notificationsLabel={t('wash_notifications_button')}
-            notificationCount={orderNotifier.pendingCount}
+            notificationCount={orderNotifier.pendingCount + orderNotifier.pendingStoreOrderCount}
             accountRoleLabel={accountRoleLabel}
             accountEmail={accountEmail}
             onEditCover={onSetCoverImage}
             onEditProfile={onSetProfileImage}
-            onOpenNotifications={() => router.push('/shop/wash-owner-hub?tab=orders')}
+            onOpenNotifications={openNotificationsModal}
             onOpenSettings={() => setAdminTab('settings')}
             settingsLabel={t('merchant_settings_open')}
           />
@@ -1775,8 +1873,8 @@ export function WashOwnerPanel({ shop }: Props) {
                   </OwnerSectionCard>
                 ) : null}
 
-                {/* Shop status — read-only; edit in Settings */}
-                <Pressable onPress={() => setAdminTab('settings')}>
+                {/* Shop status — read-only; edit in Management */}
+                <Pressable onPress={() => setAdminTab('management')}>
                   <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('shop_operating_status_hint')}>
                     <View style={styles.actions}>
                       <View
@@ -1956,152 +2054,6 @@ export function WashOwnerPanel({ shop }: Props) {
 
         {adminTab === 'settings' && (
           <>
-            <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('wash_status_lead')}>
-              <View style={styles.actions}>
-                {(['open', 'closed', 'busy', 'vacation'] as WashShopStatus[]).map((status) => (
-                  <Pressable
-                    key={status}
-                    onPress={() => onSaveShopStatus(status)}
-                    style={[
-                      styles.chipBtn,
-                      {
-                        backgroundColor: shopStatus === status ? theme.accent : theme.bgElevated,
-                        borderColor: shopStatus === status ? theme.accent : theme.border,
-                      },
-                    ]}>
-                    <Text
-                      style={[
-                        styles.chipBtnText,
-                        { color: shopStatus === status ? theme.onAccent : theme.text },
-                      ]}>
-                      {t(washStatusLabelKey(status))}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              {shopStatus === 'vacation' ? (
-                <>
-                  <BookingDatePicker
-                    valueYmd={vacationReturnDate || toYmdLocal(new Date())}
-                    onChangeYmd={setVacationReturnDate}
-                    locale={locale}
-                    label={t('wash_vacation_return_date')}
-                    pickHint={t('book_date_pick_hint')}
-                    minimumDate={new Date()}
-                    borderColor={theme.border}
-                    backgroundColor={theme.bgElevated}
-                    textColor={theme.text}
-                  />
-                  <TextInput
-                    placeholder={t('wash_vacation_message_placeholder')}
-                    placeholderTextColor={theme.textDim}
-                    value={vacationMessage}
-                    onChangeText={setVacationMessage}
-                    multiline
-                    style={[fieldStyle, styles.noteInput]}
-                  />
-                  <TextInput
-                    placeholder={t('wash_vacation_message_ar_placeholder')}
-                    placeholderTextColor={theme.textDim}
-                    value={vacationMessageAr}
-                    onChangeText={setVacationMessageAr}
-                    multiline
-                    style={[fieldStyle, styles.noteInput]}
-                  />
-                  <Pressable onPress={onSaveVacationDetails} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
-                    <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_vacation_save')}</Text>
-                  </Pressable>
-                </>
-              ) : null}
-            </OwnerSectionCard>
-
-            <OwnerSectionCard theme={theme} title={t('wash_hours_title')} subtitle={t('wash_hours_lead')}>
-              <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_hours_pick_day')}</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-                {EDITOR_DAY_ORDER.map((day) => (
-                  <Pressable
-                    key={day}
-                    onPress={() => setSelectedHoursDay(day)}
-                    style={[
-                      styles.filterChip,
-                      {
-                        backgroundColor: selectedHoursDay === day ? theme.accent : theme.bgElevated,
-                        borderColor: selectedHoursDay === day ? theme.accent : theme.border,
-                      },
-                    ]}>
-                    <Text style={{ color: selectedHoursDay === day ? theme.onAccent : theme.text, fontWeight: '800', fontSize: 12 }}>
-                      {WASH_DAY_LABELS[day][locale === 'ar' ? 'ar' : 'en']}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-
-              <View style={[styles.dayRow, { borderColor: theme.border }]}>
-                <Text style={[styles.dayName, { color: theme.text }]}>
-                  {WASH_DAY_LABELS[selectedDayRow.day][locale === 'ar' ? 'ar' : 'en']}
-                </Text>
-                <View style={[styles.dayToggleRow, styles.actions]}>
-                  <Pressable
-                    onPress={() => updateDayHours(selectedDayRow.day, { closed: false })}
-                    style={[
-                      styles.chipBtn,
-                      styles.dayToggleBtn,
-                      {
-                        backgroundColor: !selectedDayRow.closed ? theme.accent : theme.bgElevated,
-                        borderColor: !selectedDayRow.closed ? theme.accent : theme.border,
-                      },
-                    ]}>
-                    <Text
-                      style={[
-                        styles.chipBtnText,
-                        { color: !selectedDayRow.closed ? theme.onAccent : theme.text },
-                      ]}>
-                      {t('wash_hours_open')}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => updateDayHours(selectedDayRow.day, { closed: true })}
-                    style={[
-                      styles.chipBtn,
-                      styles.dayToggleBtn,
-                      {
-                        backgroundColor: selectedDayRow.closed ? theme.danger : theme.bgElevated,
-                        borderColor: selectedDayRow.closed ? theme.danger : theme.border,
-                      },
-                    ]}>
-                    <Text style={[styles.chipBtnText, { color: selectedDayRow.closed ? '#fff' : theme.text }]}>
-                      {t('wash_hours_closed')}
-                    </Text>
-                  </Pressable>
-                </View>
-                {!selectedDayRow.closed ? (
-                  <>
-                    <TextInput placeholder={t('wash_hours_open_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.openTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { openTime: v })} style={fieldStyle} />
-                    <TextInput placeholder={t('wash_hours_close_time')} placeholderTextColor={theme.textDim} value={selectedDayRow.closeTime ?? ''} onChangeText={(v) => updateDayHours(selectedDayRow.day, { closeTime: v })} style={fieldStyle} />
-                  </>
-                ) : null}
-              </View>
-              <Pressable onPress={onSaveWeeklyHours} style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
-                <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_hours_save')}</Text>
-              </Pressable>
-            </OwnerSectionCard>
-
-            <OwnerSectionCard theme={theme} title={t('merchant_settings_business_title')}>
-              <MerchantNavRow
-                theme={theme}
-                label={t('merchant_settings_hours_row')}
-                subtitle={t('merchant_settings_hours_subtitle')}
-                onPress={() => router.push('/shop/merchant-hours')}
-              />
-              <MerchantNavRow
-                theme={theme}
-                label={t('merchant_settings_staff_row')}
-                subtitle={t('merchant_settings_staff_subtitle')}
-                onPress={() => router.push('/shop/merchant-staff')}
-                showDivider={false}
-              />
-            </OwnerSectionCard>
-
             <OwnerAccountSettings />
           </>
         )}
@@ -2117,7 +2069,7 @@ export function WashOwnerPanel({ shop }: Props) {
                 {sortedServices.length === 0 ? (
                   <Text style={[styles.emptyHint, { color: theme.textMuted }]}>{t('wash_services_empty')}</Text>
                 ) : (
-                  sortedServices.map((service, index) => (
+                  sortedServices.map((service) => (
                     <View key={service.id} style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.metaStrong, { color: theme.text }]}>
@@ -2129,12 +2081,6 @@ export function WashOwnerPanel({ shop }: Props) {
                         </Text>
                       </View>
                       <View style={styles.actions}>
-                        <Pressable onPress={() => onMoveService(service.id, -1)} disabled={index === 0} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === 0 ? 0.4 : 1 }]}>
-                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↑</Text>
-                        </Pressable>
-                        <Pressable onPress={() => onMoveService(service.id, 1)} disabled={index === sortedServices.length - 1} style={[styles.chipBtn, { borderColor: theme.border, opacity: index === sortedServices.length - 1 ? 0.4 : 1 }]}>
-                          <Text style={[styles.chipBtnText, { color: theme.text }]}>↓</Text>
-                        </Pressable>
                         <Pressable onPress={() => openServiceEditor(service)} style={[styles.chipBtn, { borderColor: theme.border }]}>
                           <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_service_edit')}</Text>
                         </Pressable>
@@ -2156,6 +2102,8 @@ export function WashOwnerPanel({ shop }: Props) {
             <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
               <MerchantCampaignsPanel shopId={shop.id} />
             </OwnerSectionCard>
+
+            <StoreInventoryManager shop={shop} />
 
             {/* Coupons hidden by request */}
             {showCoupons ? (
@@ -2208,6 +2156,16 @@ export function WashOwnerPanel({ shop }: Props) {
 
         {adminTab === 'management' && (
           <>
+            {shopStatusCard}
+            {weeklyHoursCard}
+            {businessSetupCard}
+            <StoreOrdersPanel
+              shop={shop}
+              statusFilter={storeOrderFilter}
+              onStatusFilterChange={setStoreOrderFilter}
+              focusOrderId={focusStoreOrderId}
+              onFocusOrderHandled={() => setFocusStoreOrderId(null)}
+            />
             {/* Branch manager */}
             {isOwner && activeBranch && isUuid(activeBranch.id) ? (
               <PremiumFeatureGate>
@@ -2372,50 +2330,7 @@ export function WashOwnerPanel({ shop }: Props) {
               </OwnerSectionCard>
             ) : null}
 
-            {/* Reviews */}
-            <OwnerSectionCard
-              theme={theme}
-              title={t('wash_reviews_title')}
-              subtitle={t(isBranchManager ? 'wash_reviews_lead_manager' : 'wash_reviews_lead')}>
-              {visibleReviews.length === 0 ? (
-                <Text style={[styles.empty, { color: theme.textMuted }]}>{t('wash_reviews_empty')}</Text>
-              ) : (
-                visibleReviews.map((review) => (
-                    <View key={review.id} style={[styles.reviewRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                      <Text style={[styles.metaStrong, { color: theme.text }]}>
-                        {'★'.repeat(review.rating)}{' '}
-                        {review.customerName}
-                      </Text>
-                      <Text style={[styles.meta, { color: theme.textMuted }]}>{review.body}</Text>
-                      {review.ownerReply ? (
-                        <Text style={[styles.meta, { color: theme.accent }]}>
-                          {t('wash_review_owner_reply')}: {review.ownerReply}
-                        </Text>
-                      ) : null}
-                      <TextInput
-                        placeholder={t('wash_review_reply_placeholder')}
-                        placeholderTextColor={theme.textDim}
-                        value={replyDrafts[review.id] ?? ''}
-                        onChangeText={(v) => setReplyDrafts((prev) => ({ ...prev, [review.id]: v }))}
-                        style={fieldStyle}
-                      />
-                      <View style={styles.actions}>
-                        <Pressable onPress={() => onSaveReviewReply(review.id)} style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                          <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_review_reply_save')}</Text>
-                        </Pressable>
-                        <Pressable onPress={() => onToggleReviewHidden(review.id, true)} style={[styles.chipBtn, { borderColor: theme.border }]}>
-                          <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_review_hide')}</Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => void onReportReview(review)}
-                          style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
-                          <Text style={styles.actionText}>{t('wash_review_report')}</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))
-              )}
-            </OwnerSectionCard>
+            <OwnerReviewsHistory shopId={shop.id} leadVariant={isBranchManager ? 'manager' : 'owner'} />
           </>
         )}
       </ScrollView>
@@ -2423,6 +2338,23 @@ export function WashOwnerPanel({ shop }: Props) {
       <OwnerDashboardNav tabs={TABS} activeTab={adminTab} onChange={setAdminTab} />
 
       <PremiumUpgradeModal visible={premiumModalVisible} onClose={() => setPremiumModalVisible(false)} />
+
+      <MerchantNotificationsModal
+        visible={notificationsModalVisible}
+        onClose={() => setNotificationsModalVisible(false)}
+        shopId={shop.id}
+        pendingStoreOrders={orderNotifier.pendingStoreOrders}
+        pendingBookings={orderNotifier.pendingBookings}
+        onSelectStoreOrder={(order) => {
+          setStoreOrderFilter('pending');
+          setFocusStoreOrderId(order.id);
+          setAdminTab('management');
+        }}
+        onSelectBooking={() => {
+          setPanelTab('workspace');
+          setAdminTab('dashboard');
+        }}
+      />
 
       {activeBranch && canUseWalkInPos ? (
         <WalkInBookingModal

@@ -8,6 +8,7 @@ import { formatOrderCardDateTime } from '@/lib/booking/customerOrderPresentation
 import { formatEgp } from '@/lib/booking/reporting';
 import type { Locale, TranslationKey } from '@/lib/i18n/strings';
 import type { CustomerStoreOrder, StoreOrderStatus } from '@/lib/store/types';
+import { resolveStoreOrderCustomerNotes } from '@/lib/store/orderNotes';
 
 const STATUS_TONE: Record<StoreOrderStatus, { backgroundColor: string; borderColor: string; color: string }> = {
   pending: { backgroundColor: 'rgba(245,197,24,0.16)', borderColor: '#F5C518', color: '#F5C518' },
@@ -61,6 +62,7 @@ export function CustomerStoreOrderCard({
   const canCancel = order.status === 'pending';
   const canReorder = order.status === 'completed';
   const hasPhone = Boolean(order.shopPhone?.trim());
+  const customerNotes = resolveStoreOrderCustomerNotes(order);
 
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -103,6 +105,12 @@ export function CustomerStoreOrderCard({
         {isDelivery ? t('customer_store_fulfillment_delivery') : t('customer_store_fulfillment_pickup')}
         {isDelivery && order.deliveryAddress ? ` · ${order.deliveryAddress}` : ''}
       </Text>
+      {customerNotes ? (
+        <View style={[styles.notesCallout, { borderColor: theme.accent, backgroundColor: theme.accentSoft }]}>
+          <Text style={[styles.notesTitle, { color: theme.accent }]}>{t('customer_store_invoice_notes')}</Text>
+          <Text style={[styles.notesBody, { color: theme.text }]}>{customerNotes}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.actions}>
         {hasPhone ? (
@@ -176,6 +184,16 @@ const styles = StyleSheet.create({
   lineMeta: { flex: 1, minWidth: 0 },
   lineName: { fontSize: 14, fontWeight: '800' },
   fulfillment: { fontSize: 13, fontWeight: '600', marginTop: 12, lineHeight: 19 },
+  notesCallout: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  notesTitle: { fontSize: 11, fontWeight: '900' },
+  notesBody: { fontSize: 13, fontWeight: '700', lineHeight: 18 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   actionBtn: {
     flexDirection: 'row',

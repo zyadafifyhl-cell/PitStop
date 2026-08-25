@@ -33,6 +33,7 @@ export function StoreProductForm({ onSaved }: Props) {
   const theme = useAppTheme();
   const { t } = useI18n();
 
+  const [shopId, setShopId] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<StoreProductCategory>('spare_parts');
@@ -83,12 +84,20 @@ export function StoreProductForm({ onSaved }: Props) {
   async function onSave() {
     const parsedPrice = Number(price);
     const parsedStock = Number(stockQuantity);
-    if (!name.trim() || !Number.isFinite(parsedPrice) || parsedPrice <= 0 || !Number.isFinite(parsedStock)) {
+    const trimmedShopId = shopId.trim();
+    if (
+      !trimmedShopId ||
+      !name.trim() ||
+      !Number.isFinite(parsedPrice) ||
+      parsedPrice <= 0 ||
+      !Number.isFinite(parsedStock)
+    ) {
       Alert.alert(t('store_admin_invalid_title'), t('store_admin_invalid_body'));
       return;
     }
 
     const draft: StoreProductDraft = {
+      shopId: trimmedShopId,
       name: name.trim(),
       description: description.trim() || undefined,
       category,
@@ -126,6 +135,7 @@ export function StoreProductForm({ onSaved }: Props) {
         Alert.alert(t('store_admin_save_fail_title'), t('store_admin_save_fail_body'));
         return;
       }
+      setShopId('');
       setName('');
       setDescription('');
       setPrice('');
@@ -147,6 +157,16 @@ export function StoreProductForm({ onSaved }: Props) {
 
   return (
     <ScrollView contentContainerStyle={styles.wrap}>
+      <Text style={[styles.label, { color: theme.text }]}>{t('store_admin_shop_id')}</Text>
+      <TextInput
+        value={shopId}
+        onChangeText={setShopId}
+        style={fieldStyle}
+        placeholder={t('store_admin_shop_id_ph')}
+        placeholderTextColor={theme.textDim}
+        autoCapitalize="none"
+      />
+
       <Text style={[styles.label, { color: theme.text }]}>{t('store_admin_name')}</Text>
       <TextInput value={name} onChangeText={setName} style={fieldStyle} placeholder={t('store_admin_name_ph')} placeholderTextColor={theme.textDim} />
 

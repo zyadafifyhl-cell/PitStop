@@ -1,5 +1,6 @@
 import { formatEgp } from '@/lib/booking/reporting';
 import type { Locale, TranslationKey } from '@/lib/i18n/strings';
+import { resolveStoreOrderCustomerNotes } from '@/lib/store/orderNotes';
 import type { CustomerStoreOrder, StoreFulfillmentMethod, StoreOrderStatus } from '@/lib/store/types';
 
 export const CUSTOMER_STORE_STATUS_LABEL: Record<StoreOrderStatus, TranslationKey> = {
@@ -97,7 +98,7 @@ export function buildStoreOrderInvoiceHtml(input: {
   const shortId = formatStoreOrderShortId(order.id);
   const timestamp = formatStoreOrderFullTimestamp(order.createdAt, locale);
   const deliveryFree = order.fulfillmentMethod === 'pickup' || order.deliveryFee <= 0;
-  const notes = order.deliveryNotes?.trim() || '';
+  const notes = resolveStoreOrderCustomerNotes(order);
   const rows = order.items
     .map(
       (item) => `

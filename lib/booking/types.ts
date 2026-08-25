@@ -190,8 +190,13 @@ export type ShopReview = {
   likes: number;
   likedBy: string[];
   ownerReply?: string;
+  ownerRepliedAt?: string;
   hidden?: boolean;
   reported?: boolean;
+  bookingId?: string;
+  storeOrderId?: string;
+  serviceReference?: string;
+  orderReference?: string;
   createdAt: string;
 };
 

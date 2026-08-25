@@ -17,6 +17,11 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import type { Shop } from '@/lib/booking/types';
 import {
+  isStoreOrderCodDelivery,
+  isStoreOrderPickup,
+  resolveStoreOrderCustomerNotes,
+} from '@/lib/store/orderNotes';
+import {
   listStoreOwnerOrders,
   updateStoreOrderStatus,
   type StoreOrderWithItems,
@@ -31,6 +36,9 @@ type Props = {
   onRefresh?: () => void;
   statusFilter?: StoreOrderListFilter;
   onStatusFilterChange?: (filter: StoreOrderListFilter) => void;
+  /** When set, auto-open the order details modal for this id. */
+  focusOrderId?: string | null;
+  onFocusOrderHandled?: () => void;
 };
 
 const STATUS_COLORS: Record<StoreOrderStatus, string> = {
@@ -49,7 +57,14 @@ const STATUS_ICONS: Record<StoreOrderStatus, React.ComponentProps<typeof FontAwe
   cancelled: 'times-circle',
 };
 
-export function StoreOrdersPanel({ shop, onRefresh, statusFilter, onStatusFilterChange }: Props) {
+export function StoreOrdersPanel({
+  shop,
+  onRefresh,
+  statusFilter,
+  onStatusFilterChange,
+  focusOrderId,
+  onFocusOrderHandled,
+}: Props) {
   const appTheme = useAppTheme();
   const theme = {
     ...appTheme,
@@ -95,10 +110,21 @@ export function StoreOrdersPanel({ shop, onRefresh, statusFilter, onStatusFilter
   }, [loadOrders]);
 
   useEffect(() => {
+    if (!focusOrderId || loading) return;
+    const match = orders.find((row) => row.id === focusOrderId);
+    if (match) {
+      setSelectedOrder(match);
+      onFocusOrderHandled?.();
+      return;
+    }
+    // Order may still be loading via realtime — keep focus until found or cleared by parent.
+  }, [focusOrderId, loading, orders, onFocusOrderHandled]);
+
+  useEffect(() => {
     const supabase = getSupabase();
     if (!supabase) return;
     const channel = supabase
-      .channel(`store-orders:${shop.id}`)
+      .channel(`store-orders-panel:${shop.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'store_orders', filter: `shop_id=eq.${shop.id}` },
@@ -260,10 +286,86 @@ export function StoreOrdersPanel({ shop, onRefresh, statusFilter, onStatusFilter
     [requestStatusChange, t, theme.text, updating],
   );
 
+  const renderFulfillmentAndNotes = useCallback(
+    (order: StoreOrderWithItems, compact = false) => {
+      const customerNotes = resolveStoreOrderCustomerNotes(order);
+      const isCod = isStoreOrderCodDelivery(order.fulfillmentMethod);
+      const isPickup = isStoreOrderPickup(order.fulfillmentMethod);
+
+      return (
+        <View style={compact ? styles.fulfillmentCompact : styles.fulfillmentBlock}>
+          {isCod ? (
+            <>
+              <View style={[styles.tagPill, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+                <FontAwesome name="truck" size={11} color={theme.accent} />
+                <Text style={[styles.tagPillText, { color: theme.accent }]}>
+                  {t('store_fulfillment_cod')}
+                </Text>
+              </View>
+              {order.deliveryAddress?.trim() ? (
+                <View style={styles.noteBlock}>
+                  <Text style={[styles.noteLabel, { color: theme.textSecondary }]}>
+                    {t('store_owner_delivery_address')}
+                  </Text>
+                  <Text style={[styles.noteBody, { color: theme.text }]}>
+                    {order.deliveryAddress.trim()}
+                  </Text>
+                </View>
+              ) : null}
+              {customerNotes ? (
+                <View
+                  style={[
+                    styles.notesCallout,
+                    { backgroundColor: theme.accentSoft, borderColor: theme.accent },
+                  ]}>
+                  <Text style={[styles.notesCalloutTitle, { color: theme.accent }]}>
+                    {t('store_owner_customer_notes')} · {t('store_owner_delivery_instructions')}
+                  </Text>
+                  <Text style={[styles.notesCalloutBody, { color: theme.text }]}>{customerNotes}</Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+
+          {isPickup ? (
+            <>
+              <View style={[styles.tagPill, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+                <FontAwesome name="shopping-bag" size={11} color={theme.accent} />
+                <Text style={[styles.tagPillText, { color: theme.accent }]}>
+                  {t('store_owner_pickup_tag')}
+                </Text>
+              </View>
+              {customerNotes ? (
+                <View
+                  style={[
+                    styles.notesCallout,
+                    { backgroundColor: theme.accentSoft, borderColor: theme.accent },
+                  ]}>
+                  <Text style={[styles.notesCalloutTitle, { color: theme.accent }]}>
+                    {t('store_owner_pickup_notes')}
+                  </Text>
+                  <Text style={[styles.notesCalloutBody, { color: theme.text }]}>{customerNotes}</Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+
+          {!isCod && !isPickup ? (
+            <Text style={[styles.orderInfoText, { color: theme.textSecondary }]}>
+              {t(`store_fulfillment_${order.fulfillmentMethod}`)}
+            </Text>
+          ) : null}
+        </View>
+      );
+    },
+    [t, theme],
+  );
+
   const renderOrderCard = useCallback(
     (order: StoreOrderWithItems) => {
       const statusColor = STATUS_COLORS[order.status];
       const statusIcon = STATUS_ICONS[order.status];
+      const hasNotes = Boolean(resolveStoreOrderCustomerNotes(order));
 
       return (
         <View
@@ -300,17 +402,17 @@ export function StoreOrdersPanel({ shop, onRefresh, statusFilter, onStatusFilter
                   {order.items.length} {t('store_owner_items')}
                 </Text>
               </View>
-              <View style={styles.orderInfo}>
-                <FontAwesome
-                  name={order.fulfillmentMethod === 'cod' ? 'money' : 'map-marker'}
-                  size={14}
-                  color={theme.textSecondary}
-                />
-                <Text style={[styles.orderInfoText, { color: theme.textSecondary }]}>
-                  {t(`store_fulfillment_${order.fulfillmentMethod}`)}
-                </Text>
-              </View>
+              {hasNotes ? (
+                <View style={styles.orderInfo}>
+                  <FontAwesome name="sticky-note" size={14} color={theme.accent} />
+                  <Text style={[styles.orderInfoText, { color: theme.accent }]}>
+                    {t('store_owner_customer_notes')}
+                  </Text>
+                </View>
+              ) : null}
             </View>
+
+            {renderFulfillmentAndNotes(order, true)}
 
             <View style={styles.orderFooter}>
               <Text style={[styles.totalLabel, { color: theme.textSecondary }]}>
@@ -325,7 +427,7 @@ export function StoreOrdersPanel({ shop, onRefresh, statusFilter, onStatusFilter
         </View>
       );
     },
-    [locale, renderStatusActions, theme, t],
+    [locale, renderFulfillmentAndNotes, renderStatusActions, theme, t],
   );
 
   if (loading) {
@@ -427,11 +529,7 @@ export function StoreOrdersPanel({ shop, onRefresh, statusFilter, onStatusFilter
                       {selectedOrder.customerPhone}
                     </Text>
                   )}
-                  {selectedOrder.deliveryAddress && (
-                    <Text style={[styles.infoText, { color: theme.textSecondary }]}>
-                      {selectedOrder.deliveryAddress}
-                    </Text>
-                  )}
+                  {renderFulfillmentAndNotes(selectedOrder)}
                 </View>
 
                 {/* Items */}
@@ -561,6 +659,59 @@ const styles = StyleSheet.create({
   },
   orderInfoText: {
     fontSize: 12,
+  },
+  fulfillmentCompact: {
+    gap: 8,
+    marginBottom: 10,
+  },
+  fulfillmentBlock: {
+    gap: 10,
+    marginTop: 8,
+  },
+  tagPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  tagPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  noteBlock: {
+    gap: 2,
+  },
+  noteLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  noteBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  notesCallout: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  notesCalloutTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  notesCalloutBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   orderFooter: {
     flexDirection: 'row',

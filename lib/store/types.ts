@@ -59,7 +59,10 @@ export type StoreOrder = {
   customerName?: string;
   customerPhone?: string;
   deliveryAddress?: string;
+  /** COD delivery instructions (also mirrored from checkout notes). */
   deliveryNotes?: string;
+  /** General / pickup special requests from checkout. */
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -91,7 +94,8 @@ export type ParsedVehicleIdentity = {
 };
 
 export type StoreProductDraft = {
-  shopId?: string;
+  /** Required — every product must belong to a registered shop. */
+  shopId: string;
   name: string;
   description?: string;
   category: StoreProductCategory;

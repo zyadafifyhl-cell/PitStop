@@ -375,12 +375,14 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
           <Text style={[styles.count, { color: theme.textMuted }]}>
             {visibleProducts.length} {t('store_owner_total_products')}
           </Text>
-          <Pressable
-            onPress={() => setAddOpen(true)}
-            style={[styles.addButton, { backgroundColor: theme.accent }]}>
-            <FontAwesome name="plus" size={13} color={theme.onAccent} />
-            <Text style={[styles.addButtonText, { color: theme.onAccent }]}>{t('store_owner_add_product')}</Text>
-          </Pressable>
+          {category ? (
+            <Pressable
+              onPress={() => setAddOpen(true)}
+              style={[styles.addButton, { backgroundColor: theme.accent }]}>
+              <FontAwesome name="plus" size={13} color={theme.onAccent} />
+              <Text style={[styles.addButtonText, { color: theme.onAccent }]}>{t('store_owner_add_product')}</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {loading ? (
@@ -391,10 +393,12 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
               <FontAwesome name="cubes" size={30} color={theme.accent} />
             </View>
             <Text style={[styles.emptyTitle, { color: theme.text }]}>{t('store_owner_no_products')}</Text>
-            <Pressable onPress={() => setAddOpen(true)} style={[styles.addButton, { backgroundColor: theme.accent }]}>
-              <FontAwesome name="plus" size={13} color={theme.onAccent} />
-              <Text style={[styles.addButtonText, { color: theme.onAccent }]}>{t('store_owner_add_first_product')}</Text>
-            </Pressable>
+            {category ? (
+              <Pressable onPress={() => setAddOpen(true)} style={[styles.addButton, { backgroundColor: theme.accent }]}>
+                <FontAwesome name="plus" size={13} color={theme.onAccent} />
+                <Text style={[styles.addButtonText, { color: theme.onAccent }]}>{t('store_owner_add_first_product')}</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : visibleProducts.length === 0 ? (
           <Text style={[styles.emptyTitle, { color: theme.textMuted, paddingVertical: 24 }]}>

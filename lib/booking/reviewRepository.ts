@@ -18,6 +18,7 @@ type ReviewRow = {
   likes: number;
   liked_by: string[] | null;
   owner_reply?: string | null;
+  owner_replied_at?: string | null;
   hidden?: boolean | null;
   reported?: boolean | null;
   created_at: string;
@@ -39,6 +40,7 @@ function mapReviewRow(row: ReviewRow): ShopReview {
     likes: row.likes ?? likedBy.length,
     likedBy,
     ownerReply: row.owner_reply ?? undefined,
+    ownerRepliedAt: row.owner_replied_at ?? undefined,
     hidden: row.hidden ?? false,
     reported: row.reported ?? false,
     createdAt: row.created_at,
@@ -268,6 +270,7 @@ export async function setReviewOwnerReplySynced(
   ownerReply: string,
 ): Promise<void> {
   const reply = ownerReply.trim() || undefined;
+  const repliedAt = reply ? new Date().toISOString() : null;
   const map = await readMap();
   let review = (map[shopId] ?? []).find((row) => row.id === reviewId);
 
@@ -275,7 +278,11 @@ export async function setReviewOwnerReplySynced(
   if (supabase && isUuid(reviewId)) {
     const { data, error } = await supabase
       .from('shop_reviews')
-      .update({ owner_reply: reply ?? null, updated_at: new Date().toISOString() })
+      .update({
+        owner_reply: reply ?? null,
+        owner_replied_at: repliedAt,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', reviewId)
       .eq('shop_id', shopId)
       .select('*')
@@ -287,7 +294,7 @@ export async function setReviewOwnerReplySynced(
       review = synced;
     }
   } else {
-    await patchLocalReview(shopId, reviewId, { ownerReply: reply });
+    await patchLocalReview(shopId, reviewId, { ownerReply: reply, ownerRepliedAt: repliedAt ?? undefined });
     review = (await readMap())[shopId]?.find((row) => row.id === reviewId) ?? review;
   }
 

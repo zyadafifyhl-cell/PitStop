@@ -17,12 +17,14 @@ import {
 } from 'react-native';
 
 import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
+import { MerchantNotificationsModal } from '@/components/merchant/MerchantNotificationsModal';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
 import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
+import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
 import { StoreOwnerDashboard } from '@/components/store/owner/StoreOwnerDashboard';
@@ -102,6 +104,8 @@ export default function ShopScreen() {
   const [storeAdminTab, setStoreAdminTab] = useState<OwnerShellTabId>('dashboard');
   const [storeOrderFilter, setStoreOrderFilter] = useState<StoreOrderListFilter>('all');
   const [storeInventoryFilter, setStoreInventoryFilter] = useState<StoreInventoryListFilter>('all');
+  const [focusStoreOrderId, setFocusStoreOrderId] = useState<string | null>(null);
+  const [dashboardPendingOrders, setDashboardPendingOrders] = useState(0);
   const [capturingGps, setCapturingGps] = useState(false);
   const [storeStatusBusy, setStoreStatusBusy] = useState(false);
   const [mapPinCoords, setMapPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -189,13 +193,26 @@ export default function ShopScreen() {
       if (!shop) return;
       refreshOwnerNotifications();
       refreshShopExtras();
-      if (!isStoreShopType(shop.type)) {
-        // Service providers (wash/maintenance) load bookings
+      if (isStoreShopType(shop.type)) {
+        void orderNotifier.refreshStoreOrders();
+      } else {
         refreshBookings();
         void orderNotifier.refresh();
       }
-    }, [shop, refreshBookings, refreshOwnerNotifications, refreshShopExtras, orderNotifier.refresh]),
+    }, [shop, refreshBookings, refreshOwnerNotifications, refreshShopExtras, orderNotifier.refresh, orderNotifier.refreshStoreOrders]),
   );
+
+  const openNotificationsModal = useCallback(() => {
+    if (shop && isStoreShopType(shop.type)) {
+      void orderNotifier.refreshStoreOrders();
+    }
+    setNotificationsModalVisible(true);
+  }, [shop, orderNotifier.refreshStoreOrders]);
+
+  useEffect(() => {
+    if (!shop || !isStoreShopType(shop.type)) return;
+    void orderNotifier.refreshStoreOrders();
+  }, [shop, orderNotifier.refreshStoreOrders, orderNotifier.storeOrdersRevision]);
 
   useFocusEffect(
     useCallback(() => {
@@ -328,7 +345,9 @@ export default function ShopScreen() {
     return 'pending';
   }
 
-  const pendingNotificationCount = orderNotifier.pendingCount;
+  const pendingNotificationCount = isStoreShopType(shop?.type ?? 'parts')
+    ? Math.max(orderNotifier.pendingStoreOrderCount, dashboardPendingOrders)
+    : orderNotifier.notificationBadgeCount;
 
   function notificationForBooking(booking: Booking): OwnerNotification {
     return (
@@ -832,7 +851,7 @@ export default function ShopScreen() {
       onEditProfile={onSetProfileImage}
       notificationsLabel={t('shop_notifications_button')}
       notificationCount={pendingNotificationCount}
-      onOpenNotifications={() => setNotificationsModalVisible(true)}
+      onOpenNotifications={openNotificationsModal}
       onOpenSettings={() => setStoreAdminTab('settings')}
       settingsLabel={t('merchant_settings_open')}
     />
@@ -945,43 +964,47 @@ export default function ShopScreen() {
       <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
         <MerchantCampaignsPanel shopId={shop.id} />
       </OwnerSectionCard>
+
+      <StoreInventoryManager shop={shop} />
     </>
   );
 
   const shopOperatingStatus = shopExtras?.storeOperatingStatus ?? 'open';
 
+  const shopOperatingStatusCard = (
+    <OwnerSectionCard theme={theme} title={t('shop_operating_status_title')} subtitle={t('shop_operating_status_lead')}>
+      <View style={styles.actions}>
+        {([
+          { id: 'open' as const, labelKey: 'store_status_open' as const },
+          { id: 'closed' as const, labelKey: 'store_status_closed' as const },
+          { id: 'maintenance' as const, labelKey: 'store_status_maintenance' as const },
+        ]).map((option) => {
+          const active = shopOperatingStatus === option.id;
+          return (
+            <Pressable
+              key={option.id}
+              disabled={storeStatusBusy}
+              onPress={() => onChangeStoreStatus(option.id)}
+              style={[
+                styles.chipBtn,
+                {
+                  backgroundColor: active ? theme.accent : theme.bgElevated,
+                  borderColor: active ? theme.accent : theme.border,
+                  opacity: storeStatusBusy ? 0.7 : 1,
+                },
+              ]}>
+              <Text style={[styles.chipBtnText, { color: active ? theme.onAccent : theme.text }]}>
+                {t(option.labelKey)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </OwnerSectionCard>
+  );
+
   const ownerSettingsSections = (
     <>
-      <OwnerSectionCard theme={theme} title={t('shop_operating_status_title')} subtitle={t('shop_operating_status_lead')}>
-        <View style={styles.actions}>
-          {([
-            { id: 'open' as const, labelKey: 'store_status_open' as const },
-            { id: 'closed' as const, labelKey: 'store_status_closed' as const },
-            { id: 'maintenance' as const, labelKey: 'store_status_maintenance' as const },
-          ]).map((option) => {
-            const active = shopOperatingStatus === option.id;
-            return (
-              <Pressable
-                key={option.id}
-                disabled={storeStatusBusy}
-                onPress={() => onChangeStoreStatus(option.id)}
-                style={[
-                  styles.chipBtn,
-                  {
-                    backgroundColor: active ? theme.accent : theme.bgElevated,
-                    borderColor: active ? theme.accent : theme.border,
-                    opacity: storeStatusBusy ? 0.7 : 1,
-                  },
-                ]}>
-                <Text style={[styles.chipBtnText, { color: active ? theme.onAccent : theme.text }]}>
-                  {t(option.labelKey)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </OwnerSectionCard>
-
       <OwnerSectionCard theme={theme} title={t('shop_manage_schedule_title')} subtitle={t('shop_manage_schedule_lead')}>
         <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 8 }]}>{t('shop_manage_time_format_hint')}</Text>
         <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_open_label')}</Text>
@@ -1032,7 +1055,7 @@ export default function ShopScreen() {
           {
             label: t('store_notifications_row'),
             subtitle: t('store_notifications_subtitle'),
-            onPress: () => setNotificationsModalVisible(true),
+            onPress: () => openNotificationsModal(),
           },
         ]}
       />
@@ -1041,31 +1064,23 @@ export default function ShopScreen() {
 
   const ownerModals = (
     <>
-      <Modal
+      <MerchantNotificationsModal
         visible={notificationsModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setNotificationsModalVisible(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('shop_notifications_button')}</Text>
-            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent}>
-              {ownerNotifications.filter((row) => notificationStatus(row) === 'pending').length === 0 ? (
-                <Text style={[styles.meta, { color: theme.textMuted }]}>{t('shop_notifications_empty')}</Text>
-              ) : (
-                ownerNotifications
-                  .filter((row) => notificationStatus(row) === 'pending')
-                  .map((notification) => renderOwnerNotificationRow(notification))
-              )}
-            </ScrollView>
-            <Pressable
-              onPress={() => setNotificationsModalVisible(false)}
-              style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
-              <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setNotificationsModalVisible(false)}
+        shopId={shop.id}
+        pendingStoreOrders={orderNotifier.pendingStoreOrders}
+        pendingBookings={isStoreShopType(shop.type) ? [] : orderNotifier.pendingBookings}
+        onSelectStoreOrder={(order) => {
+          setStoreOrderFilter('pending');
+          setFocusStoreOrderId(order.id);
+          setStoreAdminTab('management');
+        }}
+        onSelectBooking={(booking) => {
+          setPanelTab('workspace');
+          setStoreAdminTab('management');
+          void booking;
+        }}
+      />
 
       <Modal
         visible={!!decisionTarget}
@@ -1169,13 +1184,14 @@ export default function ShopScreen() {
             <StoreOwnerDashboard
               shop={shop}
               storeStatus={storeStatus}
+              onPendingOrdersChange={setDashboardPendingOrders}
               onNavigate={(target) => {
                 if (target === 'reports') {
                   router.push('/shop/store-reports');
                   return;
                 }
-                if (target === 'settings') {
-                  setStoreAdminTab('settings');
+                if (target === 'management') {
+                  setStoreAdminTab('management');
                   return;
                 }
                 if (target === 'pending_orders') {
@@ -1237,8 +1253,6 @@ export default function ShopScreen() {
               workCloseTime={workCloseTime}
               scheduleInlineOk={scheduleInlineOk}
               scheduleHint={storeScheduleHint}
-              storeStatus={storeStatus}
-              statusBusy={storeStatusBusy}
               onChangeWorkOpenTime={(value) => {
                 setWorkOpenTime(value);
                 setScheduleInlineOk(false);
@@ -1248,8 +1262,7 @@ export default function ShopScreen() {
                 setScheduleInlineOk(false);
               }}
               onSaveSchedule={onSaveSchedule}
-              onChangeStoreStatus={onChangeStoreStatus}
-              onOpenNotifications={() => setNotificationsModalVisible(true)}
+              onOpenNotifications={openNotificationsModal}
             />
           ) : null}
 
@@ -1262,11 +1275,17 @@ export default function ShopScreen() {
           ) : null}
 
           {storeAdminTab === 'management' ? (
-            <StoreOrdersPanel
-              shop={shop}
-              statusFilter={storeOrderFilter}
-              onStatusFilterChange={setStoreOrderFilter}
-            />
+            <>
+              {shopOperatingStatusCard}
+              <StoreOrdersPanel
+                shop={shop}
+                statusFilter={storeOrderFilter}
+                onStatusFilterChange={setStoreOrderFilter}
+                focusOrderId={focusStoreOrderId}
+                onFocusOrderHandled={() => setFocusStoreOrderId(null)}
+              />
+              <OwnerReviewsHistory shopId={shop.id} />
+            </>
           ) : null}
         </ScrollView>
 
@@ -1291,7 +1310,7 @@ export default function ShopScreen() {
         {storeAdminTab === 'dashboard' ? (
           <>
             <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('shop_welcome_back').replace('{name}', shopName)}>
-              <Pressable onPress={() => setStoreAdminTab('settings')} style={{ paddingTop: 4, marginBottom: 10 }}>
+              <Pressable onPress={() => setStoreAdminTab('management')} style={{ paddingTop: 4, marginBottom: 10 }}>
                 <Text style={[styles.meta, { color: theme.text, fontWeight: '800' }]}>
                   {shopOperatingStatus === 'closed'
                     ? t('store_status_closed')
@@ -1308,6 +1327,7 @@ export default function ShopScreen() {
 
         {storeAdminTab === 'management' ? (
           <>
+            {shopOperatingStatusCard}
             <OwnerSectionCard theme={theme} title={t('shop_active_requests_title')} subtitle={t('shop_active_requests_lead')}>
               {loadingBookings ? (
                 <ActivityIndicator color={theme.accent} />
@@ -1317,6 +1337,14 @@ export default function ShopScreen() {
                 activeBookings.map((item) => renderBookingCard(item, true))
               )}
             </OwnerSectionCard>
+            <StoreOrdersPanel
+              shop={shop}
+              statusFilter={storeOrderFilter}
+              onStatusFilterChange={setStoreOrderFilter}
+              focusOrderId={focusStoreOrderId}
+              onFocusOrderHandled={() => setFocusStoreOrderId(null)}
+            />
+            <OwnerReviewsHistory shopId={shop.id} />
             <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="shop" />
           </>
         ) : null}

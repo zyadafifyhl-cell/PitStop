@@ -251,3 +251,43 @@ export async function sendShopPushForPartsOrder(input: {
   });
   await postExpoPush(payloads);
 }
+
+function storeOrderPushText(locale: Locale, input: { shortId: string; total: string }): { title: string; body: string } {
+  if (locale === 'ar') {
+    return {
+      title: 'طلب جديد',
+      body: `طلب #${input.shortId} وصل — ${input.total}`,
+    };
+  }
+  return {
+    title: 'New Store Order',
+    body: `Order #${input.shortId} received — ${input.total}`,
+  };
+}
+
+/** Expo push to shop_push_tokens when a retail store_orders row is inserted. */
+export async function sendShopPushForStoreOrder(input: {
+  shopId: string;
+  orderId: string;
+  totalEgp: number;
+}): Promise<void> {
+  const tokens = await readShopPushTokens(input.shopId);
+  if (!tokens.length) return;
+
+  const shortId = input.orderId.replace(/-/g, '').slice(0, 8).toUpperCase();
+  const payloads = tokens.map((row) => {
+    const locale = row.locale === 'ar' ? 'ar' : 'en';
+    const total =
+      locale === 'ar'
+        ? `${Math.round(input.totalEgp)} ج.م`
+        : `EGP ${Math.round(input.totalEgp)}`;
+    const text = storeOrderPushText(locale, { shortId, total });
+    return {
+      to: row.expo_push_token,
+      title: text.title,
+      body: text.body,
+      data: { type: 'store_order', orderId: input.orderId, shopId: input.shopId },
+    };
+  });
+  await postExpoPush(payloads);
+}

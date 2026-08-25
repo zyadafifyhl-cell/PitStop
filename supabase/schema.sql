@@ -327,6 +327,7 @@ create table if not exists public.shop_reviews (
   likes integer not null default 0,
   liked_by jsonb not null default '[]'::jsonb,
   owner_reply text,
+  owner_replied_at timestamptz,
   hidden boolean not null default false,
   reported boolean not null default false,
   created_at timestamptz not null default now(),
@@ -335,6 +336,55 @@ create table if not exists public.shop_reviews (
 
 create index if not exists shop_reviews_shop_id_idx on public.shop_reviews (shop_id);
 create index if not exists shop_reviews_created_at_idx on public.shop_reviews (shop_id, created_at desc);
+
+create or replace function public.get_shop_reviews_history(p_shop_id text)
+returns table (
+  id uuid,
+  shop_id text,
+  user_id uuid,
+  rating integer,
+  comment text,
+  created_at timestamptz,
+  is_hidden boolean,
+  owner_reply text,
+  owner_replied_at timestamptz,
+  reported boolean,
+  reviewer_name text,
+  reviewer_email text,
+  reviewer_phone text,
+  service_reference text,
+  order_reference text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    r.id,
+    r.shop_id,
+    r.customer_id as user_id,
+    r.rating,
+    r.body as comment,
+    r.created_at,
+    coalesce(r.hidden, false) as is_hidden,
+    r.owner_reply,
+    r.owner_replied_at,
+    coalesce(r.reported, false) as reported,
+    coalesce(nullif(trim(u.full_name), ''), r.customer_name) as reviewer_name,
+    u.email as reviewer_email,
+    u.phone as reviewer_phone,
+    null::text as service_reference,
+    null::text as order_reference
+  from public.shop_reviews r
+  left join public.users u on u.id = r.customer_id
+  where r.shop_id = p_shop_id
+    and public.can_manage_shop(p_shop_id)
+  order by r.created_at desc;
+$$;
+
+revoke all on function public.get_shop_reviews_history(text) from public;
+grant execute on function public.get_shop_reviews_history(text) to authenticated;
 
 create table if not exists public.store (
   id uuid primary key default gen_random_uuid(),
@@ -747,3 +797,65 @@ create policy "Customers read own merchant loyalty" on public.customer_merchant_
 drop policy if exists "Shop owners read merchant loyalty" on public.customer_merchant_loyalty;
 create policy "Shop owners read merchant loyalty" on public.customer_merchant_loyalty
   for select using (public.can_manage_shop(shop_id));
+
+-- ---------------------------------------------------------------------------
+-- In-shop products (full store DDL: apply-pitstop-2.0-step23-pitstop-store.sql)
+-- Every product MUST belong to a shop; owners + branch managers manage via can_manage_shop.
+-- Live migration: supabase/in_shop_store_products_rls.sql
+-- ---------------------------------------------------------------------------
+
+do $$ begin
+  if to_regclass('public.products') is not null then
+    alter table public.products alter column shop_id set not null;
+  end if;
+exception when others then null;
+end $$;
+
+do $$ begin
+  if to_regclass('public.products') is not null then
+    alter table public.products
+      add constraint products_shop_id_fkey
+      foreign key (shop_id) references public.shops(id) on delete cascade;
+  end if;
+exception when duplicate_object then null;
+when others then null;
+end $$;
+
+do $$ begin
+  if to_regclass('public.products') is not null then
+    alter table public.products enable row level security;
+
+    drop policy if exists "products_public_read" on public.products;
+    create policy "products_public_read" on public.products
+      for select using (
+        is_active = true
+        or public.is_platform_admin()
+        or public.can_manage_shop(shop_id)
+      );
+
+    drop policy if exists "products_owner_insert" on public.products;
+    create policy "products_owner_insert" on public.products
+      for insert with check (
+        public.is_platform_admin()
+        or public.can_manage_shop(shop_id)
+      );
+
+    drop policy if exists "products_owner_update" on public.products;
+    create policy "products_owner_update" on public.products
+      for update using (
+        public.is_platform_admin()
+        or public.can_manage_shop(shop_id)
+      )
+      with check (
+        public.is_platform_admin()
+        or public.can_manage_shop(shop_id)
+      );
+
+    drop policy if exists "products_owner_delete" on public.products;
+    create policy "products_owner_delete" on public.products
+      for delete using (
+        public.is_platform_admin()
+        or public.can_manage_shop(shop_id)
+      );
+  end if;
+end $$;

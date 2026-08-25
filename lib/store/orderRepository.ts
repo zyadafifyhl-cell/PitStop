@@ -7,7 +7,37 @@ export type StoreOrderWithItems = StoreOrder & {
   customerPhone?: string;
   deliveryAddress?: string;
   deliveryNotes?: string;
+  notes?: string;
 };
+
+function mapOwnerOrder(order: Record<string, any>): StoreOrderWithItems {
+  return {
+    id: order.id,
+    userId: order.user_id,
+    shopId: order.shop_id,
+    subtotal: Number(order.subtotal),
+    deliveryFee: Number(order.delivery_fee),
+    totalPrice: Number(order.total_price),
+    fulfillmentMethod: order.fulfillment_method,
+    status: order.status,
+    customerName: order.customer_name ?? undefined,
+    customerPhone: order.customer_phone ?? undefined,
+    deliveryAddress: order.delivery_address ?? undefined,
+    deliveryNotes: order.delivery_notes ?? undefined,
+    notes: order.notes ?? undefined,
+    createdAt: order.created_at,
+    updatedAt: order.updated_at,
+    items: (order.items ?? []).map((item: any) => ({
+      id: item.id,
+      orderId: item.order_id,
+      productId: item.product_id,
+      productName: item.product_name,
+      unitPrice: Number(item.unit_price),
+      quantity: item.quantity,
+      lineTotal: Number(item.line_total),
+    })),
+  };
+}
 
 /**
  * Fetch all orders for the current store owner's shop
@@ -30,30 +60,29 @@ export async function listStoreOwnerOrders(shopId: string): Promise<StoreOrderWi
     return [];
   }
 
+  return (orders ?? []).map(mapOwnerOrder);
+}
+
+/** Lightweight pending queue for merchant notification bell. */
+export async function listPendingStoreOrders(shopId: string): Promise<StoreOrderWithItems[]> {
+  const supabase = getSupabase();
+  if (!supabase || !shopId) return [];
+
+  const { data: orders, error } = await supabase
+    .from('store_orders')
+    .select('*')
+    .eq('shop_id', shopId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[orderRepository] listPendingStoreOrders error:', error);
+    return [];
+  }
+
   return (orders ?? []).map((order) => ({
-    id: order.id,
-    userId: order.user_id,
-    shopId: order.shop_id,
-    subtotal: Number(order.subtotal),
-    deliveryFee: Number(order.delivery_fee),
-    totalPrice: Number(order.total_price),
-    fulfillmentMethod: order.fulfillment_method,
-    status: order.status,
-    customerName: order.customer_name,
-    customerPhone: order.customer_phone,
-    deliveryAddress: order.delivery_address,
-    deliveryNotes: order.delivery_notes,
-    createdAt: order.created_at,
-    updatedAt: order.updated_at,
-    items: (order.items ?? []).map((item: any) => ({
-      id: item.id,
-      orderId: item.order_id,
-      productId: item.product_id,
-      productName: item.product_name,
-      unitPrice: Number(item.unit_price),
-      quantity: item.quantity,
-      lineTotal: Number(item.line_total),
-    })),
+    ...mapOwnerOrder({ ...order, items: [] }),
+    items: [],
   }));
 }
 
@@ -102,29 +131,5 @@ export async function getStoreOrderById(orderId: string, shopId: string): Promis
     return null;
   }
 
-  return {
-    id: order.id,
-    userId: order.user_id,
-    shopId: order.shop_id,
-    subtotal: Number(order.subtotal),
-    deliveryFee: Number(order.delivery_fee),
-    totalPrice: Number(order.total_price),
-    fulfillmentMethod: order.fulfillment_method,
-    status: order.status,
-    customerName: order.customer_name,
-    customerPhone: order.customer_phone,
-    deliveryAddress: order.delivery_address,
-    deliveryNotes: order.delivery_notes,
-    createdAt: order.created_at,
-    updatedAt: order.updated_at,
-    items: (order.items ?? []).map((item: any) => ({
-      id: item.id,
-      orderId: item.order_id,
-      productId: item.product_id,
-      productName: item.product_name,
-      unitPrice: Number(item.unit_price),
-      quantity: item.quantity,
-      lineTotal: Number(item.line_total),
-    })),
-  };
+  return mapOwnerOrder(order);
 }
