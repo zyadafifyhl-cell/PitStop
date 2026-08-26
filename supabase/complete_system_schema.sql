@@ -151,6 +151,7 @@ alter table public.store_orders add column if not exists delivery_address text;
 alter table public.store_orders add column if not exists delivery_notes text;
 alter table public.store_orders add column if not exists notes text;
 alter table public.store_orders add column if not exists payment_method text;
+alter table public.store_orders add column if not exists is_hidden_by_merchant boolean not null default false;
 
 do $$ begin
   if not exists (
@@ -257,6 +258,7 @@ alter table public.bookings add column if not exists time_slot text;
 alter table public.bookings add column if not exists total_price numeric(12,2);
 alter table public.bookings add column if not exists vehicle_details jsonb not null default '{}'::jsonb;
 alter table public.bookings add column if not exists updated_at timestamptz not null default now();
+alter table public.bookings add column if not exists is_hidden_by_merchant boolean not null default false;
 
 create or replace function public.sync_booking_compatibility_columns()
 returns trigger language plpgsql set search_path = public as $$

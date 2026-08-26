@@ -159,13 +159,48 @@ async function fetchServicesForBranches(branchIds: string[]): Promise<Map<string
     null,
   );
 
-  if (!response || response.error || !response.data) return map;
+  if (!response || response.error || !response.data) {
+    if (response?.error) console.warn('fetchServicesForBranches:', response.error.message);
+    return map;
+  }
   for (const row of response.data as ServiceRow[]) {
     const list = map.get(row.branch_id) ?? [];
     list.push(mapServiceRow(row));
     map.set(row.branch_id, list);
   }
   return map;
+}
+
+/** Customer-facing menu: visible services for one shop branch, keyed by shops.id (text). */
+export async function fetchVisibleServicesForShop(
+  shopId: string,
+  branchId?: string | null,
+): Promise<ShopService[]> {
+  const supabase = getSupabase();
+  if (!supabase || !shopId) return [];
+
+  const resolvedBranchId =
+    (branchId?.trim() ? await resolveRemoteBranchId(shopId, branchId.trim()) : null) ??
+    (await resolveDefaultBranchIdForShop(shopId));
+  if (!resolvedBranchId) return [];
+
+  const response = await withTimeout(
+    supabase
+      .from('branch_services')
+      .select('*')
+      .eq('shop_id', shopId)
+      .eq('branch_id', resolvedBranchId)
+      .eq('visible', true)
+      .order('sort_order', { ascending: true })
+      .order('price_egp', { ascending: true }),
+    null,
+  );
+
+  if (!response || response.error || !response.data) {
+    if (response?.error) console.warn('fetchVisibleServicesForShop:', response.error.message);
+    return [];
+  }
+  return (response.data as ServiceRow[]).map(mapServiceRow);
 }
 
 export type ShopBranchLabel = {

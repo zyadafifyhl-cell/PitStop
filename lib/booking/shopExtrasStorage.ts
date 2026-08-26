@@ -92,7 +92,7 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     serviceDurationMinutes: row?.serviceDurationMinutes,
     scheduleSavedAt: row?.scheduleSavedAt,
     weeklyHours: row?.weeklyHours,
-    services: (row?.services ?? []).filter((service) => service.active),
+    services: (row?.services ?? []).filter((service) => service.active !== false),
     offers: (row?.offers ?? [])
       .map((offer) => ({
         ...offer,

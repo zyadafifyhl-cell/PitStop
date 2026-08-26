@@ -1,13 +1,14 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import type { OwnerNavIconId } from '@/lib/owner/dashboardConfig';
 
 export type OwnerDashboardTab<T extends string = string> = {
   id: T;
   label: string;
-  icon: React.ComponentProps<typeof FontAwesome>['name'];
+  icon: OwnerNavIconId;
 };
 
 type Props<T extends string> = {
@@ -15,6 +16,19 @@ type Props<T extends string> = {
   activeTab: T;
   onChange: (tab: T) => void;
 };
+
+const NAV_ICONS: Record<OwnerNavIconId, React.ComponentProps<typeof MaterialCommunityIcons>['name']> = {
+  overview: 'view-dashboard-outline',
+  management: 'calendar-clock',
+  'management-store': 'clipboard-list-outline',
+  'catalog-service': 'wrench-outline',
+  'catalog-store': 'layers-outline',
+  profile: 'account-outline',
+  settings: 'cog-outline',
+};
+
+const ACTIVE_COLOR = '#3b82f6';
+const INACTIVE_COLOR = '#9ca3af';
 
 export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange }: Props<T>) {
   const theme = useAppTheme();
@@ -24,6 +38,7 @@ export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange 
     <View style={[styles.container, { backgroundColor: theme.bgElevated, borderTopColor: theme.border }]}>
       {tabs.map((tab) => {
         const active = activeTab === tab.id;
+        const color = active ? ACTIVE_COLOR : INACTIVE_COLOR;
         return (
           <Pressable
             key={tab.id}
@@ -31,12 +46,12 @@ export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange 
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             style={[styles.item, compact && styles.itemCompact]}>
-            <FontAwesome name={tab.icon} size={compact ? 17 : 19} color={active ? theme.accent : theme.textDim} />
+            <MaterialCommunityIcons name={NAV_ICONS[tab.icon]} size={22} color={color} />
             <Text
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
-              style={[styles.label, compact && styles.labelCompact, { color: active ? theme.accent : theme.textDim }]}>
+              style={[styles.label, compact && styles.labelCompact, { color }]}>
               {tab.label}
             </Text>
           </Pressable>
@@ -52,7 +67,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    minHeight: 68,
+    minHeight: 72,
     flexDirection: 'row',
     borderTopWidth: 1,
     elevation: 8,

@@ -7,6 +7,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { isStrongPassword } from '@/lib/authValidation';
 import { getSupabase } from '@/lib/supabase/client';
+import { textInputSubmitProps } from '@/lib/ui/textInputSubmit';
 
 export default function MerchantPasswordScreen() {
   const { t, isRTL } = useI18n();
@@ -126,6 +127,7 @@ export default function MerchantPasswordScreen() {
           placeholder={t('merchant_password_current_placeholder')}
           placeholderTextColor={theme.textDim}
           secureTextEntry
+          returnKeyType="next"
           value={currentPassword}
           onChangeText={(v) => {
             setCurrentPassword(v);
@@ -137,6 +139,7 @@ export default function MerchantPasswordScreen() {
           placeholder={t('merchant_password_new_placeholder')}
           placeholderTextColor={theme.textDim}
           secureTextEntry
+          returnKeyType="next"
           value={password}
           onChangeText={setPassword}
           style={fieldStyle}
@@ -148,6 +151,12 @@ export default function MerchantPasswordScreen() {
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           style={fieldStyle}
+          {...textInputSubmitProps({
+            enabled: canUpdate,
+            onSubmit: () => {
+              void onSave();
+            },
+          })}
         />
         <Text style={[styles.hint, { color: theme.textDim }, isRTL && styles.textRtl]}>{t('customer_password_rules')}</Text>
         {oldPasswordInvalid ? (

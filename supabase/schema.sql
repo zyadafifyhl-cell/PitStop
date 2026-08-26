@@ -268,8 +268,12 @@ create table if not exists public.bookings (
     check (cancellation_penalty_applied_egp >= 0),
   late_cancelled_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  is_hidden_by_merchant boolean not null default false
 );
+
+alter table public.bookings
+  add column if not exists is_hidden_by_merchant boolean not null default false;
 
 create index if not exists bookings_shop_id_idx on public.bookings (shop_id);
 create index if not exists bookings_branch_id_idx on public.bookings (branch_id);
@@ -637,6 +641,10 @@ create policy "Branch staff managed by managers" on public.branch_employees
 drop policy if exists "Anyone can read branch services" on public.branch_services;
 create policy "Anyone can read branch services" on public.branch_services
   for select using (visible = true);
+
+grant select on public.shops to anon, authenticated;
+grant select on public.shop_branches to anon, authenticated;
+grant select on public.branch_services to anon, authenticated;
 
 drop policy if exists "Managers manage branch services" on public.branch_services;
 create policy "Managers manage branch services" on public.branch_services

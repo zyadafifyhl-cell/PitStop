@@ -2,7 +2,7 @@ import { tabAuthStorage } from '@/lib/storage/webTabAuthStorage';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -32,6 +32,7 @@ import { listAreas } from '@/lib/booking/catalogRepository';
 import type { ShopType } from '@/lib/booking/types';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { resolveReturnTo } from '@/lib/auth/returnTo';
+import { textInputSubmitProps } from '@/lib/ui/textInputSubmit';
 import { userAlert } from '@/lib/ui/userAlert';
 
 const SESSION_KEY = '@pitstop/customer-session';
@@ -44,10 +45,21 @@ type PasswordInputProps = {
   onChangeText: (text: string) => void;
   theme: ReturnType<typeof useAppTheme>;
   isRTL: boolean;
+  submitEnabled?: boolean;
+  onSubmit?: () => void;
 };
 
-function PasswordInput({ placeholder, value, onChangeText, theme, isRTL }: PasswordInputProps) {
+function PasswordInput({
+  placeholder,
+  value,
+  onChangeText,
+  theme,
+  isRTL,
+  submitEnabled = true,
+  onSubmit,
+}: PasswordInputProps) {
   const [secureTextEntry, setSecureTextEntry] = useState(true);
+  const submitProps = onSubmit ? textInputSubmitProps({ enabled: submitEnabled, onSubmit }) : undefined;
 
   return (
     <View
@@ -65,6 +77,7 @@ function PasswordInput({ placeholder, value, onChangeText, theme, isRTL }: Passw
         value={value}
         onChangeText={onChangeText}
         style={[styles.passwordInput, { color: theme.text, textAlign: isRTL ? 'right' : 'left' }]}
+        {...submitProps}
       />
       <Pressable
         onPress={() => setSecureTextEntry((current) => !current)}
@@ -120,6 +133,7 @@ export default function WelcomeScreen() {
   const [formMessage, setFormMessage] = useState('');
   const [submitPhase, setSubmitPhase] = useState<SubmitPhase>('idle');
   const [registerVehicles, setRegisterVehicles] = useState<RegisterVehicleDraft[]>([newVehicleDraft()]);
+  const submitLockRef = useRef(false);
 
   useEffect(() => {
     if (focus === 'register') {
@@ -156,6 +170,8 @@ export default function WelcomeScreen() {
   }
 
   async function onCustomerSubmit() {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setFormMessage('');
     setSubmitPhase(isRegister ? 'registering' : 'signing_in');
     try {
@@ -220,11 +236,14 @@ export default function WelcomeScreen() {
       setFormMessage(t('customer_login_success'));
       router.replace(resolveReturnTo(returnTo) ?? '/');
     } finally {
+      submitLockRef.current = false;
       setSubmitPhase((phase) => (phase === 'redirecting' ? phase : 'idle'));
     }
   }
 
   async function onOwnerSubmit() {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setFormMessage('');
     setSubmitPhase(isOwnerRegister ? 'registering' : 'signing_in');
     try {
@@ -318,6 +337,7 @@ export default function WelcomeScreen() {
       setFormMessage(t('shop_login_fail_body'));
       userAlert(t('shop_login_fail_title'), t('shop_login_fail_body'));
     } finally {
+      submitLockRef.current = false;
       setSubmitPhase((phase) => (phase === 'redirecting' ? phase : 'idle'));
     }
   }
@@ -491,6 +511,7 @@ export default function WelcomeScreen() {
                   placeholderTextColor={theme.textDim}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  returnKeyType="next"
                   value={email}
                   onChangeText={setEmail}
                   style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
@@ -501,6 +522,10 @@ export default function WelcomeScreen() {
                   onChangeText={setPassword}
                   theme={theme}
                   isRTL={isRTL}
+                  submitEnabled={!formBusy && !!email.trim() && !!password.trim()}
+                  onSubmit={() => {
+                    void onCustomerSubmit();
+                  }}
                 />
                 {isRegister ? <Text style={[styles.passwordHint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text> : null}
                 {isRegister ? (
@@ -651,6 +676,7 @@ export default function WelcomeScreen() {
                   placeholderTextColor={theme.textDim}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  returnKeyType="next"
                   value={email}
                   onChangeText={setEmail}
                   style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
@@ -661,6 +687,14 @@ export default function WelcomeScreen() {
                   onChangeText={setPassword}
                   theme={theme}
                   isRTL={isRTL}
+                  submitEnabled={!formBusy && !!email.trim() && !!password.trim() && (!isOwnerRegister || !!confirmPassword.trim())}
+                  onSubmit={
+                    isOwnerRegister
+                      ? undefined
+                      : () => {
+                          void onOwnerSubmit();
+                        }
+                  }
                 />
                 {isOwnerRegister ? (
                   <>
@@ -671,6 +705,10 @@ export default function WelcomeScreen() {
                       onChangeText={setConfirmPassword}
                       theme={theme}
                       isRTL={isRTL}
+                      submitEnabled={!formBusy && !!email.trim() && !!password.trim() && !!confirmPassword.trim()}
+                      onSubmit={() => {
+                        void onOwnerSubmit();
+                      }}
                     />
                     <Pressable
                       onPress={() => setOwnerTermsAccepted((value) => !value)}

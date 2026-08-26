@@ -194,6 +194,7 @@ export type DbStoreOrder = {
   status: DbStoreOrderStatus;
   created_at: string;
   updated_at: string;
+  is_hidden_by_merchant?: boolean;
 };
 
 export type DbStoreOrderItem = {

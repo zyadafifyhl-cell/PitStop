@@ -31,9 +31,13 @@ export function sortArchivedBookingsForDisplay(bookings: Booking[]): Booking[] {
 export async function listArchivedBookingsForStaff(
   shopId: string,
   branchId?: string | null,
+  options?: { excludeHiddenByMerchant?: boolean },
 ): Promise<Booking[]> {
   const all = await listBookingsForShop(shopId);
-  const scoped = branchId ? all.filter((row) => row.branchId === branchId) : all;
+  let scoped = branchId ? all.filter((row) => row.branchId === branchId) : all;
+  if (options?.excludeHiddenByMerchant) {
+    scoped = scoped.filter((row) => !row.isHiddenByMerchant);
+  }
   return sortArchivedBookingsForDisplay(scoped.filter(isFinalizedHistoryBooking));
 }
 

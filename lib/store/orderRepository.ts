@@ -27,6 +27,7 @@ function mapOwnerOrder(order: Record<string, any>): StoreOrderWithItems {
     notes: order.notes ?? undefined,
     createdAt: order.created_at,
     updatedAt: order.updated_at,
+    isHiddenByMerchant: Boolean(order.is_hidden_by_merchant),
     items: (order.items ?? []).map((item: any) => ({
       id: item.id,
       orderId: item.order_id,
@@ -53,6 +54,7 @@ export async function listStoreOwnerOrders(shopId: string): Promise<StoreOrderWi
       items:store_order_items(*)
     `)
     .eq('shop_id', shopId)
+    .eq('is_hidden_by_merchant', false)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -60,7 +62,7 @@ export async function listStoreOwnerOrders(shopId: string): Promise<StoreOrderWi
     return [];
   }
 
-  return (orders ?? []).map(mapOwnerOrder);
+  return (orders ?? []).map(mapOwnerOrder).filter((order) => !order.isHiddenByMerchant);
 }
 
 /** Lightweight pending queue for merchant notification bell. */

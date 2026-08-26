@@ -1,6 +1,15 @@
 import { router } from 'expo-router';
-import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
 import { StoreCartCheckoutModal } from '@/components/store/StoreCartCheckoutModal';
@@ -23,6 +32,7 @@ type Props = {
 export function ShopProfileStoreSection({ shopId, shopType, shopName }: Props) {
   const theme = useAppTheme();
   const { t } = useI18n();
+  const { width } = useWindowDimensions();
   const { customer, isGuest } = useCustomerAuth();
   const { items, addProduct, setQuantity, refresh: refreshCart } = useStoreCart();
   const [products, setProducts] = useState<StoreProduct[]>([]);
@@ -33,6 +43,24 @@ export function ShopProfileStoreSection({ shopId, shopType, shopName }: Props) {
   const supported = shopSupportsInShopStore(shopType);
   const shopCartItems = items.filter((row) => row.product?.shopId === shopId);
   const shopItemCount = shopCartItems.reduce((sum, row) => sum + row.quantity, 0);
+  const isDesktop = width >= 768;
+  const useCssGrid = Platform.OS === 'web';
+
+  const gridStyle = useMemo(() => {
+    if (useCssGrid) {
+      return {
+        display: 'grid',
+        gridTemplateColumns: isDesktop ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+        gap: isDesktop ? 20 : 12,
+        width: '100%',
+        alignItems: 'start',
+        justifyItems: 'stretch',
+      } as Record<string, string | number>;
+    }
+    return styles.flexGrid;
+  }, [isDesktop, useCssGrid]);
+
+  const cellStyle = useCssGrid ? styles.gridCell : styles.flexCell;
 
   const loadProducts = useCallback(async () => {
     if (!supported || !shopId) {
@@ -123,20 +151,24 @@ export function ShopProfileStoreSection({ shopId, shopType, shopName }: Props) {
         <Text style={[styles.empty, { color: theme.textMuted }]}>{t('shop_profile_store_empty')}</Text>
       ) : null}
 
-      {!loading
-        ? products.slice(0, 8).map((product) => (
-            <View key={product.id} style={styles.cardWrap}>
+      {!loading && products.length > 0 ? (
+        <View style={[styles.gridShell, gridStyle]}>
+          {products.map((product) => (
+            <View key={product.id} style={cellStyle}>
               <StoreProductCard
                 product={product}
                 compact
+                imageHeight={180}
+                imageFit="contain"
                 adding={addingId === product.id}
                 cartQuantity={items.find((row) => row.productId === product.id)?.quantity ?? 0}
                 onAddToCart={() => void onAddToCart(product)}
                 onChangeQuantity={(next) => void onChangeQuantity(product, next)}
               />
             </View>
-          ))
-        : null}
+          ))}
+        </View>
+      ) : null}
 
       {products.length > 0 ? (
         <Pressable
@@ -168,10 +200,12 @@ export function ShopProfileStoreSection({ shopId, shopType, shopName }: Props) {
 const styles = StyleSheet.create({
   sectionCard: {
     borderWidth: 1,
-    borderRadius: 22,
-    padding: 16,
+    borderRadius: 18,
+    padding: 12,
     marginBottom: 14,
-    gap: 10,
+    gap: 12,
+    width: '100%',
+    alignSelf: 'stretch',
   },
   headerRow: {
     flexDirection: 'row',
@@ -181,7 +215,25 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: '900', marginBottom: 2 },
   sectionLead: { fontSize: 13, lineHeight: 18 },
   empty: { fontSize: 14, lineHeight: 20, marginTop: 4 },
-  cardWrap: { marginBottom: 8 },
+  gridShell: {
+    width: '100%',
+    alignSelf: 'stretch',
+  },
+  flexGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -6,
+    width: '100%',
+  },
+  gridCell: {
+    minWidth: 0,
+    maxWidth: '100%',
+  },
+  flexCell: {
+    width: '50%',
+    paddingHorizontal: 6,
+    paddingBottom: 12,
+  },
   cartChip: {
     borderWidth: 1,
     borderRadius: 999,
@@ -190,11 +242,13 @@ const styles = StyleSheet.create({
   },
   cartChipText: { fontSize: 12, fontWeight: '800' },
   viewAllBtn: {
-    marginTop: 4,
+    marginTop: 8,
     borderWidth: 1,
     borderRadius: 14,
     paddingVertical: 12,
     alignItems: 'center',
+    alignSelf: 'center',
+    width: '100%',
   },
   viewAllText: { fontSize: 14, fontWeight: '800' },
 });

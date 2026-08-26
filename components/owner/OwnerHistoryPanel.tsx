@@ -13,12 +13,18 @@ import {
   View,
 } from 'react-native';
 
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+
+import { HistoryCardMenu } from '@/components/owner/HistoryOverflowMenu';
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listArchivedBookingsForStaff, sortArchivedBookingsForDisplay } from '@/lib/booking/bookingHistoryRepository';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
+import { clearAllShopHistory, hideMerchantHistoryItem } from '@/lib/booking/merchantHistoryRepository';
 import { isAutoCompletedBooking, updateBookingStatus } from '@/lib/booking/storage';
+import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
+import { userAlert } from '@/lib/ui/userAlert';
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
 import {
   buildOwnerReportHtmlDeferred,
@@ -79,6 +85,7 @@ export function OwnerHistoryPanel({
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
+  const [menuBookingId, setMenuBookingId] = useState<string | null>(null);
   const deferredRows = useDeferredValue(rows);
 
   const branchId =
@@ -97,12 +104,14 @@ export function OwnerHistoryPanel({
     setLoading(true);
     try {
       // Finalized archive only — pending/confirmed stay on the operational dashboard.
-      const archived = await listArchivedBookingsForStaff(shop.id, branchId);
+      const archived = await listArchivedBookingsForStaff(shop.id, branchId, {
+        excludeHiddenByMerchant: mode === 'history',
+      });
       setRows(archived);
     } finally {
       setLoading(false);
     }
-  }, [shop.id, branchId]);
+  }, [shop.id, branchId, mode]);
 
   useFocusEffect(
     useCallback(() => {
@@ -120,6 +129,7 @@ export function OwnerHistoryPanel({
       { shopId: shop.id, staff, activeBranchId: branchId ?? undefined },
       {
         onBookingUpdate: (booking, previousStatus) => {
+          if (mode === 'history' && booking.isHiddenByMerchant) return;
           if (booking.status !== 'cancelled' || previousStatus === 'cancelled') return;
           const inScope =
             staff?.role === 'branch_manager'
@@ -137,7 +147,7 @@ export function OwnerHistoryPanel({
     );
 
     return unsubscribe;
-  }, [shop.id, staff, branchId]);
+  }, [shop.id, staff, branchId, mode]);
 
   useEffect(() => {
     setBranchMenuOpen(false);
@@ -167,15 +177,20 @@ export function OwnerHistoryPanel({
   }, [reportBookings]);
 
   const historyRows = useMemo(() => {
-    if (mode !== 'history') return deferredRows;
+    const visible = deferredRows.filter((row) => !row.isHiddenByMerchant);
     if (historyFilter === 'done') {
-      return deferredRows.filter((row) => row.status === 'done' && !isAutoCompletedBooking(row));
+      return visible.filter((row) => row.status === 'done' && !isAutoCompletedBooking(row));
     }
     if (historyFilter === 'cancelled') {
-      return deferredRows.filter((row) => row.status === 'cancelled' || row.status === 'no_show');
+      return visible.filter((row) => row.status === 'cancelled' || row.status === 'no_show');
     }
-    return deferredRows;
-  }, [deferredRows, mode, historyFilter]);
+    return visible;
+  }, [deferredRows, historyFilter]);
+
+  const visibleHistoryCount = useMemo(
+    () => rows.filter((row) => !row.isHiddenByMerchant).length,
+    [rows],
+  );
 
   const historyFilterOptions = useMemo(
     () =>
@@ -202,7 +217,7 @@ export function OwnerHistoryPanel({
     promptMerchantNoShowOverride({
       title: t('merchant_noshow_override_title'),
       message: t('merchant_noshow_override_body'),
-      confirmLabel: t('merchant_noshow_override_btn'),
+      confirmLabel: t('owner_history_noshow_action'),
       cancelLabel: t('alert_cancel'),
       onConfirm: async () => {
         await updateBookingStatus(booking.id, 'no_show', booking);
@@ -213,6 +228,45 @@ export function OwnerHistoryPanel({
               : row,
           ),
         );
+      },
+    });
+  }
+
+  async function onHideHistoryItem(booking: Booking) {
+    const previous = rows;
+    setMenuBookingId(null);
+    setRows((prev) =>
+      prev.map((row) => (row.id === booking.id ? { ...row, isHiddenByMerchant: true } : row)),
+    );
+    const ok = await hideMerchantHistoryItem({
+      id: booking.id,
+      type: 'booking',
+      shopId: shop.id,
+    });
+    if (!ok) {
+      setRows(previous);
+      userAlert(t('owner_history_hide_fail'));
+    }
+  }
+
+  function onClearAllHistory() {
+    if (visibleHistoryCount === 0) return;
+    showCustomConfirm({
+      title: t('owner_history_clear_title'),
+      message: t('owner_history_clear_body'),
+      confirmLabel: t('owner_history_clear_confirm'),
+      cancelLabel: t('alert_cancel'),
+      destructive: true,
+      onConfirm: async () => {
+        const previous = rows;
+        setRows((prev) => prev.map((row) => ({ ...row, isHiddenByMerchant: true })));
+        const ok = await clearAllShopHistory({ shopId: shop.id, type: 'booking' });
+        if (!ok) {
+          setRows(previous);
+          userAlert(t('owner_history_clear_fail'));
+          return;
+        }
+        await loadHistory();
       },
     });
   }
@@ -354,31 +408,59 @@ export function OwnerHistoryPanel({
 
   return (
     <View style={styles.wrap}>
+      {menuBookingId ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('alert_cancel')}
+          onPress={() => setMenuBookingId(null)}
+          style={styles.menuDismissOverlay}
+        />
+      ) : null}
       <Text style={[styles.lead, { color: theme.textMuted }]}>
         {mode === 'history' ? t('owner_history_scope_note') : t('owner_history_lead')}
       </Text>
 
-      {mode === 'history' ? (
-        <View style={styles.historyFilterRow}>
-          {historyFilterOptions.map((option) => {
-            const active = historyFilter === option.id;
-            return (
-              <Pressable
-                key={option.id}
-                onPress={() => setHistoryFilter(option.id)}
-                style={[
-                  styles.historyFilterChip,
-                  {
-                    backgroundColor: active ? theme.accent : theme.bgElevated,
-                    borderColor: active ? theme.accent : theme.border,
-                  },
-                ]}>
-                <Text style={[styles.historyFilterText, { color: active ? theme.onAccent : theme.text }]}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+      {mode !== 'reports' ? (
+        <View style={styles.historyFilterBar}>
+          <View style={styles.historyFilterRow}>
+            {historyFilterOptions.map((option) => {
+              const active = historyFilter === option.id;
+              return (
+                <Pressable
+                  key={option.id}
+                  onPress={() => setHistoryFilter(option.id)}
+                  style={[
+                    styles.historyFilterChip,
+                    {
+                      backgroundColor: active ? theme.accent : theme.bgElevated,
+                      borderColor: active ? theme.accent : theme.border,
+                    },
+                  ]}>
+                  <Text style={[styles.historyFilterText, { color: active ? theme.onAccent : theme.text }]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable
+            onPress={onClearAllHistory}
+            disabled={visibleHistoryCount === 0}
+            accessibilityRole="button"
+            accessibilityLabel={t('owner_history_clear_btn')}
+            style={[
+              styles.clearHistoryBtn,
+              {
+                borderColor: theme.danger,
+                backgroundColor: theme.bgElevated,
+                opacity: visibleHistoryCount === 0 ? 0.45 : 1,
+              },
+            ]}>
+            <FontAwesome name="trash-o" size={14} color={theme.danger} />
+            <Text style={[styles.clearHistoryBtnText, { color: theme.danger }]}>
+              {t('owner_history_clear_btn')}
+            </Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -538,58 +620,87 @@ export function OwnerHistoryPanel({
             : t('owner_history_filter_empty')}
         </Text>
       ) : (
-        historyRows.map((booking) => (
-          <View
-            key={booking.id}
-            style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <Text style={[styles.when, { color: theme.text }]}>
-              {formatBookingDateTime(booking.scheduledAt, locale)}
-            </Text>
-            <Text style={[styles.meta, { color: theme.textMuted }]}>
-              {booking.customerName || booking.customerPhone} · {booking.carType}
-            </Text>
-            {booking.status === 'cancelled' ? (
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: `${theme.danger}18`, borderColor: theme.danger },
-                ]}>
-                <Text style={[styles.statusBadgeText, { color: theme.danger }]}>
-                  {bookingStatusLabel('cancelled', locale)}
-                </Text>
+        historyRows.map((booking) => {
+          const menuOpen = menuBookingId === booking.id;
+          const canMarkNoShow = booking.status === 'done';
+          return (
+            <View
+              key={booking.id}
+              style={[
+                styles.card,
+                { borderColor: theme.border, backgroundColor: theme.bgElevated },
+                menuOpen ? styles.cardMenuOpen : null,
+              ]}>
+              <View style={styles.cardTop}>
+                <View style={styles.cardMain}>
+                  <Text style={[styles.when, { color: theme.text }]}>
+                    {formatBookingDateTime(booking.scheduledAt, locale)}
+                  </Text>
+                  <Text style={[styles.meta, { color: theme.textMuted }]}>
+                    {booking.customerName || booking.customerPhone} · {booking.carType}
+                  </Text>
+                </View>
+                <HistoryCardMenu
+                  open={menuOpen}
+                  onOpenChange={(open) => setMenuBookingId(open ? booking.id : null)}
+                  accessibilityLabel={t('owner_history_menu_a11y')}
+                  actions={[
+                    ...(canMarkNoShow
+                      ? [
+                          {
+                            id: 'noshow',
+                            label: t('owner_history_noshow_action'),
+                            destructive: true,
+                            icon: 'ban' as const,
+                            onPress: () => onMerchantNoShowOverride(booking),
+                          },
+                        ]
+                      : []),
+                    {
+                      id: 'hide',
+                      label: t('owner_history_hide'),
+                      icon: 'trash-o' as const,
+                      onPress: () => {
+                        void onHideHistoryItem(booking);
+                      },
+                    },
+                  ]}
+                />
               </View>
-            ) : (
-              <Text
-                style={[
-                  styles.status,
-                  {
-                    color:
-                      booking.status === 'done'
-                        ? theme.green
-                        : booking.status === 'no_show'
-                          ? theme.danger
-                          : theme.accent,
-                  },
-                ]}>
-                {bookingStatusLabel(booking.status, locale)}
-              </Text>
-            )}
-            {isAutoCompletedBooking(booking) ? (
-              <>
+              {booking.status === 'cancelled' ? (
+                <View
+                  style={[
+                    styles.statusBadge,
+                    { backgroundColor: `${theme.danger}18`, borderColor: theme.danger },
+                  ]}>
+                  <Text style={[styles.statusBadgeText, { color: theme.danger }]}>
+                    {bookingStatusLabel('cancelled', locale)}
+                  </Text>
+                </View>
+              ) : (
+                <Text
+                  style={[
+                    styles.status,
+                    {
+                      color:
+                        booking.status === 'done'
+                          ? theme.green
+                          : booking.status === 'no_show'
+                            ? theme.danger
+                            : theme.accent,
+                    },
+                  ]}>
+                  {bookingStatusLabel(booking.status, locale)}
+                </Text>
+              )}
+              {isAutoCompletedBooking(booking) ? (
                 <Text style={[styles.autoHint, { color: theme.textMuted }]}>
                   {t('merchant_noshow_override_auto_hint')}
                 </Text>
-                <Pressable
-                  onPress={() => onMerchantNoShowOverride(booking)}
-                  style={[styles.overrideBtn, { borderColor: theme.danger, backgroundColor: theme.bgElevated }]}>
-                  <Text style={[styles.overrideBtnText, { color: theme.danger }]}>
-                    {t('merchant_noshow_override_btn')}
-                  </Text>
-                </Pressable>
-              </>
-            ) : null}
-          </View>
-        ))
+              ) : null}
+            </View>
+          );
+        })
       )}
 
     </View>
@@ -597,9 +708,21 @@ export function OwnerHistoryPanel({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 12 },
+  wrap: { gap: 12, position: 'relative', overflow: 'visible', zIndex: 1 },
+  menuDismissOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+  },
   lead: { fontSize: 14, lineHeight: 20, marginBottom: 4 },
-  historyFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  historyFilterBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  historyFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, flexGrow: 1, flexShrink: 1 },
   historyFilterChip: {
     borderWidth: 1,
     borderRadius: 999,
@@ -637,7 +760,10 @@ const styles = StyleSheet.create({
   branchMenuCard: { marginTop: 8, borderWidth: 1, borderRadius: 12, padding: 6, gap: 4 },
   branchMenuItem: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9 },
   branchMenuText: { fontSize: 13, fontWeight: '700' },
-  card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 8 },
+  card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 8, overflow: 'visible', zIndex: 1 },
+  cardMenuOpen: { zIndex: 30, elevation: 8 },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, overflow: 'visible', zIndex: 1 },
+  cardMain: { flex: 1, minWidth: 0 },
   when: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   meta: { fontSize: 14, lineHeight: 20 },
   status: { fontSize: 13, fontWeight: '800', marginTop: 6 },
@@ -651,14 +777,15 @@ const styles = StyleSheet.create({
   },
   statusBadgeText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
   autoHint: { fontSize: 12, lineHeight: 18, marginTop: 6 },
-  overrideBtn: {
-    marginTop: 10,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+  clearHistoryBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
-  overrideBtnText: { fontSize: 13, fontWeight: '800' },
+  clearHistoryBtnText: { fontSize: 13, fontWeight: '800' },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 24 },
 });

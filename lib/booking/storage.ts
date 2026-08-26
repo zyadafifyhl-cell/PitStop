@@ -191,6 +191,7 @@ type BookingRow = {
   scheduled_at: string;
   status: BookingStatus;
   created_at: string;
+  is_hidden_by_merchant?: boolean | null;
 };
 
 export type CreateBookingOptions = {
@@ -260,6 +261,7 @@ function mapBookingRow(row: BookingRow): Booking {
     scheduledAt: row.scheduled_at,
     status: row.status,
     createdAt: row.created_at,
+    isHiddenByMerchant: Boolean(row.is_hidden_by_merchant),
   };
 }
 

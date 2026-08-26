@@ -303,6 +303,7 @@ export default function StoreScreen() {
           <StoreProductCard
             product={item}
             compact={grid.compact}
+            fillRow
             adding={addingId === item.id}
             cartQuantity={items.find((row) => row.productId === item.id)?.quantity ?? 0}
             onAddToCart={() => void onAddToCart(item)}

@@ -17,6 +17,7 @@ import type { Customer } from '@/lib/booking/customers';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
+import { textInputSubmitProps } from '@/lib/ui/textInputSubmit';
 
 type Props = {
   visible: boolean;
@@ -42,6 +43,8 @@ function ProfileFieldInput({
   secureTextEntry,
   keyboardType,
   autoCapitalize,
+  submitEnabled,
+  onSubmit,
 }: {
   icon: React.ComponentProps<typeof FontAwesome>['name'];
   label: string;
@@ -51,8 +54,11 @@ function ProfileFieldInput({
   secureTextEntry?: boolean;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words';
+  submitEnabled?: boolean;
+  onSubmit?: () => void;
 }) {
   const theme = useAppTheme();
+  const submitProps = onSubmit ? textInputSubmitProps({ enabled: submitEnabled !== false, onSubmit }) : undefined;
   return (
     <View style={styles.fieldWrap}>
       <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{label}</Text>
@@ -67,6 +73,7 @@ function ProfileFieldInput({
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize ?? 'sentences'}
           style={[styles.fieldInput, { color: theme.text }]}
+          {...submitProps}
         />
       </View>
     </View>
@@ -212,6 +219,10 @@ export function PrivacySettingsModal({
                   placeholder={t('privacy_password_placeholder')}
                   secureTextEntry
                   autoCapitalize="none"
+                  submitEnabled={!busy && !!verifyInput.trim()}
+                  onSubmit={() => {
+                    void onUnlock();
+                  }}
                 />
                 <Pressable onPress={onUnlock} style={[styles.modalBtn, { backgroundColor: theme.accent }]}>
                   <Text style={[styles.modalBtnText, { color: theme.onAccent }]}>{t('privacy_unlock')}</Text>
@@ -254,6 +265,10 @@ export function PrivacySettingsModal({
                   placeholder={t('privacy_new_password_placeholder')}
                   secureTextEntry
                   autoCapitalize="none"
+                  submitEnabled={!busy}
+                  onSubmit={() => {
+                    void onSaveProfile();
+                  }}
                 />
                 <Pressable
                   onPress={onSaveProfile}

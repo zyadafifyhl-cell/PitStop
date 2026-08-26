@@ -5,13 +5,15 @@ import {
 } from '@/lib/booking/catalogRepository';
 import { computeShopRatingSummary, getCustomerShopReview, listShopReviews } from '@/lib/booking/reviewsStorage';
 import { getShopExtras, getShopExtrasCached } from '@/lib/booking/shopExtrasStorage';
-import type { Shop, ShopExtras, ShopReview } from '@/lib/booking/types';
+import type { Shop, ShopExtras, ShopReview, ShopType } from '@/lib/booking/types';
 import {
   fetchBranchProfile,
   fetchDefaultBranchCoordinates,
   fetchDefaultBranchProfile,
+  fetchVisibleServicesForShop,
 } from '@/lib/booking/wash/branchRepository';
-import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
+import type { WashBranch } from '@/lib/booking/wash/types';
+import { mergeWashBranchIntoExtras } from '@/lib/booking/wash/washSync';
 
 export type ShopProfileCoords = { latitude: number; longitude: number };
 
@@ -62,6 +64,43 @@ function coordsFromShop(shop: Shop | null | undefined): ShopProfileCoords | null
   return { latitude: shop.latitude, longitude: shop.longitude };
 }
 
+function isRetailShop(type?: ShopType): boolean {
+  return type === 'parts' || type === 'accessories';
+}
+
+function visibleCustomerServices(extras: ShopExtras): ShopExtras['services'] {
+  return (extras.services ?? []).filter(
+    (service) => service.active !== false && service.visible !== false,
+  );
+}
+
+/**
+ * Overlay the live branch_services menu onto extras.
+ * Customer sessions cannot persist extras, so shop_extras.payload.services is often stale/empty.
+ */
+export async function overlayBranchServicesOnExtras(
+  shopId: string,
+  extras: ShopExtras,
+  options?: { shopType?: ShopType; branch?: WashBranch | null },
+): Promise<ShopExtras> {
+  if (!shopId || isRetailShop(options?.shopType)) return extras;
+
+  const resolvedBranch =
+    options && 'branch' in options
+      ? options.branch ?? null
+      : extras.activeBranchId?.trim()
+        ? await fetchBranchProfile(shopId, extras.activeBranchId.trim())
+        : await fetchDefaultBranchProfile(shopId);
+
+  const merged = resolvedBranch ? mergeWashBranchIntoExtras(extras, resolvedBranch) : extras;
+  const visible = visibleCustomerServices(merged);
+  if (visible.length) return { ...merged, services: visible };
+
+  const fallback = await fetchVisibleServicesForShop(shopId, resolvedBranch?.id);
+  if (!fallback.length) return { ...merged, services: visible };
+  return { ...merged, services: fallback };
+}
+
 /** Instant offline-first bootstrap from catalog + local extras cache. */
 export async function bootstrapShopProfileFromCache(shopId: string): Promise<ShopProfileBootstrap> {
   await hydrateCatalogCache();
@@ -85,28 +124,32 @@ export async function fetchShopProfileRemote(
   if (!shop) {
     shop = await fetchShopByIdRemote(shopId);
   }
+  const resolvedShopId = shop?.id ?? shopId;
 
+  let washBranch: WashBranch | null = null;
   let syncedBranchCoords: ShopProfileCoords | null = null;
-  if (shop?.type === 'wash') {
-    const currentExtras = await getShopExtrasCached(shopId);
+  if (shop && !isRetailShop(shop.type)) {
+    const currentExtras = await getShopExtrasCached(resolvedShopId);
     const activeBranchId = currentExtras.activeBranchId?.trim();
-    const branch = activeBranchId
+    washBranch = activeBranchId
       ? await fetchBranchProfile(shop.id, activeBranchId)
       : await fetchDefaultBranchProfile(shop.id);
-    if (branch) {
-      await syncWashBranchToShopExtras(shop.id, branch);
-      if (branch.latitude != null && branch.longitude != null) {
-        syncedBranchCoords = { latitude: branch.latitude, longitude: branch.longitude };
-      }
+    if (washBranch?.latitude != null && washBranch?.longitude != null) {
+      syncedBranchCoords = { latitude: washBranch.latitude, longitude: washBranch.longitude };
     }
   }
 
-  const [extras, reviewRows, coords, customerReview] = await Promise.all([
-    getShopExtras(shopId),
-    listShopReviews(shopId),
-    syncedBranchCoords ? Promise.resolve(syncedBranchCoords) : fetchDefaultBranchCoordinates(shopId),
-    customerId ? getCustomerShopReview(shopId, customerId) : Promise.resolve(null),
+  const [extrasRaw, reviewRows, coords, customerReview] = await Promise.all([
+    getShopExtras(resolvedShopId),
+    listShopReviews(resolvedShopId),
+    syncedBranchCoords ? Promise.resolve(syncedBranchCoords) : fetchDefaultBranchCoordinates(resolvedShopId),
+    customerId ? getCustomerShopReview(resolvedShopId, customerId) : Promise.resolve(null),
   ]);
+
+  const extras = await overlayBranchServicesOnExtras(resolvedShopId, extrasRaw, {
+    shopType: shop?.type,
+    branch: washBranch,
+  });
 
   const summary = computeShopRatingSummary(reviewRows);
   const visibleRemote = reviewRows.filter((review) => !review.hidden);

@@ -24,7 +24,6 @@ import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
 import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
-import { MerchantNavRow } from '@/components/owner/merchant/MerchantNavRow';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
@@ -1696,24 +1695,6 @@ export function WashOwnerPanel({ shop }: Props) {
     </OwnerSectionCard>
   );
 
-  const businessSetupCard = (
-    <OwnerSectionCard theme={theme} title={t('merchant_settings_business_title')}>
-      <MerchantNavRow
-        theme={theme}
-        label={t('merchant_settings_hours_row')}
-        subtitle={t('merchant_settings_hours_subtitle')}
-        onPress={() => router.push('/shop/merchant-hours')}
-      />
-      <MerchantNavRow
-        theme={theme}
-        label={t('merchant_settings_staff_row')}
-        subtitle={t('merchant_settings_staff_subtitle')}
-        onPress={() => router.push('/shop/merchant-staff')}
-        showDivider={false}
-      />
-    </OwnerSectionCard>
-  );
-
   if (!workspaceReady) {
     return (
       <View style={[styles.container, styles.workspaceBoot, { backgroundColor: theme.bg }]}>
@@ -2158,7 +2139,6 @@ export function WashOwnerPanel({ shop }: Props) {
           <>
             {shopStatusCard}
             {weeklyHoursCard}
-            {businessSetupCard}
             <StoreOrdersPanel
               shop={shop}
               statusFilter={storeOrderFilter}

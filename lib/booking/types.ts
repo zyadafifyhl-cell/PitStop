@@ -63,6 +63,8 @@ export type Booking = {
   createdAt: string;
   /** Read-time flag when confirmed slot aged past auto-done window (not persisted). */
   lifecycleAutoCompleted?: boolean;
+  /** Merchant-only soft-delete; customers and revenue queries still see the row. */
+  isHiddenByMerchant?: boolean;
 };
 
 export type Area = {

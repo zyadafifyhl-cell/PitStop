@@ -149,6 +149,7 @@ export async function fetchShopByIdRemote(id: string): Promise<Shop | null> {
       .eq('id', id)
       .eq('is_active', true)
       .maybeSingle();
+    // shops.id is the public slug (e.g. shop-wash-nile); there is no separate slug column.
     if (error || !data) return null;
     const shop = mapShopRow(data as ShopRow);
     const existingIdx = shopsCache.findIndex((row) => row.id === shop.id);

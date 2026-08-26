@@ -4,11 +4,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -52,6 +54,18 @@ const draftFor = (product: StoreProduct): ProductDraft => ({
 export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFilterChange }: Props) {
   const theme = useAppTheme();
   const { t } = useI18n();
+  const { width } = useWindowDimensions();
+  const useCssGrid = Platform.OS === 'web' && width >= 700;
+  const gridStyle = useCssGrid
+    ? ({
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, 1fr)',
+        gap: 16,
+        width: '100%',
+        alignItems: 'start',
+        justifyItems: 'stretch',
+      } as const)
+    : styles.stackGrid;
   const category = storeProductCategoryForShopType(shop.type);
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [drafts, setDrafts] = useState<Record<string, ProductDraft>>({});
@@ -204,7 +218,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
       return (
         <View
           key={product.id}
-          style={[styles.productCard, { backgroundColor: '#1e293b', borderColor: '#334155' }]}>
+          style={[styles.productCard, { backgroundColor: '#111928', borderColor: '#1f2a3c' }]}>
           <View style={styles.productHeader}>
             <View>
               {coverUrl ? (
@@ -405,7 +419,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
             {t('store_owner_no_low_stock')}
           </Text>
         ) : (
-          <View style={styles.grid}>{cards}</View>
+          <View style={gridStyle}>{cards}</View>
         )}
       </OwnerSectionCard>
 
@@ -454,7 +468,7 @@ function LabeledMoneyInput({
 }
 
 const styles = StyleSheet.create({
-  page: { width: '100%', maxWidth: 1200, alignSelf: 'center' },
+  page: { width: '100%', maxWidth: '100%', alignSelf: 'stretch' },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -493,12 +507,11 @@ const styles = StyleSheet.create({
   empty: { minHeight: 260, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
   emptyIcon: { width: 64, height: 64, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { maxWidth: 360, textAlign: 'center', fontSize: 15, lineHeight: 22, fontWeight: '800' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, alignItems: 'stretch' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, alignItems: 'stretch', width: '100%' },
+  stackGrid: { flexDirection: 'column', gap: 16, width: '100%' },
   productCard: {
-    flexGrow: 1,
-    flexBasis: 340,
-    minWidth: 300,
-    maxWidth: 572,
+    width: '100%',
+    minWidth: 0,
     borderWidth: 1,
     borderRadius: 14,
     padding: 16,

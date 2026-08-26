@@ -4,9 +4,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { StoreProductImageSlider } from '@/components/store/StoreProductImageSlider';
 import { StoreQuantityStepper } from '@/components/store/StoreQuantityStepper';
-import { StoreStarRating } from '@/components/store/StoreStarRating';
 import { useI18n } from '@/context/I18nContext';
-import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import { subCategoryLabel } from '@/lib/store/constants';
 import { availableStock, isAtMaxStock, isOutOfStock } from '@/lib/store/stockLimits';
@@ -16,6 +15,10 @@ type Props = {
   product: StoreProduct;
   adding?: boolean;
   compact?: boolean;
+  /** Stretch to fill a FlatList column. Leave off in stacked/profile layouts. */
+  fillRow?: boolean;
+  imageHeight?: number;
+  imageFit?: 'contain' | 'cover';
   cartQuantity?: number;
   onAddToCart: () => void;
   onChangeQuantity?: (next: number) => void;
@@ -34,28 +37,39 @@ export function StoreProductCard({
   product,
   adding,
   compact = false,
+  fillRow = false,
+  imageHeight = 180,
+  imageFit = 'contain',
   cartQuantity = 0,
   onAddToCart,
   onChangeQuantity,
 }: Props) {
   const theme = useAppTheme();
+  const { effectivePreference } = useThemePreference();
   const { t, locale } = useI18n();
   const stock = availableStock(product);
   const outOfStock = isOutOfStock(product);
   const atMax = isAtMaxStock(cartQuantity, stock);
   const inCart = cartQuantity > 0;
+  const dark = effectivePreference === 'dark';
+  const category = subCategoryLabel(product.subCategory, locale, product.category);
 
   return (
     <View
       style={[
         styles.card,
-        compact ? styles.cardCompact : styles.cardRegular,
-        { backgroundColor: theme.card, borderColor: theme.border },
+        fillRow ? styles.cardFill : null,
+        {
+          backgroundColor: dark ? '#111928' : theme.card,
+          borderColor: dark ? '#1f2a3c' : theme.border,
+        },
       ]}>
       <View style={styles.imageWrap}>
         <StoreProductImageSlider
           product={product}
           compact={compact}
+          frameHeight={imageHeight}
+          contentFit={imageFit}
           placeholderIcon={productIconName(product.subCategory)}
         />
         {outOfStock ? (
@@ -66,18 +80,13 @@ export function StoreProductCard({
       </View>
 
       <View style={styles.body}>
-        <Text
-          style={[compact ? styles.nameCompact : styles.name, { color: theme.text }]}
-          numberOfLines={2}>
+        <Text style={styles.category} numberOfLines={1}>
+          {category}
+        </Text>
+        <Text style={[styles.name, { color: dark ? '#FFFFFF' : theme.text }]} numberOfLines={1}>
           {product.name}
         </Text>
-        <Text style={[compact ? styles.sellerCompact : styles.subCategory, { color: theme.textMuted }]}>
-          {subCategoryLabel(product.subCategory, locale, product.category)}
-        </Text>
-        <StoreStarRating rating={product.rating} count={product.ratingCount} compact={compact} />
-        <Text style={[compact ? styles.priceCompact : styles.price, { color: theme.text }]}>
-          {formatEgp(product.price, locale)}
-        </Text>
+        <Text style={styles.price}>{formatEgp(product.price, locale)}</Text>
       </View>
 
       {inCart && onChangeQuantity ? (
@@ -85,7 +94,7 @@ export function StoreProductCard({
           <StoreQuantityStepper
             quantity={cartQuantity}
             max={stock}
-            compact={compact}
+            compact
             disabled={adding}
             onChange={onChangeQuantity}
           />
@@ -95,18 +104,18 @@ export function StoreProductCard({
           onPress={onAddToCart}
           disabled={outOfStock || atMax || adding}
           style={[
-            compact ? styles.addBtnCompact : styles.addBtn,
+            styles.addBtn,
             {
-              backgroundColor: outOfStock ? theme.border : theme.accent,
+              backgroundColor: outOfStock ? theme.border : '#2563eb',
               opacity: adding || outOfStock ? 0.7 : 1,
             },
           ]}>
           {adding ? (
-            <ActivityIndicator color={theme.onAccent} size="small" />
+            <ActivityIndicator color="#fff" size="small" />
           ) : (
             <>
-              <FontAwesome name="shopping-cart" size={compact ? 12 : 14} color={theme.onAccent} />
-              <Text style={[compact ? styles.addBtnTextCompact : styles.addBtnText, { color: theme.onAccent }]}>
+              <FontAwesome name="shopping-cart" size={13} color="#fff" />
+              <Text style={styles.addBtnText}>
                 {outOfStock ? t('store_out_of_stock') : t('store_add_to_cart')}
               </Text>
             </>
@@ -119,15 +128,18 @@ export function StoreProductCard({
 
 const styles = StyleSheet.create({
   card: {
-    flex: 1,
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
     borderWidth: 1,
     borderRadius: 14,
-    minWidth: 0,
     overflow: 'hidden',
+    padding: 14,
+    display: 'flex',
+    flexDirection: 'column',
   },
-  cardCompact: { padding: 8 },
-  cardRegular: { padding: 10 },
-  imageWrap: { marginBottom: 8, position: 'relative' },
+  cardFill: { alignSelf: 'stretch' },
+  imageWrap: { width: '100%', marginBottom: 0, position: 'relative' },
   stockBadge: {
     position: 'absolute',
     top: 8,
@@ -138,32 +150,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   stockBadgeText: { color: '#fff', fontSize: 10, fontWeight: '900' },
-  body: { flexGrow: 1, gap: 2 },
-  name: { fontSize: 14, fontWeight: '800', lineHeight: 18 },
-  nameCompact: { fontSize: 12, fontWeight: '800', lineHeight: 16 },
-  sellerCompact: { fontSize: 10, fontWeight: '600' },
-  subCategory: { fontSize: 12 },
-  price: { fontSize: 15, fontWeight: '900', marginTop: 4 },
-  priceCompact: { fontSize: 13, fontWeight: '900', marginTop: 2 },
-  stepperWrap: { marginTop: 8 },
+  body: { flexGrow: 1 },
+  category: { fontSize: 12, fontWeight: '600', color: '#9ca3af', marginTop: 8 },
+  name: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  price: { fontSize: 16, fontWeight: '700', color: '#3b82f6', marginVertical: 6 },
+  stepperWrap: { marginTop: 2 },
   addBtn: {
-    marginTop: 8,
-    borderRadius: 10,
-    paddingVertical: 9,
+    height: 38,
+    width: '100%',
+    borderRadius: 8,
+    paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  addBtnCompact: {
-    marginTop: 6,
-    borderRadius: 9,
-    paddingVertical: 7,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-  },
-  addBtnText: { fontSize: 12, fontWeight: '800' },
-  addBtnTextCompact: { fontSize: 10, fontWeight: '800' },
+  addBtnText: { fontSize: 12, fontWeight: '800', color: '#fff' },
 });

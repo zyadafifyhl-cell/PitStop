@@ -12,9 +12,11 @@ import {
 } from 'react-native';
 
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { HistoryCardMenu } from '@/components/owner/HistoryOverflowMenu';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { clearAllShopHistory, hideMerchantHistoryItem } from '@/lib/booking/merchantHistoryRepository';
 import type { Shop } from '@/lib/booking/types';
 import {
   isStoreOrderCodDelivery,
@@ -73,11 +75,21 @@ export function StoreOrdersPanel({
     textSecondary: appTheme.textMuted,
   };
   const { t, locale } = useI18n();
+  const isRetailStore = shop.type === 'parts' || shop.type === 'accessories';
+  const sectionTitle = isRetailStore ? t('store_owner_orders') : t('owner_management_bookings_title');
+  const sectionIcon: React.ComponentProps<typeof FontAwesome>['name'] = isRetailStore
+    ? 'shopping-bag'
+    : 'calendar';
+  const emptyLabel = isRetailStore ? t('store_owner_no_orders') : t('owner_management_bookings_empty');
+  const emptyFilterLabel = isRetailStore
+    ? t('store_owner_no_orders_filter')
+    : t('owner_management_bookings_empty_filter');
   const [orders, setOrders] = useState<StoreOrderWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<StoreOrderWithItems | null>(null);
   const [updating, setUpdating] = useState(false);
   const [localFilter, setLocalFilter] = useState<StoreOrderListFilter>(statusFilter ?? 'all');
+  const [menuOrderId, setMenuOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (statusFilter) setLocalFilter(statusFilter);
@@ -104,6 +116,49 @@ export function StoreOrdersPanel({
       setLoading(false);
     }
   }, [shop.id]);
+
+  function isFinalizedStoreOrder(status: StoreOrderStatus) {
+    return status === 'completed' || status === 'cancelled';
+  }
+
+  async function onHideStoreOrder(order: StoreOrderWithItems) {
+    const previous = orders;
+    setMenuOrderId(null);
+    setOrders((prev) => prev.filter((row) => row.id !== order.id));
+    setSelectedOrder((current) => (current?.id === order.id ? null : current));
+    const ok = await hideMerchantHistoryItem({
+      id: order.id,
+      type: 'store_order',
+      shopId: shop.id,
+    });
+    if (!ok) {
+      setOrders(previous);
+      Alert.alert(t('owner_history_hide_fail'), t('owner_history_hide_fail'));
+    }
+  }
+
+  function onClearStoreHistory() {
+    const finalized = orders.filter((row) => isFinalizedStoreOrder(row.status));
+    if (finalized.length === 0) return;
+    showCustomConfirm({
+      title: t('owner_history_clear_title'),
+      message: t('owner_history_clear_body'),
+      confirmLabel: t('owner_history_clear_confirm'),
+      cancelLabel: t('alert_cancel'),
+      destructive: true,
+      onConfirm: async () => {
+        const previous = orders;
+        setOrders((prev) => prev.filter((row) => !isFinalizedStoreOrder(row.status)));
+        const ok = await clearAllShopHistory({ shopId: shop.id, type: 'store_order' });
+        if (!ok) {
+          setOrders(previous);
+          Alert.alert(t('owner_history_clear_fail'), t('owner_history_clear_fail'));
+          return;
+        }
+        await loadOrders();
+      },
+    });
+  }
 
   useEffect(() => {
     loadOrders();
@@ -366,6 +421,7 @@ export function StoreOrdersPanel({
       const statusColor = STATUS_COLORS[order.status];
       const statusIcon = STATUS_ICONS[order.status];
       const hasNotes = Boolean(resolveStoreOrderCustomerNotes(order));
+      const canHide = isFinalizedStoreOrder(order.status);
 
       return (
         <View
@@ -376,9 +432,10 @@ export function StoreOrdersPanel({
               backgroundColor: theme.surface,
               borderColor: theme.border,
             },
+            menuOrderId === order.id ? styles.orderCardMenuOpen : null,
           ]}>
-          <Pressable onPress={() => setSelectedOrder(order)}>
-            <View style={styles.orderHeader}>
+          <View style={styles.orderHeader}>
+            <Pressable onPress={() => setSelectedOrder(order)} style={styles.orderHeaderMain}>
               <View style={styles.orderIdRow}>
                 <Text style={[styles.orderId, { color: theme.text }]}>
                   #{order.id.slice(0, 8)}
@@ -393,7 +450,26 @@ export function StoreOrdersPanel({
               <Text style={[styles.orderDate, { color: theme.textSecondary }]}>
                 {new Date(order.createdAt).toLocaleDateString()}
               </Text>
-            </View>
+            </Pressable>
+            {canHide ? (
+              <HistoryCardMenu
+                open={menuOrderId === order.id}
+                onOpenChange={(open) => setMenuOrderId(open ? order.id : null)}
+                accessibilityLabel={t('owner_history_menu_a11y')}
+                actions={[
+                  {
+                    id: 'hide',
+                    label: t('owner_history_hide'),
+                    icon: 'trash-o',
+                    onPress: () => {
+                      void onHideStoreOrder(order);
+                    },
+                  },
+                ]}
+              />
+            ) : null}
+          </View>
+          <Pressable onPress={() => setSelectedOrder(order)}>
 
             <View style={styles.orderBody}>
               <View style={styles.orderInfo}>
@@ -427,12 +503,14 @@ export function StoreOrdersPanel({
         </View>
       );
     },
-    [locale, renderFulfillmentAndNotes, renderStatusActions, theme, t],
+    [locale, menuOrderId, renderFulfillmentAndNotes, renderStatusActions, theme, t],
   );
+
+  const finalizedCount = orders.filter((row) => isFinalizedStoreOrder(row.status)).length;
 
   if (loading) {
     return (
-      <OwnerSectionCard title={t('store_owner_orders')} icon="shopping-bag">
+      <OwnerSectionCard title={sectionTitle} icon={sectionIcon}>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.primary} />
         </View>
@@ -441,53 +519,81 @@ export function StoreOrdersPanel({
   }
 
   const filterPills = (
-    <View style={styles.filterRow}>
-      {(
-        [
-          { id: 'pending' as const, label: t('store_orders_filter_pending'), count: pendingCount },
-          { id: 'active' as const, label: t('store_orders_filter_active'), count: activeCount },
-          { id: 'all' as const, label: t('store_orders_filter_all'), count: orders.length },
-        ]
-      ).map((pill) => {
-        const active = filter === pill.id;
-        return (
-          <Pressable
-            key={pill.id}
-            onPress={() => setFilter(pill.id)}
-            style={[
-              styles.filterPill,
-              {
-                backgroundColor: active ? theme.primary : theme.bgElevated,
-                borderColor: active ? theme.primary : theme.border,
-              },
-            ]}>
-            <Text style={[styles.filterPillText, { color: active ? theme.onAccent : theme.text }]}>
-              {pill.label} ({pill.count})
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.filterBar}>
+      <View style={styles.filterRow}>
+        {(
+          [
+            { id: 'pending' as const, label: t('store_orders_filter_pending'), count: pendingCount },
+            { id: 'active' as const, label: t('store_orders_filter_active'), count: activeCount },
+            { id: 'all' as const, label: t('store_orders_filter_all'), count: orders.length },
+          ]
+        ).map((pill) => {
+          const active = filter === pill.id;
+          return (
+            <Pressable
+              key={pill.id}
+              onPress={() => setFilter(pill.id)}
+              style={[
+                styles.filterPill,
+                {
+                  backgroundColor: active ? theme.primary : theme.bgElevated,
+                  borderColor: active ? theme.primary : theme.border,
+                },
+              ]}>
+              <Text style={[styles.filterPillText, { color: active ? theme.onAccent : theme.text }]}>
+                {pill.label} ({pill.count})
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Pressable
+        onPress={onClearStoreHistory}
+        disabled={finalizedCount === 0}
+        accessibilityRole="button"
+        accessibilityLabel={t('owner_history_clear_btn')}
+        style={[
+          styles.clearHistoryBtn,
+          {
+            borderColor: theme.danger,
+            backgroundColor: theme.bgElevated,
+            opacity: finalizedCount === 0 ? 0.45 : 1,
+          },
+        ]}>
+        <FontAwesome name="trash-o" size={14} color={theme.danger} />
+        <Text style={[styles.clearHistoryBtnText, { color: theme.danger }]}>
+          {t('owner_history_clear_btn')}
+        </Text>
+      </Pressable>
     </View>
   );
 
   if (orders.length === 0) {
     return (
-      <OwnerSectionCard title={t('store_owner_orders')} icon="shopping-bag">
+      <OwnerSectionCard title={sectionTitle} icon={sectionIcon}>
         {filterPills}
         <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>
-          {t('store_owner_no_orders')}
+          {emptyLabel}
         </Text>
       </OwnerSectionCard>
     );
   }
 
   return (
-    <>
-      <OwnerSectionCard title={t('store_owner_orders')} icon="shopping-bag">
+    <View style={styles.panelWrap}>
+      {menuOrderId ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('alert_cancel')}
+          onPress={() => setMenuOrderId(null)}
+          style={styles.menuDismissOverlay}
+        />
+      ) : null}
+      <OwnerSectionCard title={sectionTitle} icon={sectionIcon}>
         {filterPills}
         {filteredOrders.length === 0 ? (
           <Text style={{ color: theme.textSecondary, textAlign: 'center', paddingVertical: 18 }}>
-            {t('store_owner_no_orders_filter')}
+            {emptyFilterLabel}
           </Text>
         ) : (
           filteredOrders.map(renderOrderCard)
@@ -585,20 +691,51 @@ export function StoreOrdersPanel({
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  panelWrap: {
+    position: 'relative',
+    overflow: 'visible',
+    zIndex: 1,
+  },
+  menuDismissOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+  },
   centered: {
     paddingVertical: 40,
     alignItems: 'center',
+  },
+  filterBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
   },
   filterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 14,
+    flexGrow: 1,
+    flexShrink: 1,
+  },
+  clearHistoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  clearHistoryBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   filterPill: {
     borderWidth: 1,
@@ -615,12 +752,26 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 10,
     borderWidth: 1,
+    overflow: 'visible',
+    zIndex: 1,
+  },
+  orderCardMenuOpen: {
+    zIndex: 30,
+    elevation: 8,
   },
   orderHeader: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 10,
+  },
+  orderHeaderMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    gap: 8,
   },
   orderIdRow: {
     flexDirection: 'row',

@@ -5,10 +5,19 @@ export type OwnerBusinessMode = 'service' | 'store';
 
 export type OwnerShellTabId = 'dashboard' | 'management' | 'operations' | 'profile' | 'settings';
 
+export type OwnerNavIconId =
+  | 'overview'
+  | 'management'
+  | 'management-store'
+  | 'catalog-service'
+  | 'catalog-store'
+  | 'profile'
+  | 'settings';
+
 export type OwnerNavTabConfig = {
   id: OwnerShellTabId;
   labelKey: TranslationKey;
-  icon: 'dashboard' | 'shopping-bag' | 'cubes' | 'user' | 'cog' | 'calendar' | 'wrench';
+  icon: OwnerNavIconId;
 };
 
 export type OwnerDashboardConfig = {
@@ -53,14 +62,18 @@ export function getOwnerNavTabs(shopType: ShopType): OwnerNavTabConfig[] {
   const config = getOwnerDashboardConfig(shopType);
   const isStore = config.mode === 'store';
   return [
-    { id: 'dashboard', labelKey: 'owner_dashboard_overview', icon: 'dashboard' },
+    { id: 'dashboard', labelKey: 'owner_dashboard_overview', icon: 'overview' },
     {
       id: 'management',
       labelKey: isStore ? config.activityLabelKey : 'owner_dashboard_management',
-      icon: isStore ? 'shopping-bag' : 'calendar',
+      icon: isStore ? 'management-store' : 'management',
     },
-    { id: 'operations', labelKey: config.catalogLabelKey, icon: isStore ? 'cubes' : 'wrench' },
-    { id: 'profile', labelKey: 'owner_dashboard_profile', icon: 'user' },
-    { id: 'settings', labelKey: 'owner_dashboard_settings', icon: 'cog' },
+    {
+      id: 'operations',
+      labelKey: config.catalogLabelKey,
+      icon: isStore ? 'catalog-store' : 'catalog-service',
+    },
+    { id: 'profile', labelKey: 'owner_dashboard_profile', icon: 'profile' },
+    { id: 'settings', labelKey: 'owner_dashboard_settings', icon: 'settings' },
   ];
 }

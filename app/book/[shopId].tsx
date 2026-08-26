@@ -27,6 +27,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { validateCouponForCheckout } from '@/lib/booking/couponRepository';
 import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
+import { overlayBranchServicesOnExtras } from '@/lib/booking/shopProfileLoader';
 import {
   applyCampaignPrice,
   buildCartLineItemsFromServiceIds,
@@ -237,7 +238,9 @@ export default function BookShopScreen() {
     let cancelled = false;
     (async () => {
       if (!shop) return;
-      const row = await getShopExtras(shop.id);
+      const row = await overlayBranchServicesOnExtras(shop.id, await getShopExtras(shop.id), {
+        shopType: shop.type,
+      });
       if (!cancelled) setShopExtras(row);
     })();
     return () => {
@@ -247,7 +250,8 @@ export default function BookShopScreen() {
 
   const refreshShopExtras = useCallback(async () => {
     if (!shop) return;
-    const [row, bookings] = await Promise.all([getShopExtras(shop.id), listBookingsForShop(shop.id)]);
+    const [extras, bookings] = await Promise.all([getShopExtras(shop.id), listBookingsForShop(shop.id)]);
+    const row = await overlayBranchServicesOnExtras(shop.id, extras, { shopType: shop.type });
     setShopExtras(row);
     setShopBookings(bookings);
   }, [shop]);

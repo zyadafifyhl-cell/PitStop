@@ -6,6 +6,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { isStrongPassword } from '@/lib/authValidation';
 import { getSupabase } from '@/lib/supabase/client';
+import { textInputSubmitProps } from '@/lib/ui/textInputSubmit';
 
 export default function ResetPasswordScreen() {
   const { t } = useI18n();
@@ -50,6 +51,12 @@ export default function ResetPasswordScreen() {
           value={password}
           onChangeText={setPassword}
           style={[styles.input, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+          {...textInputSubmitProps({
+            enabled: !busy && !!password.trim(),
+            onSubmit: () => {
+              void onSave();
+            },
+          })}
         />
         <Text style={[styles.hint, { color: theme.textDim }]}>{t('customer_password_rules')}</Text>
         <Pressable

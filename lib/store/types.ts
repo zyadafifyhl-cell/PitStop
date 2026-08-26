@@ -65,6 +65,8 @@ export type StoreOrder = {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+  /** Merchant-only soft-delete; customers and revenue queries still see the row. */
+  isHiddenByMerchant?: boolean;
 };
 
 export type StoreOrderItem = {

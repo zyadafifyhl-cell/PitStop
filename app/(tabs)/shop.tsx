@@ -45,6 +45,7 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { userAlert } from '@/lib/ui/userAlert';
+import { textInputSubmitProps } from '@/lib/ui/textInputSubmit';
 import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, DEFAULT_SERVICE_DURATION_MINUTES, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
 import {
   cancelBookingReminders,
@@ -800,6 +801,7 @@ export default function ShopScreen() {
           placeholderTextColor={theme.textDim}
           autoCapitalize="none"
           keyboardType="email-address"
+          returnKeyType="next"
           value={email}
           onChangeText={setEmail}
           style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
@@ -812,6 +814,12 @@ export default function ShopScreen() {
           value={password}
           onChangeText={setPassword}
           style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+          {...textInputSubmitProps({
+            enabled: !busy && !!email.trim() && !!password.trim(),
+            onSubmit: () => {
+              void onLogin();
+            },
+          })}
         />
         <Pressable
           onPress={onLogin}

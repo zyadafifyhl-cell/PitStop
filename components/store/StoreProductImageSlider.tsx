@@ -10,10 +10,18 @@ import type { StoreProduct } from '@/lib/store/types';
 type Props = {
   product: Pick<StoreProduct, 'imageUrl' | 'imageUrls' | 'subCategory'>;
   compact?: boolean;
+  frameHeight?: number;
+  contentFit?: 'contain' | 'cover';
   placeholderIcon?: React.ComponentProps<typeof FontAwesome>['name'];
 };
 
-export function StoreProductImageSlider({ product, compact = false, placeholderIcon = 'cog' }: Props) {
+export function StoreProductImageSlider({
+  product,
+  compact = false,
+  frameHeight = 160,
+  contentFit = 'contain',
+  placeholderIcon = 'cog',
+}: Props) {
   const theme = useAppTheme();
   const urls = useMemo(
     () => normalizeProductImageUrls(product.imageUrls, product.imageUrl),
@@ -22,18 +30,19 @@ export function StoreProductImageSlider({ product, compact = false, placeholderI
   const [index, setIndex] = useState(0);
   const current = urls[Math.min(index, Math.max(urls.length - 1, 0))];
   const iconSize = compact ? 26 : 32;
+  const frameStyle = [styles.frame, { height: frameHeight, backgroundColor: '#0c1322' }];
 
   if (!urls.length) {
     return (
-      <View style={[styles.frame, styles.placeholder, { backgroundColor: theme.bgElevated }]}>
+      <View style={[frameStyle, styles.placeholder]}>
         <FontAwesome name={placeholderIcon} size={iconSize} color={theme.accent} />
       </View>
     );
   }
 
   return (
-    <View style={styles.wrap}>
-      <Image source={{ uri: current }} style={styles.frame} contentFit="cover" />
+    <View style={[styles.wrap, { height: frameHeight }]}>
+      <Image source={{ uri: current }} style={frameStyle} contentFit={contentFit} />
       {urls.length > 1 ? (
         <>
           <Pressable
@@ -67,10 +76,10 @@ export function StoreProductImageSlider({ product, compact = false, placeholderI
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: 'relative' },
+  wrap: { position: 'relative', width: '100%', overflow: 'hidden', borderRadius: 10 },
   frame: {
     width: '100%',
-    aspectRatio: 4 / 3,
+    height: 160,
     borderRadius: 10,
     overflow: 'hidden',
   },
