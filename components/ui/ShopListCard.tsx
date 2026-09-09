@@ -66,7 +66,7 @@ export function ShopListCard({
 }: Props) {
   const theme = useAppTheme();
   const { locale, t } = useI18n();
-  const accent = theme.accent;
+  const accent = theme.brand;
 
   const activeOffers = (extras?.offers ?? []).filter((offer) => offer.active);
   const topOffer = pickBestLiveOffer(activeOffers);
@@ -115,7 +115,7 @@ export function ShopListCard({
         style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.topRow}>
           <View style={styles.topLeft}>
-            <View style={[styles.badge, { backgroundColor: theme.accentSoft }]}>
+            <View style={[styles.badge, { backgroundColor: theme.brandSoft }]}>
               <Text style={[styles.badgeText, { color: accent }]}>{typeLabel}</Text>
             </View>
             {hasActiveOffer && offerBadgeText ? (
@@ -151,8 +151,8 @@ export function ShopListCard({
               <Text style={[styles.ratingPlaceholder, { color: theme.textDim }]}>{t('shop_rating_none')}</Text>
             )}
             {extras?.servicePriceEgp != null && type !== 'wash' ? (
-              <View style={[styles.priceChip, { backgroundColor: theme.accentSoft }]}>
-                <Text style={[styles.priceChipText, { color: theme.accent }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
+              <View style={[styles.priceChip, { backgroundColor: theme.brandSoft }]}>
+                <Text style={[styles.priceChipText, { color: theme.brand }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
               </View>
             ) : null}
             {onToggleFavorite ? (
@@ -170,7 +170,7 @@ export function ShopListCard({
           {profileImage || extrasLoading ? (
             <ShopMediaImage
               uri={profileImage}
-              style={styles.avatar}
+              style={[styles.avatar, { backgroundColor: theme.cardHover }]}
               contentFit="cover"
               showSkeleton={extrasLoading && !profileImage}
               fallbackIcon="user"
@@ -197,7 +197,7 @@ export function ShopListCard({
           </View>
         </View>
         {extras?.servicePriceEgp != null && type !== 'wash' ? (
-          <Text style={[styles.priceMeta, { color: theme.accent }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
+          <Text style={[styles.priceMeta, { color: theme.text }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
         ) : null}
         {activeOffers.length > 0 ? (
           <Pressable
@@ -213,13 +213,13 @@ export function ShopListCard({
             <Text style={[styles.offerChipText, { color: theme.warm }]}>{offerBadgeText}</Text>
           </View>
         ) : offerLabel ? (
-          <View style={[styles.offerChip, { backgroundColor: theme.accentSoft }]}>
-            <Text style={[styles.offerChipText, { color: theme.accent }]}>{offerLabel}</Text>
+          <View style={[styles.offerChip, { backgroundColor: theme.brandSoft }]}>
+            <Text style={[styles.offerChipText, { color: theme.brand }]}>{offerLabel}</Text>
           </View>
         ) : null}
         {hasWinch ? (
-          <View style={[styles.offerChip, { backgroundColor: theme.accentSoft }]}>
-            <Text style={[styles.offerChipText, { color: theme.accent }]}>{t('shop_profile_winch_available')}</Text>
+          <View style={[styles.offerChip, { backgroundColor: theme.brandSoft }]}>
+            <Text style={[styles.offerChipText, { color: theme.brand }]}>{t('shop_profile_winch_available')}</Text>
           </View>
         ) : null}
         {showCoverFrame ? (
@@ -273,7 +273,7 @@ export function ShopListCard({
 const styles = StyleSheet.create({
   wrap: { marginBottom: 14 },
   card: {
-    borderRadius: 24,
+    borderRadius: 16,
     borderWidth: 1,
     padding: 18,
   },
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
   priceChipText: { fontSize: 11, fontWeight: '800' },
   iconBtn: { padding: 4 },
   identityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#111' },
+  avatar: { width: 56, height: 56, borderRadius: 28 },
   name: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
   offerBadge: {
     alignSelf: 'flex-start',
@@ -352,10 +352,10 @@ const styles = StyleSheet.create({
   },
   bookBtn: {
     flex: 1,
-    borderRadius: 28,
-    paddingVertical: 13,
+    minHeight: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  book: { fontSize: 15, fontWeight: '800' },
+  book: { fontSize: 15, fontWeight: '600' },
 });

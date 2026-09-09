@@ -5,8 +5,8 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
-const VACATION_AMBER = '#D97706';
-const VACATION_AMBER_SOFT = '#FEF3C7';
+const VACATION_AMBER = '#0F172A';
+const VACATION_AMBER_SOFT = '#F1F5F9';
 
 export type WashCustomerStatus = 'busy' | 'closed' | 'vacation';
 

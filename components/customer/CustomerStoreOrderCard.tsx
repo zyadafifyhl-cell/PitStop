@@ -10,13 +10,15 @@ import type { Locale, TranslationKey } from '@/lib/i18n/strings';
 import type { CustomerStoreOrder, StoreOrderStatus } from '@/lib/store/types';
 import { resolveStoreOrderCustomerNotes } from '@/lib/store/orderNotes';
 
-const STATUS_TONE: Record<StoreOrderStatus, { backgroundColor: string; borderColor: string; color: string }> = {
-  pending: { backgroundColor: 'rgba(245,197,24,0.16)', borderColor: '#F5C518', color: '#F5C518' },
-  preparing: { backgroundColor: 'rgba(59,130,246,0.16)', borderColor: '#3B82F6', color: '#60A5FA' },
-  ready: { backgroundColor: 'rgba(168,85,247,0.16)', borderColor: '#A855F7', color: '#C084FC' },
-  completed: { backgroundColor: 'rgba(34,197,94,0.16)', borderColor: '#22C55E', color: '#4ADE80' },
-  cancelled: { backgroundColor: 'rgba(239,68,68,0.16)', borderColor: '#EF4444', color: '#F87171' },
-};
+function statusTone(status: StoreOrderStatus, theme: AppThemeTokens) {
+  if (status === 'ready' || status === 'completed') {
+    return { backgroundColor: theme.accent, borderColor: theme.accent, color: theme.onAccent };
+  }
+  if (status === 'preparing') {
+    return { backgroundColor: theme.accentSoft, borderColor: theme.chipBorder, color: theme.text };
+  }
+  return { backgroundColor: theme.cardHover, borderColor: theme.chipBorder, color: theme.textMuted };
+}
 
 const STATUS_LABEL: Record<StoreOrderStatus, TranslationKey> = {
   pending: 'customer_store_status_pending',
@@ -55,7 +57,7 @@ export function CustomerStoreOrderCard({
   onInvoice,
   onBuyAgain,
 }: Props) {
-  const statusTone = STATUS_TONE[order.status];
+  const orderStatusTone = statusTone(order.status, theme);
   const shopName = (locale === 'ar' ? order.shopNameAr || order.shopName : order.shopName) || t('customer_store_unknown_shop');
   const shortId = order.id.replace(/-/g, '').slice(0, 8).toUpperCase();
   const isDelivery = order.fulfillmentMethod !== 'pickup';
@@ -67,8 +69,8 @@ export function CustomerStoreOrderCard({
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.topRow}>
-        <View style={[styles.statusBadge, { backgroundColor: statusTone.backgroundColor, borderColor: statusTone.borderColor }]}>
-          <Text style={[styles.statusBadgeText, { color: statusTone.color }]}>{t(STATUS_LABEL[order.status])}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: orderStatusTone.backgroundColor, borderColor: orderStatusTone.borderColor }]}>
+          <Text style={[styles.statusBadgeText, { color: orderStatusTone.color }]}>{t(STATUS_LABEL[order.status])}</Text>
         </View>
         <Text style={[styles.dateText, { color: theme.textMuted }]}>
           {formatOrderCardDateTime(order.createdAt, locale)}

@@ -15,11 +15,14 @@ import {
 } from 'react-native';
 
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { UpgradeProModal } from '@/components/owner/UpgradeProModal';
 import { AddProductModal } from '@/components/store/owner/AddProductModal';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { storeProductCategoryForShopType } from '@/lib/booking/storeCatalog';
 import type { Shop } from '@/lib/booking/types';
+import { FREE_ACTIVE_PRODUCT_CAP } from '@/lib/shop/subscription';
+import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { STORE_LOW_STOCK_MAX, isStoreLowStock } from '@/lib/store/constants';
 import { primaryProductImageUrl } from '@/lib/store/productImages';
 import type { StoreInventoryListFilter } from '@/lib/store/ownerFilters';
@@ -54,6 +57,7 @@ const draftFor = (product: StoreProduct): ProductDraft => ({
 export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFilterChange }: Props) {
   const theme = useAppTheme();
   const { t } = useI18n();
+  const { isPro } = useShopSubscription(shop.id);
   const { width } = useWindowDimensions();
   const useCssGrid = Platform.OS === 'web' && width >= 700;
   const gridStyle = useCssGrid
@@ -64,7 +68,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
         width: '100%',
         alignItems: 'start',
         justifyItems: 'stretch',
-      } as const)
+      } as any)
     : styles.stackGrid;
   const category = storeProductCategoryForShopType(shop.type);
   const [products, setProducts] = useState<StoreProduct[]>([]);
@@ -73,6 +77,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [localStockFilter, setLocalStockFilter] = useState<StoreInventoryListFilter>(stockFilter ?? 'all');
 
   useEffect(() => {
@@ -164,12 +169,19 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
   }, [drafts, loadProducts, onRefresh, t]);
 
   const toggleActive = useCallback(async (product: StoreProduct, value: boolean) => {
+    if (value && !isPro) {
+      const activeCount = products.filter((row) => row.isActive && row.id !== product.id).length;
+      if (activeCount >= FREE_ACTIVE_PRODUCT_CAP) {
+        setUpgradeOpen(true);
+        return;
+      }
+    }
     setBusyId(product.id);
     await updateStoreProductFields(product.id, { isActive: value });
     setBusyId(null);
     await loadProducts();
     onRefresh?.();
-  }, [loadProducts, onRefresh]);
+  }, [isPro, loadProducts, onRefresh, products]);
 
   const removeProduct = useCallback(async (product: StoreProduct) => {
     const confirmed = await userConfirm(
@@ -195,17 +207,25 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
     onRefresh?.();
   }, [loadProducts, onRefresh]);
 
-  const visibleProducts = useMemo(
-    () =>
-      activeStockFilter === 'low_stock'
-        ? products.filter((product) => isStoreLowStock(product.stockQuantity))
-        : products,
-    [activeStockFilter, products],
-  );
+  const visibleProducts = useMemo(() => {
+    if (isPro && activeStockFilter === 'low_stock') {
+      return products.filter((product) => isStoreLowStock(product.stockQuantity));
+    }
+    return products;
+  }, [activeStockFilter, isPro, products]);
   const lowStockCount = useMemo(
     () => products.filter((product) => isStoreLowStock(product.stockQuantity)).length,
     [products],
   );
+  const atFreeInventoryCap = !isPro && products.length >= FREE_ACTIVE_PRODUCT_CAP;
+
+  const requestAddProduct = useCallback(() => {
+    if (atFreeInventoryCap) {
+      setUpgradeOpen(true);
+      return;
+    }
+    setAddOpen(true);
+  }, [atFreeInventoryCap]);
 
   const cards = useMemo(
     () => visibleProducts.map((product) => {
@@ -218,13 +238,13 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
       return (
         <View
           key={product.id}
-          style={[styles.productCard, { backgroundColor: '#111928', borderColor: '#1f2a3c' }]}>
+          style={[styles.productCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.productHeader}>
             <View>
               {coverUrl ? (
                 <Image source={{ uri: coverUrl }} style={styles.productImage} contentFit="cover" />
               ) : (
-                <View style={[styles.productImage, styles.imagePlaceholder, { backgroundColor: '#0f172a' }]}>
+                <View style={[styles.productImage, styles.imagePlaceholder, { backgroundColor: theme.cardHover }]}>
                   <FontAwesome name="image" size={22} color={theme.textDim} />
                 </View>
               )}
@@ -238,7 +258,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
               <Text style={[styles.productName, { color: theme.text }]} numberOfLines={2}>{product.name}</Text>
               <Text style={[styles.category, { color: theme.textMuted }]}>{product.subCategory}</Text>
             </View>
-            {lowStock ? (
+            {lowStock && isPro ? (
               <View style={[styles.lowStockBadge, { backgroundColor: theme.dangerSoft }]}>
                 <Text style={{ color: theme.danger, fontSize: 11, fontWeight: '800' }}>{t('store_owner_low_stock')}</Text>
               </View>
@@ -261,10 +281,10 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
             />
           </View>
 
-          <View style={[styles.controlRow, { borderTopColor: '#334155' }]}>
+          <View style={[styles.controlRow, { borderTopColor: theme.border }]}>
             <View style={styles.controlSection}>
               <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{t('store_owner_stock')}</Text>
-              <View style={[styles.stockPill, { backgroundColor: '#0f172a', borderColor: '#334155' }]}>
+              <View style={[styles.stockPill, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
                 <Pressable
                   disabled={!editing || busy}
                   onPress={() => adjustStock(product.id, -1)}
@@ -276,7 +296,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
                   value={draft.stock}
                   onChangeText={(value) => updateDraft(product.id, { stock: value })}
                   keyboardType="number-pad"
-                  style={[styles.stockInput, { color: lowStock ? theme.danger : theme.text }]}
+                  style={[styles.stockInput, { color: lowStock && isPro ? theme.danger : theme.text }]}
                 />
                 <Pressable
                   disabled={!editing || busy}
@@ -297,7 +317,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
                   value={product.isActive}
                   onValueChange={(value) => void toggleActive(product, value)}
                   disabled={busy}
-                  trackColor={{ false: '#475569', true: theme.successSoft }}
+                  trackColor={{ false: theme.border, true: theme.successSoft }}
                   thumbColor={product.isActive ? theme.success : '#94a3b8'}
                 />
               </View>
@@ -312,7 +332,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
                     updateDraft(product.id, draftFor(product));
                     setEditingId(null);
                   }}
-                  style={[styles.secondaryAction, { borderColor: '#475569' }]}>
+                  style={[styles.secondaryAction, { borderColor: theme.border, backgroundColor: theme.card }]}>
                   <Text style={[styles.actionText, { color: theme.text }]}>{t('alert_cancel')}</Text>
                 </Pressable>
                 <Pressable
@@ -328,14 +348,14 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
               <>
                 <Pressable
                   onPress={() => setEditingId(product.id)}
-                  style={[styles.secondaryAction, { borderColor: '#475569' }]}>
-                  <FontAwesome name="pencil" size={13} color={theme.accent} />
-                  <Text style={[styles.actionText, { color: theme.accent }]}>{t('store_owner_edit_product')}</Text>
+                  style={[styles.secondaryAction, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                  <FontAwesome name="pencil" size={13} color={theme.text} />
+                  <Text style={[styles.actionText, { color: theme.text }]}>{t('store_owner_edit_product')}</Text>
                 </Pressable>
                 <Pressable
                   disabled={busy}
                   onPress={() => void removeProduct(product)}
-                  style={[styles.deleteAction, { borderColor: theme.danger }]}>
+                  style={[styles.deleteAction, { borderColor: theme.danger, backgroundColor: theme.dangerSoft }]}>
                   <FontAwesome name="trash" size={13} color={theme.danger} />
                   <Text style={[styles.actionText, { color: theme.danger }]}>{t('store_owner_delete_product')}</Text>
                 </Pressable>
@@ -345,14 +365,14 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
         </View>
       );
     }),
-    [adjustStock, busyId, drafts, editingId, removeProduct, saveProduct, t, theme, toggleActive, updateDraft, visibleProducts],
+    [adjustStock, busyId, drafts, editingId, isPro, removeProduct, saveProduct, t, theme, toggleActive, updateDraft, visibleProducts],
   );
 
   return (
     <View style={styles.page}>
       <OwnerSectionCard
         title={t('store_owner_inventory')}
-        subtitle={t('store_owner_inventory_lead')}
+        subtitle={isPro ? t('store_owner_inventory_lead') : t('premium_inventory_cap_hint')}
         icon="cubes">
         <View style={styles.filterRow}>
           {(
@@ -361,24 +381,32 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
               {
                 id: 'low_stock' as const,
                 label: t('store_inventory_filter_low_stock').replace('{count}', String(STORE_LOW_STOCK_MAX)),
-                count: lowStockCount,
+                count: isPro ? lowStockCount : 0,
+                locked: !isPro,
               },
             ]
           ).map((pill) => {
-            const active = activeStockFilter === pill.id;
+            const active = activeStockFilter === pill.id && !pill.locked;
             return (
               <Pressable
                 key={pill.id}
-                onPress={() => setActiveStockFilter(pill.id)}
+                onPress={() => {
+                  if (pill.locked) {
+                    setUpgradeOpen(true);
+                    return;
+                  }
+                  setActiveStockFilter(pill.id);
+                }}
                 style={[
                   styles.filterPill,
                   {
                     backgroundColor: active ? theme.accent : theme.bgElevated,
-                    borderColor: active ? theme.accent : theme.border,
+                    borderColor: pill.locked ? theme.premium : active ? theme.accent : theme.border,
                   },
                 ]}>
-                <Text style={[styles.filterPillText, { color: active ? theme.onAccent : theme.text }]}>
-                  {pill.label} ({pill.count})
+                {pill.locked ? <FontAwesome name="lock" size={11} color={theme.premium} /> : null}
+                <Text style={[styles.filterPillText, { color: pill.locked ? theme.premium : active ? theme.onAccent : theme.text }]}>
+                  {pill.label}{pill.locked ? '' : ` (${pill.count})`}
                 </Text>
               </Pressable>
             );
@@ -391,10 +419,10 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
           </Text>
           {category ? (
             <Pressable
-              onPress={() => setAddOpen(true)}
-              style={[styles.addButton, { backgroundColor: theme.accent }]}>
-              <FontAwesome name="plus" size={13} color={theme.onAccent} />
-              <Text style={[styles.addButtonText, { color: theme.onAccent }]}>{t('store_owner_add_product')}</Text>
+              onPress={requestAddProduct}
+              style={[styles.addButton, { backgroundColor: atFreeInventoryCap ? theme.premiumSoft : theme.accent, borderColor: atFreeInventoryCap ? theme.premium : theme.accent }]}>
+              {atFreeInventoryCap ? <FontAwesome name="lock" size={13} color={theme.premium} /> : <FontAwesome name="plus" size={13} color={theme.onAccent} />}
+              <Text style={[styles.addButtonText, { color: atFreeInventoryCap ? theme.premium : theme.onAccent }]}>{t('store_owner_add_product')}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -408,7 +436,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
             </View>
             <Text style={[styles.emptyTitle, { color: theme.text }]}>{t('store_owner_no_products')}</Text>
             {category ? (
-              <Pressable onPress={() => setAddOpen(true)} style={[styles.addButton, { backgroundColor: theme.accent }]}>
+              <Pressable onPress={requestAddProduct} style={[styles.addButton, { backgroundColor: theme.accent }]}>
                 <FontAwesome name="plus" size={13} color={theme.onAccent} />
                 <Text style={[styles.addButtonText, { color: theme.onAccent }]}>{t('store_owner_add_first_product')}</Text>
               </Pressable>
@@ -430,6 +458,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
         onClose={() => setAddOpen(false)}
         onCreated={() => void onProductCreated()}
       />
+      <UpgradeProModal visible={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </View>
   );
 }
@@ -451,7 +480,7 @@ function LabeledMoneyInput({
   return (
     <View style={styles.priceField}>
       <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{label}</Text>
-      <View style={[styles.moneyInputWrap, { backgroundColor: '#0f172a', borderColor: '#475569' }]}>
+      <View style={[styles.moneyInputWrap, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
         <TextInput
           value={value}
           editable={editable}
@@ -483,6 +512,9 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -498,11 +530,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
-    borderRadius: 10,
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  addButtonText: { fontSize: 13, fontWeight: '900' },
+  addButtonText: { fontSize: 13, fontWeight: '600' },
   loading: { minHeight: 220, alignItems: 'center', justifyContent: 'center' },
   empty: { minHeight: 260, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
   emptyIcon: { width: 64, height: 64, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
@@ -513,7 +547,7 @@ const styles = StyleSheet.create({
     width: '100%',
     minWidth: 0,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 16,
   },
   productHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64 },
@@ -525,7 +559,7 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#111827',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
@@ -597,47 +631,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   actionText: { fontSize: 12, fontWeight: '900' },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(2,6,23,0.78)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalCard: { width: '100%', maxWidth: 520, maxHeight: '88%', borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: '#334155' },
-  modalTitle: { fontSize: 19, fontWeight: '900' },
-  modalBody: { padding: 18 },
-  modalInput: { height: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, marginBottom: 15, fontSize: 14 },
-  uploadDropzone: {
-    minHeight: 154,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 18,
-    marginBottom: 16,
-  },
-  uploadIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  uploadTitle: { fontSize: 14, fontWeight: '900', textAlign: 'center' },
-  uploadHint: { fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 5 },
-  previewCard: { borderWidth: 1, borderRadius: 14, overflow: 'hidden', marginBottom: 16 },
-  imagePreview: { width: '100%', height: 176 },
-  uploadOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    bottom: 48,
-    backgroundColor: 'rgba(2,6,23,0.68)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  uploadingText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
-  previewActions: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 10 },
-  imageActionButton: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10 },
-  imageActionText: { fontSize: 11, fontWeight: '900' },
-  modalGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  modalGridItem: { flex: 1, minWidth: 180 },
-  modalActions: { flexDirection: 'row', gap: 10, padding: 18, borderTopWidth: 1, borderTopColor: '#334155' },
-  modalButton: { flex: 1, minHeight: 44, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 });

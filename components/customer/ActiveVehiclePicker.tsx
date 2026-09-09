@@ -35,6 +35,7 @@ export function ActiveVehiclePicker({
   const [vehicles, setVehicles] = useState<CustomerVehicle[]>([]);
   const [activeVehicle, setActiveVehicleState] = useState<CustomerVehicle | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerFocused, setPickerFocused] = useState(false);
 
   const loadVehicles = useCallback(async () => {
     try {
@@ -85,7 +86,12 @@ export function ActiveVehiclePicker({
             <>
               <Pressable
                 onPress={() => setPickerOpen((open) => !open)}
-                style={[styles.pickerBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                onFocus={() => setPickerFocused(true)}
+                onBlur={() => setPickerFocused(false)}
+                style={[
+                  styles.pickerBtn,
+                  { borderColor: pickerFocused ? theme.text : theme.border, backgroundColor: theme.bgElevated },
+                ]}>
                 <Text style={[styles.pickerBtnText, { color: theme.textMuted }, isRTL && styles.textRtl]}>
                   {t('book_vehicle_select_label')}
                 </Text>
@@ -123,7 +129,12 @@ export function ActiveVehiclePicker({
         <View style={styles.body}>
           <Pressable
             onPress={() => setPickerOpen((open) => !open)}
-            style={[styles.pickerBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+            onFocus={() => setPickerFocused(true)}
+            onBlur={() => setPickerFocused(false)}
+            style={[
+              styles.pickerBtn,
+              { borderColor: pickerFocused ? theme.text : theme.border, backgroundColor: theme.bgElevated },
+            ]}>
             <Text style={[styles.pickerBtnText, { color: theme.text }, isRTL && styles.textRtl]}>
               {formatVehicleDisplay(activeVehicle)}
             </Text>

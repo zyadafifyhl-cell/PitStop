@@ -24,7 +24,7 @@ export function StoreStarRating({ rating, count, compact = false }: Props) {
           key={index}
           name={index < fullStars ? 'star' : 'star-o'}
           size={starSize}
-          color={index < fullStars ? '#FBBF24' : theme.textDim}
+          color={index < fullStars ? theme.text : theme.textDim}
         />
       ))}
       <Text style={[compact ? styles.countCompact : styles.count, { color: theme.textDim }]}>

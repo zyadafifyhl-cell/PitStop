@@ -30,7 +30,10 @@ export function StoreProductImageSlider({
   const [index, setIndex] = useState(0);
   const current = urls[Math.min(index, Math.max(urls.length - 1, 0))];
   const iconSize = compact ? 26 : 32;
-  const frameStyle = [styles.frame, { height: frameHeight, backgroundColor: '#0c1322' }];
+  const frameStyle = [
+    styles.frame,
+    { height: frameHeight, backgroundColor: theme.bgElevated, borderColor: theme.border },
+  ];
 
   if (!urls.length) {
     return (
@@ -81,6 +84,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 160,
     borderRadius: 10,
+    borderWidth: 1,
     overflow: 'hidden',
   },
   placeholder: { alignItems: 'center', justifyContent: 'center', padding: 12 },

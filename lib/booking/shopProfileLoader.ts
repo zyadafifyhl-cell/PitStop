@@ -68,7 +68,7 @@ function isRetailShop(type?: ShopType): boolean {
   return type === 'parts' || type === 'accessories';
 }
 
-function visibleCustomerServices(extras: ShopExtras): ShopExtras['services'] {
+function visibleCustomerServices(extras: ShopExtras): NonNullable<ShopExtras['services']> {
   return (extras.services ?? []).filter(
     (service) => service.active !== false && service.visible !== false,
   );

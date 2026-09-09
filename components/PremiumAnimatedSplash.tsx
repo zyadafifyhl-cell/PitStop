@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
-const SPLASH_BG = '#080D1A';
-const SPLASH_ACCENT = '#00D4FF';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
+
 const HOLD_MS = 1000;
 const FADE_MS = 500;
 
@@ -11,6 +11,7 @@ type Props = {
 };
 
 export function PremiumAnimatedSplash({ onFinish }: Props) {
+  const theme = useAppTheme();
   const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -28,10 +29,10 @@ export function PremiumAnimatedSplash({ onFinish }: Props) {
   }, [opacity, onFinish]);
 
   return (
-    <Animated.View style={[styles.overlay, { opacity }]} pointerEvents="auto">
+    <Animated.View style={[styles.overlay, { opacity, backgroundColor: theme.bg }]} pointerEvents="auto">
       <View style={styles.content}>
-        <Text style={styles.title}>PitStop</Text>
-        <Text style={styles.subtitle}>Premium car care · EG</Text>
+        <Text style={[styles.title, { color: theme.text }]}>PitStop</Text>
+        <Text style={[styles.subtitle, { color: theme.brand }]}>Premium car care · EG</Text>
       </View>
     </Animated.View>
   );
@@ -39,10 +40,13 @@ export function PremiumAnimatedSplash({ onFinish }: Props) {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 9999,
     elevation: 9999,
-    backgroundColor: SPLASH_BG,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -51,13 +55,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: {
-    color: '#FFFFFF',
     fontSize: 44,
     fontWeight: '900',
     letterSpacing: 1.5,
   },
   subtitle: {
-    color: SPLASH_ACCENT,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 2,

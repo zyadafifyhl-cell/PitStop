@@ -75,6 +75,11 @@ create table if not exists public.shops (
   rating numeric(2, 1) default 4.5,
   is_active boolean not null default true,
   is_premium boolean not null default false,
+  -- 'free' | 'pro' | 'enterprise'
+  subscription_tier text not null default 'free',
+  -- 'active' | 'expired' | 'trial'
+  subscription_status text not null default 'active',
+  subscription_expires_at timestamptz,
   is_loyalty_enabled boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

@@ -48,7 +48,15 @@ export function OwnerProfileHeader({
   settingsLabel,
 }: Props) {
   return (
-    <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+    <View
+      style={[
+        styles.heroCard,
+        {
+          backgroundColor: theme.card,
+          borderColor: theme.border,
+          shadowColor: theme.shadowColor,
+        },
+      ]}>
       {/* Cover banner — controls only; no shop text on the image */}
       <View style={styles.coverWrap}>
         {coverImage ? (
@@ -115,8 +123,8 @@ export function OwnerProfileHeader({
           <Text style={[styles.heroTitle, { color: theme.text }]} numberOfLines={2}>
             {shopName}
           </Text>
-          <View style={[styles.typeBadge, { backgroundColor: theme.accentSoft }]}>
-            <Text style={[styles.typeBadgeText, { color: theme.accent }]}>{typeLabel}</Text>
+          <View style={[styles.typeBadge, { backgroundColor: theme.brandSoft }]}>
+            <Text style={[styles.typeBadgeText, { color: theme.brand }]}>{typeLabel}</Text>
           </View>
           <Text style={[styles.heroSub, { color: theme.textMuted }]} numberOfLines={2}>
             {welcomeLine}
@@ -135,14 +143,13 @@ export function OwnerProfileHeader({
 const styles = StyleSheet.create({
   heroCard: {
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 16,
     overflow: 'hidden',
     marginBottom: 12,
-    shadowColor: '#0EA5FF',
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    elevation: 2,
   },
   coverWrap: { position: 'relative' },
   coverImage: { width: '100%', height: COVER_HEIGHT },
@@ -180,11 +187,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    shadowColor: '#0EA5FF',
-    shadowOpacity: 0.26,
-    shadowRadius: 14,
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    elevation: 0,
   },
   coverEditText: { fontSize: 12, fontWeight: '800' },
   heroBody: {

@@ -367,14 +367,14 @@ export function buildOwnerReportHtml(params: {
     :root {
       color-scheme: light;
       --radius: 0;
-      --navy: #080D1A;
-      --slate: #1e293b;
-      --slate-soft: #334155;
-      --cyan: #00D4FF;
-      --green: #34D399;
+      --navy: #0F172A;
+      --slate: #111827;
+      --slate-soft: #64748B;
+      --contrast: #FFFFFF;
+      --green: #0F172A;
       --ink: #0f172a;
       --muted: #64748b;
-      --line: #eaecf0;
+      --line: #E2E8F0;
       --surface: #f8fafc;
       --surface-alt: #f1f5f9;
       --card-shadow: 0 1px 2px rgba(8, 13, 26, 0.06), 0 8px 24px rgba(8, 13, 26, 0.06);
@@ -401,7 +401,7 @@ export function buildOwnerReportHtml(params: {
       justify-content: space-between;
       gap: 20px;
       padding: 22px 24px;
-      background: linear-gradient(135deg, var(--navy) 0%, #0f172a 55%, #162033 100%);
+      background: var(--navy);
       box-shadow: var(--card-shadow);
       margin-bottom: 22px;
     }
@@ -409,8 +409,8 @@ export function buildOwnerReportHtml(params: {
     .brand-mark {
       width: 46px;
       height: 46px;
-      background: rgba(0, 212, 255, 0.12);
-      border: 1px solid rgba(0, 212, 255, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.20);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -425,7 +425,7 @@ export function buildOwnerReportHtml(params: {
       letter-spacing: -0.04em;
       color: #ffffff !important;
     }
-    .brand-name span { color: var(--cyan) !important; }
+    .brand-name span { color: var(--contrast) !important; }
     .brand-sub {
       font-size: 11px;
       font-weight: 600;
@@ -537,7 +537,7 @@ export function buildOwnerReportHtml(params: {
     }
     .metric-card--net {
       background: linear-gradient(145deg, var(--navy) 0%, var(--slate) 100%) !important;
-      border: 1px solid rgba(0, 212, 255, 0.22);
+      border: 1px solid #E2E8F0;
       box-shadow: 0 10px 28px rgba(8, 13, 26, 0.18);
     }
     .metric-card--net .label { color: rgba(197, 209, 227, 0.82) !important; }
@@ -597,7 +597,7 @@ export function buildOwnerReportHtml(params: {
     }
     th {
       background: var(--surface-alt) !important;
-      color: #475569 !important;
+      color: #64748B !important;
       font-weight: 700;
       font-size: 10px;
       letter-spacing: 0.06em;
@@ -612,7 +612,7 @@ export function buildOwnerReportHtml(params: {
     .col-index, .col-money { font-variant-numeric: tabular-nums; }
     .col-money { font-weight: 600; white-space: nowrap; }
     .col-fee { color: #64748b !important; }
-    .col-net { color: #0f766e !important; font-weight: 700; }
+    .col-net { color: #0F172A !important; font-weight: 700; }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -625,13 +625,13 @@ export function buildOwnerReportHtml(params: {
       white-space: nowrap;
     }
     .badge-app {
-      background: rgba(0, 212, 255, 0.14) !important;
-      color: #0369a1 !important;
-      border: 1px solid rgba(0, 212, 255, 0.28);
+      background: #F1F5F9 !important;
+      color: #0F172A !important;
+      border: 1px solid #E2E8F0;
     }
     .badge-walkin {
       background: rgba(100, 116, 139, 0.12) !important;
-      color: #334155 !important;
+      color: #64748B !important;
       border: 1px solid rgba(100, 116, 139, 0.22);
     }
     .status-pill {
@@ -640,13 +640,13 @@ export function buildOwnerReportHtml(params: {
       font-size: 10px;
       font-weight: 700;
       text-transform: capitalize;
-      background: #eef2ff;
-      color: #3730a3;
+      background: #F1F5F9;
+      color: #0F172A;
     }
-    .status-done { background: rgba(52, 211, 153, 0.14) !important; color: #047857 !important; }
-    .status-cancelled { background: rgba(239, 68, 68, 0.12) !important; color: #b91c1c !important; }
-    .status-pending { background: rgba(245, 158, 11, 0.14) !important; color: #b45309 !important; }
-    .status-confirmed { background: rgba(0, 212, 255, 0.12) !important; color: #0369a1 !important; }
+    .status-done { background: #0F172A !important; color: #FFFFFF !important; }
+    .status-cancelled { background: #F1F5F9 !important; color: #64748B !important; }
+    .status-pending { background: #F1F5F9 !important; color: #64748B !important; }
+    .status-confirmed { background: #E2E8F0 !important; color: #0F172A !important; }
     .empty-row td {
       text-align: center;
       padding: 28px 16px;
@@ -677,8 +677,8 @@ export function buildOwnerReportHtml(params: {
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 14h16l-1.2 4H5.2L4 14Z" fill="#00D4FF" opacity="0.95"/>
-            <path d="M6 10h12l-1.5 4H7.5L6 10Z" fill="#C5D1E3"/>
+            <path d="M4 14h16l-1.2 4H5.2L4 14Z" fill="#FFFFFF" opacity="0.95"/>
+            <path d="M6 10h12l-1.5 4H7.5L6 10Z" fill="#94A3B8"/>
             <circle cx="7.5" cy="18.5" r="1.6" fill="#ffffff"/>
             <circle cx="16.5" cy="18.5" r="1.6" fill="#ffffff"/>
           </svg>

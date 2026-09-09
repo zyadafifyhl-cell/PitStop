@@ -44,11 +44,11 @@ type Props = {
 };
 
 const STATUS_COLORS: Record<StoreOrderStatus, string> = {
-  pending: '#FF9800',
-  preparing: '#2196F3',
-  ready: '#4CAF50',
-  completed: '#4CAF50',
-  cancelled: '#F44336',
+  pending: '#64748B',
+  preparing: '#0F172A',
+  ready: '#111827',
+  completed: '#0B0F17',
+  cancelled: '#64748B',
 };
 
 const STATUS_ICONS: Record<StoreOrderStatus, React.ComponentProps<typeof FontAwesome>['name']> = {
@@ -282,10 +282,14 @@ export function StoreOrdersPanel({
                   <Text style={styles.statusButtonText}>{t('store_order_action_ready')}</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.statusButton, styles.statusButtonFull, { backgroundColor: STATUS_COLORS.cancelled }]}
+                  style={[
+                    styles.statusButton,
+                    styles.statusButtonFull,
+                    { backgroundColor: theme.dangerSoft, borderColor: theme.danger, borderWidth: 1 },
+                  ]}
                   onPress={() => requestStatusChange(order.id, 'cancelled', 'cancel')}
                   disabled={updating}>
-                  <Text style={styles.statusButtonText}>{t('store_order_action_cancel')}</Text>
+                  <Text style={[styles.statusButtonText, { color: theme.danger }]}>{t('store_order_action_cancel')}</Text>
                 </Pressable>
               </>
             ) : null}
@@ -299,10 +303,10 @@ export function StoreOrdersPanel({
                   <Text style={styles.statusButtonText}>{t('store_order_action_ready')}</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.statusButton, { backgroundColor: STATUS_COLORS.cancelled }]}
+                  style={[styles.statusButton, { backgroundColor: theme.dangerSoft, borderColor: theme.danger, borderWidth: 1 }]}
                   onPress={() => requestStatusChange(order.id, 'cancelled', 'cancel')}
                   disabled={updating}>
-                  <Text style={styles.statusButtonText}>{t('store_order_action_cancel')}</Text>
+                  <Text style={[styles.statusButtonText, { color: theme.danger }]}>{t('store_order_action_cancel')}</Text>
                 </Pressable>
               </>
             ) : null}
@@ -316,10 +320,10 @@ export function StoreOrdersPanel({
                   <Text style={styles.statusButtonText}>{t('store_order_action_confirm_delivery')}</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.statusButton, { backgroundColor: STATUS_COLORS.cancelled }]}
+                  style={[styles.statusButton, { backgroundColor: theme.dangerSoft, borderColor: theme.danger, borderWidth: 1 }]}
                   onPress={() => requestStatusChange(order.id, 'cancelled', 'cancel')}
                   disabled={updating}>
-                  <Text style={styles.statusButtonText}>{t('store_order_action_cancel')}</Text>
+                  <Text style={[styles.statusButtonText, { color: theme.danger }]}>{t('store_order_action_cancel')}</Text>
                 </Pressable>
               </>
             ) : null}
@@ -702,7 +706,11 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   menuDismissOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 20,
   },
   centered: {
@@ -957,7 +965,7 @@ const styles = StyleSheet.create({
   statusButtonVoid: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#F44336',
+    borderColor: '#64748B',
   },
   statusButtonText: {
     color: '#fff',

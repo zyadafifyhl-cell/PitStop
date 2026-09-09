@@ -38,6 +38,9 @@ create table if not exists public.shops (
   address text not null default '',
   is_active boolean not null default true,
   is_premium boolean not null default false,
+  subscription_tier text not null default 'free',
+  subscription_status text not null default 'active',
+  subscription_expires_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -45,6 +48,9 @@ create table if not exists public.shops (
 alter table public.shops add column if not exists category text;
 alter table public.shops add column if not exists is_active boolean not null default true;
 alter table public.shops add column if not exists is_premium boolean not null default false;
+alter table public.shops add column if not exists subscription_tier text not null default 'free';
+alter table public.shops add column if not exists subscription_status text not null default 'active';
+alter table public.shops add column if not exists subscription_expires_at timestamptz;
 alter table public.shops add column if not exists created_at timestamptz not null default now();
 
 create or replace function public.sync_shop_category()

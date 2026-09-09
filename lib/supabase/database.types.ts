@@ -44,6 +44,9 @@ export type DbShop = {
   rating?: number | null;
   is_active: boolean;
   is_premium: boolean;
+  subscription_tier?: 'free' | 'pro' | 'enterprise' | null;
+  subscription_status?: 'active' | 'expired' | 'trial' | null;
+  subscription_expires_at?: string | null;
   created_at: string;
   updated_at: string;
 };

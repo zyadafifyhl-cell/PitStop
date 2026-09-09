@@ -49,7 +49,7 @@ export function ShopMediaImage({
       {showSkeleton && !loaded ? (
         <View
           style={[
-            StyleSheet.absoluteFillObject,
+            StyleSheet.absoluteFill,
             styles.skeleton,
             { backgroundColor: theme.bgElevated, borderColor: theme.border },
           ]}

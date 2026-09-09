@@ -1,7 +1,7 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
@@ -13,7 +13,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
-  color: string;
+  color: ColorValue;
 }) {
   return <FontAwesome size={22} style={{ marginBottom: -2 }} {...props} />;
 }
@@ -36,20 +36,20 @@ export default function TabLayout() {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
           borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
           height: Platform.OS === 'ios' ? 88 : 68,
           paddingTop: 8,
           paddingBottom: Platform.OS === 'ios' ? 24 : 10,
           display: shop && !hasCustomerArea ? 'none' : 'flex',
           ...Platform.select({
             ios: {
-              shadowColor: '#000',
-              shadowOpacity: 0.25,
-              shadowRadius: 12,
+              shadowColor: theme.shadowColor,
+              shadowOpacity: 0.06,
+              shadowRadius: 10,
               shadowOffset: { width: 0, height: -4 },
             },
-            android: { elevation: 12 },
+            android: { elevation: 2 },
             default: {},
           }),
         },

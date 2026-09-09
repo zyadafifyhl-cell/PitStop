@@ -2,7 +2,6 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppTheme } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
@@ -14,14 +13,17 @@ type Props = {
   accent?: string;
 };
 
-export function SettingsRow({ icon, label, hint, onPress, accent = AppTheme.accent }: Props) {
+export function SettingsRow({ icon, label, hint, onPress, accent }: Props) {
   const theme = useAppTheme();
   const { isRTL } = useI18n();
+  const resolvedAccent = accent ?? theme.accent;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.row, { borderBottomColor: theme.border }, pressed && styles.pressed]}>
       <View style={styles.sideSlot}>
-        <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
-          <FontAwesome name={icon} size={18} color={accent} />
+        <View style={[styles.iconWrap, { backgroundColor: resolvedAccent === theme.accent ? theme.accentSoft : `${resolvedAccent}18` }]}>
+          <FontAwesome name={icon} size={18} color={resolvedAccent} />
         </View>
       </View>
       <View style={styles.textWrap}>
@@ -43,7 +45,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: AppTheme.border,
   },
   pressed: { opacity: 0.85 },
   sideSlot: {

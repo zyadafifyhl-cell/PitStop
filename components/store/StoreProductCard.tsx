@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { StoreProductImageSlider } from '@/components/store/StoreProductImageSlider';
 import { StoreQuantityStepper } from '@/components/store/StoreQuantityStepper';
 import { useI18n } from '@/context/I18nContext';
-import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import { subCategoryLabel } from '@/lib/store/constants';
 import { availableStock, isAtMaxStock, isOutOfStock } from '@/lib/store/stockLimits';
@@ -45,13 +45,11 @@ export function StoreProductCard({
   onChangeQuantity,
 }: Props) {
   const theme = useAppTheme();
-  const { effectivePreference } = useThemePreference();
   const { t, locale } = useI18n();
   const stock = availableStock(product);
   const outOfStock = isOutOfStock(product);
   const atMax = isAtMaxStock(cartQuantity, stock);
   const inCart = cartQuantity > 0;
-  const dark = effectivePreference === 'dark';
   const category = subCategoryLabel(product.subCategory, locale, product.category);
 
   return (
@@ -60,8 +58,8 @@ export function StoreProductCard({
         styles.card,
         fillRow ? styles.cardFill : null,
         {
-          backgroundColor: dark ? '#111928' : theme.card,
-          borderColor: dark ? '#1f2a3c' : theme.border,
+          backgroundColor: theme.card,
+          borderColor: theme.border,
         },
       ]}>
       <View style={styles.imageWrap}>
@@ -73,20 +71,20 @@ export function StoreProductCard({
           placeholderIcon={productIconName(product.subCategory)}
         />
         {outOfStock ? (
-          <View style={[styles.stockBadge, { backgroundColor: theme.danger }]}>
-            <Text style={styles.stockBadgeText}>{t('store_out_of_stock')}</Text>
+          <View style={[styles.stockBadge, { backgroundColor: theme.dangerSoft }]}>
+            <Text style={[styles.stockBadgeText, { color: theme.danger }]}>{t('store_out_of_stock')}</Text>
           </View>
         ) : null}
       </View>
 
       <View style={styles.body}>
-        <Text style={styles.category} numberOfLines={1}>
+        <Text style={[styles.category, { color: theme.textMuted }]} numberOfLines={1}>
           {category}
         </Text>
-        <Text style={[styles.name, { color: dark ? '#FFFFFF' : theme.text }]} numberOfLines={1}>
+        <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
           {product.name}
         </Text>
-        <Text style={styles.price}>{formatEgp(product.price, locale)}</Text>
+        <Text style={[styles.price, { color: theme.text }]}>{formatEgp(product.price, locale)}</Text>
       </View>
 
       {inCart && onChangeQuantity ? (
@@ -106,16 +104,16 @@ export function StoreProductCard({
           style={[
             styles.addBtn,
             {
-              backgroundColor: outOfStock ? theme.border : '#2563eb',
+              backgroundColor: outOfStock ? theme.cardHover : theme.accent,
               opacity: adding || outOfStock ? 0.7 : 1,
             },
           ]}>
           {adding ? (
-            <ActivityIndicator color="#fff" size="small" />
+            <ActivityIndicator color={theme.onAccent} size="small" />
           ) : (
             <>
-              <FontAwesome name="shopping-cart" size={13} color="#fff" />
-              <Text style={styles.addBtnText}>
+              <FontAwesome name="shopping-cart" size={13} color={theme.onAccent} />
+              <Text style={[styles.addBtnText, { color: theme.onAccent }]}>
                 {outOfStock ? t('store_out_of_stock') : t('store_add_to_cart')}
               </Text>
             </>
@@ -132,7 +130,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     minWidth: 0,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: 'hidden',
     padding: 14,
     display: 'flex',
@@ -149,21 +147,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  stockBadgeText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  stockBadgeText: { fontSize: 10, fontWeight: '700' },
   body: { flexGrow: 1 },
-  category: { fontSize: 12, fontWeight: '600', color: '#9ca3af', marginTop: 8 },
-  name: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
-  price: { fontSize: 16, fontWeight: '700', color: '#3b82f6', marginVertical: 6 },
+  category: { fontSize: 12, fontWeight: '500', marginTop: 8 },
+  name: { fontSize: 15, fontWeight: '600' },
+  price: { fontSize: 16, fontWeight: '700', marginVertical: 6 },
   stepperWrap: { marginTop: 2 },
   addBtn: {
-    height: 38,
+    height: 48,
     width: '100%',
-    borderRadius: 8,
+    borderRadius: 14,
     paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  addBtnText: { fontSize: 12, fontWeight: '800', color: '#fff' },
+  addBtnText: { fontSize: 13, fontWeight: '600' },
 });

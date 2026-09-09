@@ -32,6 +32,7 @@ import { listAreas } from '@/lib/booking/catalogRepository';
 import type { ShopType } from '@/lib/booking/types';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { resolveReturnTo } from '@/lib/auth/returnTo';
+import { preventAuthFormRefresh } from '@/lib/auth/classifySignInError';
 import { textInputSubmitProps } from '@/lib/ui/textInputSubmit';
 import { userAlert } from '@/lib/ui/userAlert';
 
@@ -47,7 +48,10 @@ type PasswordInputProps = {
   isRTL: boolean;
   submitEnabled?: boolean;
   onSubmit?: () => void;
+  invalid?: boolean;
 };
+
+const AUTH_ERROR_BORDER = '#0F172A';
 
 function PasswordInput({
   placeholder,
@@ -57,6 +61,7 @@ function PasswordInput({
   isRTL,
   submitEnabled = true,
   onSubmit,
+  invalid = false,
 }: PasswordInputProps) {
   const [secureTextEntry, setSecureTextEntry] = useState(true);
   const submitProps = onSubmit ? textInputSubmitProps({ enabled: submitEnabled, onSubmit }) : undefined;
@@ -65,7 +70,7 @@ function PasswordInput({
     <View
       style={[
         styles.passwordRow,
-        { backgroundColor: theme.bgElevated, borderColor: theme.border },
+        { backgroundColor: theme.bgElevated, borderColor: invalid ? AUTH_ERROR_BORDER : theme.border },
         isRTL && styles.passwordRowRtl,
       ]}>
       <TextInput
@@ -89,6 +94,28 @@ function PasswordInput({
       </Pressable>
     </View>
   );
+}
+
+function AuthFormShell({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style: object;
+}) {
+  if (Platform.OS === 'web') {
+    return React.createElement(
+      'form',
+      {
+        noValidate: true,
+        onSubmit: (event: { preventDefault: () => void }) => {
+          event.preventDefault();
+        },
+      },
+      <View style={style}>{children}</View>,
+    );
+  }
+  return <View style={style}>{children}</View>;
 }
 
 function newVehicleDraft(): RegisterVehicleDraft {
@@ -130,7 +157,9 @@ export default function WelcomeScreen() {
   const [shopAreaId, setShopAreaId] = useState('maadi');
   const [ownerTermsAccepted, setOwnerTermsAccepted] = useState(false);
   const [ownerTermsModalOpen, setOwnerTermsModalOpen] = useState(false);
+  const [isUnderReviewModalVisible, setIsUnderReviewModalVisible] = useState(false);
   const [formMessage, setFormMessage] = useState('');
+  const [passwordInvalid, setPasswordInvalid] = useState(false);
   const [submitPhase, setSubmitPhase] = useState<SubmitPhase>('idle');
   const [registerVehicles, setRegisterVehicles] = useState<RegisterVehicleDraft[]>([newVehicleDraft()]);
   const submitLockRef = useRef(false);
@@ -169,10 +198,25 @@ export default function WelcomeScreen() {
     }
   }
 
-  async function onCustomerSubmit() {
+  function loginFailureMessage(kind: string): string {
+    if (kind === 'rate_limited') return t('auth_login_rate_limited_body');
+    if (kind === 'network_error') return t('auth_login_network_body');
+    if (kind === 'not_configured') return t('customer_supabase_not_configured');
+    return t('auth_login_invalid_body');
+  }
+
+  function applyLoginFailure(kind: string) {
+    setPassword('');
+    setPasswordInvalid(true);
+    setFormMessage(loginFailureMessage(kind));
+  }
+
+  async function onCustomerSubmit(event?: { preventDefault?: () => void }) {
+    preventAuthFormRefresh(event);
     if (submitLockRef.current) return;
     submitLockRef.current = true;
     setFormMessage('');
+    setPasswordInvalid(false);
     setSubmitPhase(isRegister ? 'registering' : 'signing_in');
     try {
       if (isRegister) {
@@ -227,9 +271,7 @@ export default function WelcomeScreen() {
         return;
       }
       if (ok !== 'ok') {
-        const message = ok === 'not_configured' ? t('customer_supabase_not_configured') : t('customer_login_fail_body');
-        setFormMessage(message);
-        userAlert(t('customer_login_fail_title'), message);
+        applyLoginFailure(ok);
         return;
       }
       setSubmitPhase('redirecting');
@@ -241,10 +283,12 @@ export default function WelcomeScreen() {
     }
   }
 
-  async function onOwnerSubmit() {
+  async function onOwnerSubmit(event?: { preventDefault?: () => void }) {
+    preventAuthFormRefresh(event);
     if (submitLockRef.current) return;
     submitLockRef.current = true;
     setFormMessage('');
+    setPasswordInvalid(false);
     setSubmitPhase(isOwnerRegister ? 'registering' : 'signing_in');
     try {
       if (isOwnerRegister) {
@@ -293,17 +337,13 @@ export default function WelcomeScreen() {
           userAlert(t('owner_register_fail_title'), t('owner_register_invalid'));
           return;
         }
-        userAlert(t('owner_register_success_title'), t('owner_register_success_body'));
-        finishOwnerRegistration();
+        setFormMessage('');
+        setSubmitPhase('idle');
+        setIsUnderReviewModalVisible(true);
         return;
       }
 
       const result = await loginShop(email, password);
-      if (result === 'invalid_credentials') {
-        setFormMessage(t('shop_login_auth_fail_body'));
-        userAlert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
-        return;
-      }
       if (result === 'email_not_confirmed') {
         setFormMessage(t('customer_login_verify_email_body'));
         userAlert(t('customer_verify_email_title'), t('customer_login_verify_email_body'));
@@ -334,8 +374,7 @@ export default function WelcomeScreen() {
         router.replace('/shop');
         return;
       }
-      setFormMessage(t('shop_login_fail_body'));
-      userAlert(t('shop_login_fail_title'), t('shop_login_fail_body'));
+      applyLoginFailure(result);
     } finally {
       submitLockRef.current = false;
       setSubmitPhase((phase) => (phase === 'redirecting' ? phase : 'idle'));
@@ -355,13 +394,13 @@ export default function WelcomeScreen() {
     setOwnerTermsAccepted(false);
   }
 
-  function finishOwnerRegistration() {
+  function onUnderReviewGotIt() {
+    setIsUnderReviewModalVisible(false);
     resetOwnerRegisterForm();
     setIsOwnerRegister(false);
-    setFormMessage(t('owner_pending_approval_body'));
-    setSubmitPhase('redirecting');
-    router.replace('/welcome?focus=owner' as Href);
-    setTimeout(() => setSubmitPhase('idle'), 320);
+    setMode('owner');
+    setFormMessage('');
+    setSubmitPhase('idle');
   }
 
   function toggleOwnerRegister() {
@@ -414,7 +453,7 @@ export default function WelcomeScreen() {
       <AutomotiveBackground theme={theme} variant="welcome" />
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(46,168,255,0.12)', 'rgba(9,18,38,0.04)', theme.bg]}
+        colors={['rgba(15,23,42,0.06)', 'rgba(15,23,42,0.02)', theme.bg]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -481,7 +520,7 @@ export default function WelcomeScreen() {
             </Pressable>
           ) : null}
 
-          <View style={[styles.formBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <AuthFormShell style={[styles.formBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             {mode === 'customer' ? (
               <>
                 <Text style={[styles.formLead, { color: theme.textMuted }]}>
@@ -519,9 +558,13 @@ export default function WelcomeScreen() {
                 <PasswordInput
                   placeholder={t('customer_password_placeholder')}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    if (passwordInvalid) setPasswordInvalid(false);
+                  }}
                   theme={theme}
                   isRTL={isRTL}
+                  invalid={passwordInvalid}
                   submitEnabled={!formBusy && !!email.trim() && !!password.trim()}
                   onSubmit={() => {
                     void onCustomerSubmit();
@@ -570,6 +613,8 @@ export default function WelcomeScreen() {
                 <Pressable
                   onPress={onCustomerSubmit}
                   disabled={formBusy}
+                  accessibilityRole="button"
+                  {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}
                   style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
                   <LinearGradient
                     pointerEvents="none"
@@ -586,7 +631,7 @@ export default function WelcomeScreen() {
                   </LinearGradient>
                 </Pressable>
                 {formMessage ? (
-                  <Text style={[styles.formMessage, { color: theme.warm }]}>{formMessage}</Text>
+                  <Text style={[styles.formMessage, { color: passwordInvalid ? AUTH_ERROR_BORDER : theme.warm }]}>{formMessage}</Text>
                 ) : null}
                 <Pressable onPress={toggleCustomerRegister} hitSlop={10} style={styles.switchLink}>
                   <Text style={[styles.switchText, { color: theme.warm }]}>
@@ -684,9 +729,13 @@ export default function WelcomeScreen() {
                 <PasswordInput
                   placeholder={t('customer_password_placeholder')}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    if (passwordInvalid) setPasswordInvalid(false);
+                  }}
                   theme={theme}
                   isRTL={isRTL}
+                  invalid={passwordInvalid}
                   submitEnabled={!formBusy && !!email.trim() && !!password.trim() && (!isOwnerRegister || !!confirmPassword.trim())}
                   onSubmit={
                     isOwnerRegister
@@ -735,6 +784,8 @@ export default function WelcomeScreen() {
                 <Pressable
                   onPress={onOwnerSubmit}
                   disabled={formBusy}
+                  accessibilityRole="button"
+                  {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}
                   style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
                   <LinearGradient
                     pointerEvents="none"
@@ -748,7 +799,7 @@ export default function WelcomeScreen() {
                   </LinearGradient>
                 </Pressable>
                 {formMessage ? (
-                  <Text style={[styles.formMessage, { color: theme.warm }]}>{formMessage}</Text>
+                  <Text style={[styles.formMessage, { color: passwordInvalid ? AUTH_ERROR_BORDER : theme.warm }]}>{formMessage}</Text>
                 ) : null}
                 <Pressable onPress={toggleOwnerRegister} hitSlop={10} style={styles.switchLink}>
                   <Text style={[styles.switchText, { color: theme.warm }]}>
@@ -758,7 +809,7 @@ export default function WelcomeScreen() {
                 <Text style={[styles.demoHint, { color: theme.textDim }]}>{t('shop_demo_accounts')}</Text>
               </>
             )}
-          </View>
+          </AuthFormShell>
           <View style={styles.languageWrap}>
             <Pressable
               onPress={() => setLocale('en')}
@@ -795,6 +846,35 @@ export default function WelcomeScreen() {
               onPress={() => setOwnerTermsModalOpen(false)}
               style={[styles.termsModalCloseBtn, { backgroundColor: ownerAccent }]}>
               <Text style={[styles.termsModalCloseText, { color: theme.onAccent }]}>{t('welcome_ok')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={isUnderReviewModalVisible}
+        transparent
+        animationType="fade"
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        onRequestClose={onUnderReviewGotIt}>
+        <View style={styles.underReviewOverlay}>
+          <View style={[styles.underReviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.underReviewIconWrap, { backgroundColor: theme.warmSoft }]}>
+              <FontAwesome name="hourglass-half" size={28} color={theme.warm} />
+            </View>
+            <Text style={[styles.underReviewTitle, { color: theme.text }, isRTL && styles.textRtl]}>
+              {t('owner_register_success_title')}
+            </Text>
+            <Text style={[styles.underReviewBody, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+              {t('owner_register_success_body')}
+            </Text>
+            <Pressable
+              onPress={onUnderReviewGotIt}
+              style={[styles.underReviewCta, { backgroundColor: ownerAccent }]}
+              accessibilityRole="button">
+              <Text style={[styles.underReviewCtaText, { color: theme.onAccent }]}>
+                {t('owner_register_success_got_it')}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -859,22 +939,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   modeBtnActive: {
-    shadowColor: '#0EA5FF',
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
+    elevation: 2,
   },
   modeText: { fontSize: 15, fontWeight: '700' },
   formBox: {
     borderWidth: 1,
-    borderRadius: 28,
+    borderRadius: 16,
     padding: 22,
   },
   formLead: { fontSize: 15, lineHeight: 22, fontWeight: '600', marginBottom: 14 },
   input: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
@@ -884,7 +964,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 14,
     marginBottom: 12,
   },
   passwordRowRtl: { flexDirection: 'row-reverse' },
@@ -899,17 +979,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   submitBtn: {
-    borderRadius: 999,
+    borderRadius: 14,
     overflow: 'hidden',
     marginTop: 8,
-    shadowColor: '#0EA5FF',
-    shadowOpacity: 0.24,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 7,
+    shadowColor: 'transparent',
+    elevation: 0,
   },
-  submitGradient: { paddingVertical: 16, alignItems: 'center', borderRadius: 999 },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  submitGradient: { minHeight: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 14 },
+  submitText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   switchLink: { marginTop: 14, alignItems: 'center' },
   switchText: { fontSize: 15, fontWeight: '700' },
   resetText: { fontSize: 14, fontWeight: '700' },
@@ -991,4 +1068,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   termsModalCloseText: { fontSize: 15, fontWeight: '800' },
+  underReviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  underReviewCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingTop: 28,
+    paddingBottom: 20,
+    alignItems: 'center',
+  },
+  underReviewIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  underReviewTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 28,
+    textAlign: 'center',
+  },
+  underReviewBody: {
+    marginTop: 10,
+    fontSize: 15,
+    lineHeight: 23,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  underReviewCta: {
+    marginTop: 22,
+    minHeight: 48,
+    width: '100%',
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  underReviewCtaText: { fontSize: 16, fontWeight: '800' },
 });

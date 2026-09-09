@@ -226,13 +226,13 @@ function buildReportPrintHtml(model: ReportExportModel): string {
   <style>
     :root {
       --radius: 0;
-      --navy: #080D1A;
-      --slate: #1e293b;
-      --cyan: #00D4FF;
-      --green: #34D399;
+      --navy: #0F172A;
+      --slate: #111827;
+      --contrast: #FFFFFF;
+      --green: #0F172A;
       --ink: #0f172a;
       --muted: #64748b;
-      --line: #eaecf0;
+      --line: #E2E8F0;
       --surface: #f8fafc;
       --surface-alt: #f1f5f9;
       --card-shadow: 0 1px 2px rgba(8, 13, 26, 0.06), 0 8px 24px rgba(8, 13, 26, 0.06);
@@ -251,7 +251,7 @@ function buildReportPrintHtml(model: ReportExportModel): string {
       justify-content: space-between;
       gap: 20px;
       padding: 20px 22px;
-      background: linear-gradient(135deg, var(--navy) 0%, #0f172a 55%, #162033 100%);
+      background: var(--navy);
       box-shadow: var(--card-shadow);
       margin-bottom: 20px;
     }
@@ -259,14 +259,14 @@ function buildReportPrintHtml(model: ReportExportModel): string {
     .brand-mark {
       width: 44px;
       height: 44px;
-      background: rgba(0, 212, 255, 0.12);
-      border: 1px solid rgba(0, 212, 255, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.20);
       display: flex;
       align-items: center;
       justify-content: center;
     }
     .brand-name { font-size: 24px; font-weight: 800; line-height: 1; color: #fff; letter-spacing: -0.04em; }
-    .brand-name span { color: var(--cyan); }
+    .brand-name span { color: var(--contrast); }
     .brand-sub {
       margin-top: 4px;
       font-size: 11px;
@@ -328,7 +328,7 @@ function buildReportPrintHtml(model: ReportExportModel): string {
     .metric-card .value { font-size: 22px; font-weight: 800; color: var(--ink); letter-spacing: -0.03em; }
     .metric-card--net {
       background: linear-gradient(145deg, var(--navy) 0%, var(--slate) 100%);
-      border: 1px solid rgba(0, 212, 255, 0.22);
+      border: 1px solid #E2E8F0;
       box-shadow: 0 10px 28px rgba(8, 13, 26, 0.18);
     }
     .metric-card--net .label { color: rgba(197, 209, 227, 0.82); }
@@ -388,7 +388,7 @@ function buildReportPrintHtml(model: ReportExportModel): string {
     }
     th {
       background: var(--surface-alt);
-      color: #475569;
+      color: #64748B;
       font-weight: 700;
       font-size: 10px;
       letter-spacing: 0.06em;
@@ -398,7 +398,7 @@ function buildReportPrintHtml(model: ReportExportModel): string {
     tbody tr:nth-child(even) td { background: #fafbfc; }
     tbody tr:nth-child(odd) td { background: #fff; }
     .col-booking { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.2px; font-weight: 600; }
-    .col-revenue { white-space: nowrap; font-weight: 700; color: #0f766e; font-variant-numeric: tabular-nums; }
+    .col-revenue { white-space: nowrap; font-weight: 700; color: #0F172A; font-variant-numeric: tabular-nums; }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -411,13 +411,13 @@ function buildReportPrintHtml(model: ReportExportModel): string {
       white-space: nowrap;
     }
     .badge-app {
-      background: rgba(0, 212, 255, 0.14);
-      color: #0369a1;
-      border: 1px solid rgba(0, 212, 255, 0.28);
+      background: #F1F5F9;
+      color: #0F172A;
+      border: 1px solid #E2E8F0;
     }
     .badge-walkin {
       background: rgba(100, 116, 139, 0.12);
-      color: #334155;
+      color: #64748B;
       border: 1px solid rgba(100, 116, 139, 0.22);
     }
     .empty-row td { text-align: center; padding: 24px; color: var(--muted); }
@@ -437,8 +437,8 @@ function buildReportPrintHtml(model: ReportExportModel): string {
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 14h16l-1.2 4H5.2L4 14Z" fill="#00D4FF" opacity="0.95"/>
-            <path d="M6 10h12l-1.5 4H7.5L6 10Z" fill="#C5D1E3"/>
+            <path d="M4 14h16l-1.2 4H5.2L4 14Z" fill="#FFFFFF" opacity="0.95"/>
+            <path d="M6 10h12l-1.5 4H7.5L6 10Z" fill="#94A3B8"/>
             <circle cx="7.5" cy="18.5" r="1.6" fill="#ffffff"/>
             <circle cx="16.5" cy="18.5" r="1.6" fill="#ffffff"/>
           </svg>

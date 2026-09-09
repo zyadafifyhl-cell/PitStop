@@ -710,7 +710,11 @@ export function OwnerHistoryPanel({
 const styles = StyleSheet.create({
   wrap: { gap: 12, position: 'relative', overflow: 'visible', zIndex: 1 },
   menuDismissOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 20,
   },
   lead: { fontSize: 14, lineHeight: 20, marginBottom: 4 },

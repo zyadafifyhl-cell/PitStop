@@ -188,9 +188,9 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, { backgroundColor: '#1e293b', borderColor: '#334155' }]}>
-          <View style={styles.modalHeader}>
+      <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}>
+        <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>{t('store_owner_add_product')}</Text>
             <Pressable onPress={close} hitSlop={8}>
               <FontAwesome name="times" size={20} color={theme.textMuted} />
@@ -201,7 +201,7 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
             {previewImages.length ? (
               <View style={styles.previewGrid}>
                 {previewImages.map((image, index) => (
-                  <View key={image.id} style={[styles.previewTile, { borderColor: '#475569' }]}>
+                  <View key={image.id} style={[styles.previewTile, { borderColor: theme.border }]}>
                     <Image source={{ uri: image.previewUri }} style={styles.previewImage} contentFit="cover" />
                     {index === 0 ? (
                       <View style={[styles.coverBadge, { backgroundColor: theme.accent }]}>
@@ -221,7 +221,7 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
                   <Pressable
                     disabled={adding}
                     onPress={() => void pickImages()}
-                    style={[styles.addTile, { borderColor: '#475569', backgroundColor: '#0f172a' }]}>
+                      style={[styles.addTile, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
                     <FontAwesome name="plus" size={16} color={theme.accent} />
                     <Text style={[styles.addTileText, { color: theme.accent }]}>{t('store_owner_add_more_images')}</Text>
                   </Pressable>
@@ -234,8 +234,8 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
                 style={({ pressed }) => [
                   styles.uploadDropzone,
                   {
-                    borderColor: pressed ? theme.accent : '#475569',
-                    backgroundColor: '#0f172a',
+                    borderColor: pressed ? theme.accent : theme.border,
+                    backgroundColor: theme.inputBg,
                     opacity: adding ? 0.65 : 1,
                   },
                 ]}>
@@ -253,13 +253,13 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
               onChangeText={setName}
               placeholder={t('store_owner_product_name')}
               placeholderTextColor={theme.textDim}
-              style={[styles.modalInput, { color: theme.text, borderColor: '#475569', backgroundColor: '#0f172a' }]}
+              style={[styles.modalInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
             />
 
             <View style={styles.modalGrid}>
               <View style={styles.modalGridItem}>
                 <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>{t('store_owner_price')}</Text>
-                <View style={[styles.moneyInputWrap, { borderColor: '#475569', backgroundColor: '#0f172a' }]}>
+                <View style={[styles.moneyInputWrap, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
                   <TextInput
                     value={price}
                     onChangeText={setPrice}
@@ -277,13 +277,13 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
                   value={stock}
                   onChangeText={setStock}
                   keyboardType="number-pad"
-                  style={[styles.modalInput, { color: theme.text, borderColor: '#475569', backgroundColor: '#0f172a' }]}
+                  style={[styles.modalInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
                 />
               </View>
             </View>
           </ScrollView>
-          <View style={styles.modalActions}>
-            <Pressable onPress={close} style={[styles.modalButton, { borderColor: '#475569' }]}>
+          <View style={[styles.modalActions, { borderTopColor: theme.border }]}>
+            <Pressable onPress={close} style={[styles.modalButton, { borderColor: theme.border, backgroundColor: theme.card }]}>
               <Text style={[styles.actionText, { color: theme.text }]}>{t('alert_cancel')}</Text>
             </Pressable>
             <Pressable
@@ -309,17 +309,16 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
 const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(2,6,23,0.78)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
   },
-  modalCard: { width: '100%', maxWidth: 520, maxHeight: '88%', borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: '#334155' },
+  modalCard: { width: '100%', maxWidth: 520, maxHeight: '88%', borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1 },
   modalTitle: { fontSize: 19, fontWeight: '900' },
   modalBody: { padding: 18 },
   fieldLabel: { marginBottom: 7, fontSize: 11, fontWeight: '800' },
-  modalInput: { height: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, marginBottom: 15, fontSize: 14 },
+  modalInput: { height: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, marginBottom: 15, fontSize: 14 },
   uploadDropzone: {
     minHeight: 154,
     borderWidth: 1,
@@ -373,8 +372,8 @@ const styles = StyleSheet.create({
   },
   moneyInput: { flex: 1, height: 42, minWidth: 0, paddingHorizontal: 11, fontSize: 14, fontWeight: '700' },
   currency: { paddingRight: 10, fontSize: 11, fontWeight: '900' },
-  modalActions: { flexDirection: 'row', gap: 10, padding: 18, borderTopWidth: 1, borderTopColor: '#334155' },
-  modalButton: { flex: 1, minHeight: 44, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  modalActions: { flexDirection: 'row', gap: 10, padding: 18, borderTopWidth: 1 },
+  modalButton: { flex: 1, minHeight: 48, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   addingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   actionText: { fontSize: 12, fontWeight: '900' },
 });

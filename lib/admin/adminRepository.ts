@@ -1,4 +1,5 @@
 import type { ShopType } from '@/lib/booking/types';
+import { refreshCatalog } from '@/lib/booking/catalogRepository';
 import { getSupabase } from '@/lib/supabase/client';
 
 export type PendingOwnerRequest = {
@@ -355,6 +356,35 @@ export async function fetchPlatformStats(): Promise<PlatformStats> {
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForApprovedShop(
+  shopId: string,
+  ownerEmail: string,
+  retries = 5,
+  delayMs = 400,
+): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const cleanEmail = ownerEmail.trim().toLowerCase();
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const { data: shop } = await supabase
+      .from('shops')
+      .select('id, is_active, owner_email')
+      .eq('id', shopId)
+      .maybeSingle();
+
+    const shopReady =
+      shop?.is_active === true && (shop.owner_email ?? '').trim().toLowerCase() === cleanEmail;
+    if (shopReady) return true;
+    if (attempt < retries - 1) await sleep(delayMs);
+  }
+  return false;
+}
+
 export async function approveShopOwner(userId: string, shopId: string): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase not configured');
@@ -393,14 +423,13 @@ export async function approveShopOwner(userId: string, shopId: string): Promise<
     if (!error && data?.success) {
       console.log('[approveShopOwner] Edge Function succeeded');
       edgeFunctionSuccess = true;
-      return;
+    } else {
+      console.warn('[approveShopOwner] Edge Function failed or unavailable:', {
+        error,
+        data,
+        message: error?.message || data?.error,
+      });
     }
-
-    console.warn('[approveShopOwner] Edge Function failed or unavailable:', {
-      error,
-      data,
-      message: error?.message || data?.error,
-    });
   } catch (edgeError) {
     console.warn('[approveShopOwner] Edge Function invocation failed:', edgeError);
   }
@@ -426,6 +455,12 @@ export async function approveShopOwner(userId: string, shopId: string): Promise<
 
     console.log('[approveShopOwner] RPC fallback succeeded');
   }
+
+  const verified = await waitForApprovedShop(shopId, userData.email);
+  if (!verified) {
+    throw new Error('Shop was approved but is not queryable yet. Try again in a moment.');
+  }
+  await refreshCatalog();
 }
 
 export async function rejectShopOwner(userId: string, shopId: string): Promise<void> {

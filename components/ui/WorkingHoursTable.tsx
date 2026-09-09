@@ -21,7 +21,7 @@ export function WorkingHoursTable({ rows }: Props) {
         <Text style={[styles.headerCell, styles.statusCol, { color: theme.textMuted }]}>{t('shop_hours_col_status')}</Text>
       </View>
       {rows.map((row, index) => {
-        const statusBg = row.closed ? 'rgba(220, 38, 38, 0.12)' : theme.greenSoft;
+        const statusBg = row.closed ? theme.dangerSoft : theme.greenSoft;
         const statusColor = row.closed ? theme.danger : theme.green;
         return (
           <View

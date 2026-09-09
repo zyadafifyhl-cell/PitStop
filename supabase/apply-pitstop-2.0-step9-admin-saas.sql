@@ -90,6 +90,8 @@ begin
   update public.shops
   set
     is_premium = coalesce(p_is_premium, false),
+    subscription_tier = case when coalesce(p_is_premium, false) then 'pro' else 'free' end,
+    subscription_status = 'active',
     updated_at = now()
   where id = p_shop_id
     and is_active = true;

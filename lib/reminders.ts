@@ -35,7 +35,7 @@ export async function ensureAndroidChannel(
       name: channelName,
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#1a73e8',
+      lightColor: '#0F172A',
     });
   }
 }

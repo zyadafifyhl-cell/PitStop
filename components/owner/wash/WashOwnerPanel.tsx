@@ -37,6 +37,7 @@ import { OsmLocationPicker } from '@/components/maps/OsmLocationPicker';
 import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
+import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import { getSupabase } from '@/lib/supabase/client';
@@ -254,7 +255,9 @@ function applyBranchToForms(branch: WashBranch, setters: {
 export function WashOwnerPanel({ shop }: Props) {
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
-  const { shopStaff, staff, isOwner, isBranchManager, isPremium } = useShopAuth();
+  const { shopStaff, staff, isOwner, isBranchManager, isPremium: authPremium } = useShopAuth();
+  const { isPro } = useShopSubscription(shop.id);
+  const isPremium = isPro || authPremium;
   const accountEmail = shopStaff?.email ?? staff?.email ?? shop.ownerEmail;
   const accountRoleLabel = isOwner
     ? t('wash_role_owner')
@@ -1807,8 +1810,15 @@ export function WashOwnerPanel({ shop }: Props) {
                       })}
                       <Pressable
                         onPress={onAddBranchPress}
-                        style={[styles.branchTab, { backgroundColor: theme.card, borderColor: theme.accent, borderStyle: 'dashed' }]}>
-                        <Text style={[styles.branchTabText, { color: theme.accent }]}>+ {t('wash_add_branch')}</Text>
+                        style={[
+                          styles.branchTab,
+                          styles.branchAddTab,
+                          { backgroundColor: theme.card, borderColor: isPremium ? theme.accent : theme.premium, borderStyle: 'dashed' },
+                        ]}>
+                        {!isPremium ? <FontAwesome name="lock" size={12} color={theme.premium} /> : null}
+                        <Text style={[styles.branchTabText, { color: isPremium ? theme.accent : theme.premium }]}>
+                          + {t('wash_add_branch')}
+                        </Text>
                       </Pressable>
                     </ScrollView>
                   </View>
@@ -1823,13 +1833,17 @@ export function WashOwnerPanel({ shop }: Props) {
                   <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
                     <OwnerMetricsGrid
                       metrics={[
-                        {
-                          id: 'revenue',
-                          label: t('store_owner_total_revenue'),
-                          value: formatEgp(analytics.monthlyRevenue, locale),
-                          icon: 'money',
-                          tone: 'success',
-                        },
+                        ...(isPremium
+                          ? [
+                              {
+                                id: 'revenue' as const,
+                                label: t('store_owner_total_revenue'),
+                                value: formatEgp(analytics.monthlyRevenue, locale),
+                                icon: 'money' as const,
+                                tone: 'success' as const,
+                              },
+                            ]
+                          : []),
                         {
                           id: 'today',
                           label: t('owner_dashboard_today_bookings'),
@@ -1876,16 +1890,17 @@ export function WashOwnerPanel({ shop }: Props) {
 
                 {/* Analytics widgets */}
                 {analytics ? (
+                  <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
                   <OwnerSectionCard
                     theme={theme}
                     title={t('wash_analytics_title')}
                     subtitle={t(isBranchManager ? 'wash_analytics_lead_manager' : 'wash_analytics_lead')}>
-                    {isOwner && isPremium ? (
+                    {isOwner ? (
                       <Text style={[styles.metaStrong, { color: theme.text }]}>
                         {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
                       </Text>
                     ) : null}
-                    <Text style={[styles.meta, { color: theme.textMuted, marginTop: isOwner && isPremium ? 8 : 0 }]}>
+                    <Text style={[styles.meta, { color: theme.textMuted, marginTop: isOwner ? 8 : 0 }]}>
                       {t('wash_analytics_peak_hour')}: {analytics.peakHourLabel}
                     </Text>
                     <Text style={[styles.meta, { color: theme.textMuted }]}>
@@ -1912,6 +1927,7 @@ export function WashOwnerPanel({ shop }: Props) {
                       </View>
                     ))}
                   </OwnerSectionCard>
+                  </PremiumFeatureGate>
                 ) : null}
 
                 {/* Orders & history shortcuts */}
@@ -1925,10 +1941,17 @@ export function WashOwnerPanel({ shop }: Props) {
                   ) : null}
                   <View style={styles.shortcutRow}>
                     <Pressable
-                      onPress={() => router.push('/shop/wash-reports')}
+                      onPress={() => {
+                        if (!isPremium) {
+                          requestPremiumUpgrade();
+                          return;
+                        }
+                        router.push('/shop/wash-reports');
+                      }}
                       style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
                       <View style={styles.shortcutCardRow}>
                         <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reports')}</Text>
+                        {!isPremium ? <FontAwesome name="lock" size={13} color={theme.premium} /> : null}
                         <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
                       </View>
                     </Pressable>
@@ -2041,9 +2064,8 @@ export function WashOwnerPanel({ shop }: Props) {
 
         {adminTab === 'operations' && (
           <>
-            {/* Services CRUD */}
-            <PremiumFeatureGate>
-              <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
+            {/* Services CRUD — free tier */}
+            <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
                 <Pressable onPress={() => openServiceEditor()} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
                   <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_service_add')}</Text>
                 </Pressable>
@@ -2078,11 +2100,12 @@ export function WashOwnerPanel({ shop }: Props) {
                   ))
                 )}
               </OwnerSectionCard>
-            </PremiumFeatureGate>
 
-            <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
-              <MerchantCampaignsPanel shopId={shop.id} />
-            </OwnerSectionCard>
+            <PremiumFeatureGate shopId={shop.id} hint={t('premium_campaigns_lock_hint')}>
+              <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+                <MerchantCampaignsPanel shopId={shop.id} />
+              </OwnerSectionCard>
+            </PremiumFeatureGate>
 
             <StoreInventoryManager shop={shop} />
 
@@ -2148,7 +2171,7 @@ export function WashOwnerPanel({ shop }: Props) {
             />
             {/* Branch manager */}
             {isOwner && activeBranch && isUuid(activeBranch.id) ? (
-              <PremiumFeatureGate>
+              <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_staff')}>
                 <OwnerSectionCard theme={theme} title={t('wash_manager_title')} subtitle={t('wash_manager_lead')}>
                   {branchManager ? (
                     <>
@@ -2233,6 +2256,7 @@ export function WashOwnerPanel({ shop }: Props) {
 
             {/* Branch employees */}
             {activeBranch && isUuid(activeBranch.id) ? (
+              <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_staff')}>
               <OwnerSectionCard
                 theme={theme}
                 title={t('wash_employees_title')}
@@ -2297,8 +2321,8 @@ export function WashOwnerPanel({ shop }: Props) {
                         style={[
                           styles.employeeRemoveBtn,
                           {
-                            backgroundColor: 'rgba(239, 68, 68, 0.10)',
-                            borderColor: 'rgba(239, 68, 68, 0.26)',
+                            backgroundColor: theme.dangerSoft,
+                            borderColor: theme.border,
                             opacity: employeeBusy ? 0.7 : 1,
                           },
                         ]}>
@@ -2308,6 +2332,7 @@ export function WashOwnerPanel({ shop }: Props) {
                   ))
                 )}
               </OwnerSectionCard>
+              </PremiumFeatureGate>
             ) : null}
 
             <OwnerReviewsHistory shopId={shop.id} leadVariant={isBranchManager ? 'manager' : 'owner'} />
@@ -2641,6 +2666,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     maxWidth: 180,
+  },
+  branchAddTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 220,
   },
   branchTabText: { fontSize: 13, fontWeight: '800' },
   roleBadge: {

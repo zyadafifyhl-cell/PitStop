@@ -3,13 +3,13 @@ import { useFocusEffect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
 import { HomeHeroCarAnimation } from '@/components/home/HomeHeroCarAnimation';
-import { AppTheme } from '@/constants/Theme';
+import { AppTheme, type AppThemeTokens } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useShopCatalog } from '@/context/ShopCatalogContext';
@@ -28,12 +28,13 @@ import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { listCustomerVehicles } from '@/lib/booking/vehicleStorage';
 import { formatOfferBadge, isOfferLive, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 
-function bookingStatusTone(status: Booking['status']) {
-  if (status === 'pending') return { bg: 'rgba(0, 212, 255, 0.18)', color: '#A5F3FC' };
-  if (status === 'confirmed' || status === 'in_progress') return { bg: 'rgba(0, 82, 255, 0.20)', color: '#BFDBFE' };
-  if (status === 'done') return { bg: 'rgba(34, 197, 94, 0.22)', color: '#DCFCE7' };
-  if (status === 'no_show') return { bg: 'rgba(234, 179, 8, 0.24)', color: '#FEF08A' };
-  return { bg: 'rgba(239, 68, 68, 0.24)', color: '#FECACA' };
+function bookingStatusTone(status: Booking['status'], theme: AppThemeTokens) {
+  if (status === 'confirmed' || status === 'in_progress') {
+    return { bg: theme.accentSoft, color: theme.text };
+  }
+  if (status === 'done') return { bg: theme.accent, color: theme.onAccent };
+  if (status === 'no_show') return { bg: theme.cardHover, color: theme.textDim };
+  return { bg: theme.cardHover, color: theme.textMuted };
 }
 
 function CurvyCard({
@@ -63,6 +64,7 @@ export default function HomeScreen() {
     Array<{ shopId: string; shopName: string; shopArea: string; shopType: ShopType; offer: ShopOffer }>
   >([]);
   const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceSearchFocused, setServiceSearchFocused] = useState(false);
   const [vehicleRefreshKey, setVehicleRefreshKey] = useState(0);
 
   const offerBadgeMessages = useMemo(
@@ -195,7 +197,7 @@ export default function HomeScreen() {
       ? nextBookingShop.nameAr
       : nextBookingShop.name
     : nextBooking?.shopId;
-  const nextStatusTone = nextBooking ? bookingStatusTone(nextBooking.status) : null;
+  const nextStatusTone = nextBooking ? bookingStatusTone(nextBooking.status, theme) : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
@@ -217,10 +219,6 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.heroHeadlineRow}>
-            <View style={styles.heroHeadlineCol}>
-              <Text style={[styles.title, { color: theme.text }]}>{t('home_pick_service')}</Text>
-              <Text style={[styles.lead, { color: theme.textMuted }]}>{t('home_pick_service_lead')}</Text>
-            </View>
             {customer && !isGuest ? (
               <View style={styles.heroCarCol}>
                 <HomeHeroCarAnimation />
@@ -245,7 +243,7 @@ export default function HomeScreen() {
         )}
         <Pressable onPress={() => router.push('/settings/vehicles')} style={styles.manageVehicleWrap}>
           <LinearGradient
-            colors={[theme.warm, theme.accent]}
+            colors={[theme.accent, theme.accent]}
             start={{ x: 0, y: 0.2 }}
             end={{ x: 1, y: 0.8 }}
             style={styles.manageVehicleBtn}>
@@ -287,9 +285,19 @@ export default function HomeScreen() {
         <TextInput
           value={serviceSearch}
           onChangeText={setServiceSearch}
+          onFocus={() => setServiceSearchFocused(true)}
+          onBlur={() => setServiceSearchFocused(false)}
           placeholder={t('home_search_placeholder')}
           placeholderTextColor={theme.textDim}
-          style={[styles.searchInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
+          style={[
+            styles.searchInput,
+            Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null,
+            {
+              backgroundColor: theme.bgElevated,
+              borderColor: serviceSearchFocused ? theme.text : theme.border,
+              color: theme.text,
+            },
+          ]}
         />
 
         {serviceCards.map((card) => (
@@ -301,8 +309,8 @@ export default function HomeScreen() {
               }
             }}
             style={[styles.serviceRow, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-            <View style={[styles.serviceIcon, { backgroundColor: theme.accentSoft }]}>
-              <FontAwesome name={card.type === 'wash' ? 'tint' : card.type === 'maintenance' ? 'wrench' : 'cogs'} size={18} color={theme.warm} />
+            <View style={[styles.serviceIcon, { backgroundColor: theme.cardHover }]}>
+              <FontAwesome name={card.type === 'wash' ? 'tint' : card.type === 'maintenance' ? 'wrench' : 'cogs'} size={18} color={theme.text} />
             </View>
             <View style={styles.serviceMeta}>
               <Text style={[styles.serviceTitle, { color: theme.text }]}>{card.title}</Text>
@@ -397,8 +405,8 @@ const styles = StyleSheet.create({
   },
   heroHeadlineRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 10,
     marginTop: 0,
     marginBottom: 0,
@@ -433,8 +441,8 @@ const styles = StyleSheet.create({
   vehicleSlotTitle: { fontSize: 15, fontWeight: '900', marginBottom: 4 },
   vehicleSlotSub: { fontSize: 14, lineHeight: 20 },
   manageVehicleWrap: { marginTop: 12, borderRadius: 999, overflow: 'hidden' },
-  manageVehicleBtn: { borderRadius: 999, paddingVertical: 13, alignItems: 'center' },
-  manageVehicleText: { fontSize: 15, fontWeight: '900', color: '#000000' },
+  manageVehicleBtn: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  manageVehicleText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   sectionEyebrow: {
     color: AppTheme.accent,
     fontSize: 12,
@@ -457,8 +465,8 @@ const styles = StyleSheet.create({
   sectionTitle: { color: AppTheme.text, fontSize: 22, fontWeight: '900', marginBottom: 6 },
   sectionSub: { color: AppTheme.textMuted, fontSize: 15, lineHeight: 22, marginBottom: 12 },
   primaryActionWrap: { marginTop: 12, borderRadius: 999, overflow: 'hidden' },
-  primaryActionBtn: { paddingVertical: 13, alignItems: 'center', borderRadius: 999 },
-  primaryActionText: { fontSize: 15, fontWeight: '900', color: '#000000' },
+  primaryActionBtn: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 14 },
+  primaryActionText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   searchInput: {
     borderWidth: 1,
     borderRadius: 18,

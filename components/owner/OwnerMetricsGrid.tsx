@@ -16,19 +16,26 @@ export type OwnerMetric = {
 export function OwnerMetricsGrid({ metrics }: { metrics: readonly OwnerMetric[] }) {
   const theme = useAppTheme();
   const tones = {
-    accent: theme.accent,
+    accent: theme.brand,
     success: theme.success,
-    warning: theme.warm,
+    warning: theme.warning,
     danger: theme.danger,
+  };
+  const toneBackgrounds = {
+    accent: theme.brandSoft,
+    success: theme.successSoft,
+    warning: theme.warningSoft,
+    danger: theme.dangerSoft,
   };
 
   return (
     <View style={styles.grid}>
       {metrics.map((metric) => {
-        const color = tones[metric.tone ?? 'accent'];
+        const tone = metric.tone ?? 'accent';
+        const color = tones[tone];
         const body = (
           <>
-            <View style={[styles.icon, { backgroundColor: `${color}1F` }]}>
+            <View style={[styles.icon, { backgroundColor: toneBackgrounds[tone] }]}>
               <FontAwesome name={metric.icon} size={17} color={color} />
             </View>
             <Text style={[styles.value, { color: theme.text }]}>{metric.value}</Text>
@@ -73,7 +80,7 @@ const styles = StyleSheet.create({
     minWidth: 145,
     minHeight: 116,
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 14,
   },
   icon: {

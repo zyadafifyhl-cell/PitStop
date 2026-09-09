@@ -2,7 +2,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 export type HistoryMenuAction = {
   id: string;
@@ -21,17 +21,15 @@ type MenuProps = {
 /** Compact anchored dropdown — must sit inside a `position: 'relative'` parent. */
 export function HistoryOverflowMenu({ visible, actions, onClose }: MenuProps) {
   const theme = useAppTheme();
-  const { effectivePreference } = useThemePreference();
   if (!visible) return null;
 
-  const dark = effectivePreference === 'dark';
   return (
     <View
       style={[
         styles.dropdown,
         {
-          backgroundColor: dark ? '#161f30' : theme.card,
-          borderColor: dark ? '#2d3748' : theme.border,
+          backgroundColor: theme.card,
+          borderColor: theme.border,
         },
       ]}>
       {actions.map((action) => {
@@ -44,7 +42,10 @@ export function HistoryOverflowMenu({ visible, actions, onClose }: MenuProps) {
               onClose();
               action.onPress();
             }}
-            style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}>
+            style={({ pressed }) => [
+              styles.row,
+              pressed ? { backgroundColor: theme.cardHover } : null,
+            ]}>
             <FontAwesome name={icon} size={13} color={color} style={styles.rowIcon} />
             <Text style={[styles.label, { color }]} numberOfLines={2}>
               {action.label}
@@ -115,7 +116,7 @@ const styles = StyleSheet.create({
     top: 36,
     right: 0,
     width: 180,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     zIndex: 1000,
     elevation: 5,
@@ -123,12 +124,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...Platform.select({
       web: {
-        boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
+        boxShadow: '0 8px 20px rgba(15,23,42,0.10)',
       },
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.28,
+        shadowOpacity: 0.1,
         shadowRadius: 10,
       },
       default: {},
@@ -140,9 +141,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
-  },
-  rowPressed: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   rowIcon: {
     width: 16,

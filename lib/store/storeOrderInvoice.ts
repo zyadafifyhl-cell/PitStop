@@ -15,11 +15,11 @@ export const CUSTOMER_STORE_STATUS_TONE: Record<
   StoreOrderStatus,
   { backgroundColor: string; borderColor: string; color: string }
 > = {
-  pending: { backgroundColor: 'rgba(245,197,24,0.16)', borderColor: '#F5C518', color: '#F5C518' },
-  preparing: { backgroundColor: 'rgba(59,130,246,0.16)', borderColor: '#3B82F6', color: '#60A5FA' },
-  ready: { backgroundColor: 'rgba(168,85,247,0.16)', borderColor: '#A855F7', color: '#C084FC' },
-  completed: { backgroundColor: 'rgba(34,197,94,0.16)', borderColor: '#22C55E', color: '#4ADE80' },
-  cancelled: { backgroundColor: 'rgba(239,68,68,0.16)', borderColor: '#EF4444', color: '#F87171' },
+  pending: { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0', color: '#64748B' },
+  preparing: { backgroundColor: '#E2E8F0', borderColor: '#94A3B8', color: '#0F172A' },
+  ready: { backgroundColor: '#0F172A', borderColor: '#0F172A', color: '#FFFFFF' },
+  completed: { backgroundColor: '#111827', borderColor: '#111827', color: '#FFFFFF' },
+  cancelled: { backgroundColor: '#F1F5F9', borderColor: '#94A3B8', color: '#64748B' },
 };
 
 export function formatStoreOrderShortId(orderId: string): string {

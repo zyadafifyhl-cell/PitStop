@@ -158,8 +158,8 @@ export default function BookShopScreen() {
   const [bookingBranchId, setBookingBranchId] = useState<string | undefined>(branchIdParam);
   const userPickedOfferRef = useRef(false);
 
-  const CHECKOUT_CYAN = '#00D4FF';
-  const CHECKOUT_CARD = '#121826';
+  const CHECKOUT_ACCENT = theme.brand;
+  const CHECKOUT_CARD = theme.card;
 
   const activeServices = useMemo(() => getActiveServices(shopExtras), [shopExtras]);
 
@@ -1050,7 +1050,7 @@ export default function BookShopScreen() {
               <View
                 style={[
                   styles.checkoutCard,
-                  { backgroundColor: CHECKOUT_CARD, borderColor: 'rgba(255,255,255,0.05)' },
+                  { backgroundColor: CHECKOUT_CARD, borderColor: theme.border },
                 ]}>
                 <Text style={[styles.checkoutSectionTitle, { color: theme.text }]}>
                   {t('book_loyalty_section_title')}
@@ -1058,7 +1058,7 @@ export default function BookShopScreen() {
                 <Text style={[styles.checkoutHint, { color: theme.textMuted, fontSize: 16 }]}>
                   {t('book_loyalty_available').replace('{points}', String(loyaltyBalance))}
                 </Text>
-                <Text style={[styles.checkoutHint, { color: CHECKOUT_CYAN, fontSize: 16, fontWeight: '700' }]}>
+                <Text style={[styles.checkoutHint, { color: CHECKOUT_ACCENT, fontSize: 16, fontWeight: '700' }]}>
                   {t('book_loyalty_exchange_hint')}
                 </Text>
 
@@ -1070,7 +1070,7 @@ export default function BookShopScreen() {
                     value={useLoyaltyPoints}
                     onValueChange={onToggleLoyaltyRedemption}
                     trackColor={{ false: theme.border, true: theme.accentSoft }}
-                    thumbColor={useLoyaltyPoints ? CHECKOUT_CYAN : theme.textDim}
+                    thumbColor={useLoyaltyPoints ? CHECKOUT_ACCENT : theme.textDim}
                   />
                 </View>
 
@@ -1091,8 +1091,8 @@ export default function BookShopScreen() {
                       />
                       <Pressable
                         onPress={onRedeemMaxPoints}
-                        style={[styles.redeemMaxBtn, { borderColor: CHECKOUT_CYAN, backgroundColor: theme.bgElevated }]}>
-                        <Text style={[styles.redeemMaxBtnText, { color: CHECKOUT_CYAN }]}>
+                        style={[styles.redeemMaxBtn, { borderColor: CHECKOUT_ACCENT, backgroundColor: theme.bgElevated }]}>
+                        <Text style={[styles.redeemMaxBtnText, { color: CHECKOUT_ACCENT }]}>
                           {t('book_loyalty_redeem_max')}
                         </Text>
                       </Pressable>
@@ -1114,7 +1114,7 @@ export default function BookShopScreen() {
             <View
               style={[
                 styles.checkoutCard,
-                { backgroundColor: CHECKOUT_CARD, borderColor: 'rgba(255,255,255,0.05)' },
+                { backgroundColor: CHECKOUT_CARD, borderColor: theme.border },
               ]}>
               <Text style={[styles.checkoutSectionTitle, { color: theme.text }]}>
                 {t('book_summary_title')}
@@ -1168,7 +1168,7 @@ export default function BookShopScreen() {
                 <Text style={[styles.invoiceTotalLabel, { color: theme.text }]}>
                   {t('book_invoice_total_payment')}
                 </Text>
-                <Text style={[styles.invoiceTotalValue, { color: CHECKOUT_CYAN }]}>
+                <Text style={[styles.invoiceTotalValue, { color: CHECKOUT_ACCENT }]}>
                   {formatEgp(checkoutFinalAmountEgp, locale)}
                 </Text>
               </View>

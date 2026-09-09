@@ -42,7 +42,7 @@ export function CustomConfirmModal({
       StyleSheet.create({
         backdrop: {
           flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          backgroundColor: theme.overlay,
           alignItems: 'center',
           justifyContent: 'center',
           padding: 24,
@@ -57,10 +57,10 @@ export function CustomConfirmModal({
           paddingHorizontal: 22,
           paddingTop: 22,
           paddingBottom: 18,
-          shadowColor: '#000',
+          shadowColor: theme.shadowColor,
           shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 0.35,
-          shadowRadius: 24,
+          shadowOpacity: 0.08,
+          shadowRadius: 20,
           elevation: 12,
         },
         title: {
@@ -85,7 +85,7 @@ export function CustomConfirmModal({
           marginTop: 22,
         },
         cancelBtn: {
-          minHeight: 44,
+          minHeight: theme.buttonHeight,
           paddingHorizontal: 14,
           alignItems: 'center',
           justifyContent: 'center',
@@ -98,7 +98,7 @@ export function CustomConfirmModal({
         confirmBtn: {
           minHeight: 44,
           minWidth: 148,
-          borderRadius: theme.radiusSm,
+          borderRadius: theme.radiusBtn,
           paddingHorizontal: 18,
           alignItems: 'center',
           justifyContent: 'center',

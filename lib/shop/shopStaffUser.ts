@@ -1,4 +1,6 @@
 import {
+  fetchShopByIdRemote,
+  findMerchantShopRemote,
   getShopById,
   getShopByOwnerEmail,
   hydrateCatalogCache,
@@ -8,6 +10,7 @@ import {
 import type { Shop } from '@/lib/booking/types';
 import type { DbUser, DbUserRole } from '@/lib/supabase/database.types';
 import { getSupabase } from '@/lib/supabase/client';
+import { isProSubscription, snapshotFromShopRow } from '@/lib/shop/subscription';
 
 export type ShopStaffRole = Extract<DbUserRole, 'owner' | 'branch_manager'>;
 export type AppStaffRole = Extract<DbUserRole, 'owner' | 'branch_manager' | 'admin' | 'pending_owner'>;
@@ -94,22 +97,45 @@ function toShopStaffUser(staff: AppStaffUser): ShopStaffUser | null {
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function fetchAppStaffUser(userId: string, email: string): Promise<AppStaffUser | null> {
+  const retries = 3;
+  const delayMs = 500;
   const supabase = getSupabase();
-  if (supabase) {
-    const { data } = await supabase
-      .from('users')
-      .select('id, email, full_name, role, shop_id, branch_id, is_active')
-      .eq('id', userId)
-      .maybeSingle();
-    if (data) {
-      const mapped = mapAppStaffUser(data as UserRow);
-      if (mapped) return mapped;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    if (supabase) {
+      const { data } = await supabase
+        .from('users')
+        .select('id, email, full_name, role, shop_id, branch_id, is_active')
+        .eq('id', userId)
+        .maybeSingle();
+      if (data) {
+        const mapped = mapAppStaffUser(data as UserRow);
+        if (mapped?.role === 'pending_owner') {
+          const liveShop = mapped.shopId
+            ? await fetchShopByIdRemote(mapped.shopId)
+            : await findMerchantShopRemote(email, 1, 0);
+          if (liveShop && attempt < retries - 1) {
+            await sleep(delayMs);
+            continue;
+          }
+          return mapped;
+        }
+        if (mapped) return mapped;
+      }
+    }
+
+    if (attempt < retries - 1) {
+      await sleep(delayMs);
     }
   }
 
   await ensureCatalog();
-  const shop = getShopByOwnerEmail(email);
+  const shop = getShopByOwnerEmail(email) ?? (await findMerchantShopRemote(email));
   if (!shop) return null;
   return {
     id: userId,
@@ -135,10 +161,18 @@ async function enrichShopPremium(shop: Shop): Promise<Shop> {
   try {
     const { data } = await supabase
       .from('shops')
-      .select('is_premium')
+      .select('is_premium, subscription_tier, subscription_status, subscription_expires_at')
       .eq('id', shop.id)
       .maybeSingle();
-    return { ...shop, isPremium: data?.is_premium === true };
+    if (!data) return { ...shop, isPremium: shop.isPremium === true };
+    const snapshot = snapshotFromShopRow(data);
+    return {
+      ...shop,
+      isPremium: isProSubscription(snapshot),
+      subscriptionTier: snapshot.tier,
+      subscriptionStatus: snapshot.status,
+      subscriptionExpiresAt: snapshot.expiresAt,
+    };
   } catch {
     return { ...shop, isPremium: shop.isPremium === true };
   }
@@ -146,7 +180,11 @@ async function enrichShopPremium(shop: Shop): Promise<Shop> {
 
 export async function resolveShopForStaff(staff: ShopStaffUser): Promise<Shop | null> {
   await ensureCatalog();
-  const shop = getShopById(staff.shopId);
+  const cached = getShopById(staff.shopId) ?? getShopByOwnerEmail(staff.email);
+  const shop =
+    cached ??
+    (await fetchShopByIdRemote(staff.shopId)) ??
+    (await findMerchantShopRemote(staff.email));
   if (!shop) return null;
   return enrichShopPremium(shop);
 }

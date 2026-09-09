@@ -17,17 +17,17 @@ type Props = {
 
 export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, style, children }: Props) {
   const contextTheme = useAppTheme();
-  const cardColor = theme?.card ?? contextTheme?.card ?? '#1e293b';
-  const borderColor = theme?.border ?? contextTheme?.border ?? 'rgba(255,255,255,0.08)';
-  const accentColor = theme?.accentSoft ?? contextTheme?.accentSoft ?? 'rgba(0,82,255,0.22)';
-  const titleColor = theme?.text ?? contextTheme?.text ?? '#ffffff';
-  const subtitleColor = theme?.textMuted ?? contextTheme?.textMuted ?? '#94a3b8';
+  const cardColor = theme?.card ?? contextTheme.card;
+  const borderColor = theme?.border ?? contextTheme.border;
+  const accentColor = theme?.brand ?? contextTheme.brand;
+  const titleColor = theme?.text ?? contextTheme.text;
+  const subtitleColor = theme?.textMuted ?? contextTheme.textMuted;
 
   return (
     <View style={[styles.card, { backgroundColor: cardColor, borderColor }, style]}>
       <View style={[styles.topAccent, { backgroundColor: accentColor }]} />
       <View style={styles.titleRow}>
-        {icon ? <FontAwesome name={icon} size={17} color={iconColor ?? contextTheme?.accent ?? '#3b82f6'} /> : null}
+        {icon ? <FontAwesome name={icon} size={17} color={iconColor ?? contextTheme.brand} /> : null}
         <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
       </View>
       {subtitle ? <Text style={[styles.subtitle, { color: subtitleColor }]}>{subtitle}</Text> : null}
@@ -39,22 +39,22 @@ export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, styl
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     overflow: 'hidden',
-    shadowColor: '#0EA5FF',
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   topAccent: {
     position: 'absolute',
     left: 0,
     top: 0,
     right: 0,
-    height: 1.5,
+    height: 1,
   },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   title: { flex: 1, fontSize: 17, fontWeight: '900' },

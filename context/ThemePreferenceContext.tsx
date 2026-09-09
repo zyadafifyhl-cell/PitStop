@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, type ColorSchemeName } from 'react-native';
 
 import { APP_THEMES, type AppThemeTokens } from '@/constants/Theme';
 
@@ -17,16 +17,16 @@ type ThemePreferenceContextValue = {
 
 const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>(null);
 
-function resolveEffective(preference: ThemePreference, systemScheme: 'light' | 'dark' | null | undefined): 'light' | 'dark' {
+function resolveEffective(preference: ThemePreference, systemScheme: ColorSchemeName): 'light' | 'dark' {
   if (preference === 'system') {
-    return systemScheme === 'light' ? 'light' : 'dark';
+    return systemScheme === 'dark' ? 'dark' : 'light';
   }
   return preference;
 }
 
 export function ThemePreferenceProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [preference, setPreferenceState] = useState<ThemePreference>('dark');
+  const [preference, setPreferenceState] = useState<ThemePreference>('light');
 
   useEffect(() => {
     let cancelled = false;

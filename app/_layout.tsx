@@ -3,7 +3,6 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { useFonts } from 'expo-font';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import 'react-native-reanimated';
 
 import { AppBootstrap } from '@/components/AppBootstrap';
@@ -41,15 +40,13 @@ export default function RootLayout() {
     SplashScreen.hideAsync().catch(() => {});
   }, [loaded]);
 
-  if (!loaded) return null;
-
   return (
-    <>
-      <RootLayoutNav />
-      {showAnimatedSplash ? (
+    <ThemePreferenceProvider>
+      <RootLayoutWithTheme />
+      {loaded && showAnimatedSplash ? (
         <PremiumAnimatedSplash onFinish={() => setShowAnimatedSplash(false)} />
       ) : null}
-    </>
+    </ThemePreferenceProvider>
   );
 }
 
@@ -98,48 +95,24 @@ function RootStack() {
   );
 }
 
-function RootLayoutNav() {
-  return (
-    <ThemePreferenceProvider>
-      <RootLayoutWithTheme />
-    </ThemePreferenceProvider>
-  );
-}
-
 function RootLayoutWithTheme() {
-  const { effectivePreference, theme } = useThemePreference();
-  const base = effectivePreference === 'dark' ? DarkTheme : DefaultTheme;
-  const navTheme = {
-    ...base,
-    colors: {
-      ...base.colors,
-      background: theme.bg,
-      card: theme.bgElevated,
-      text: theme.text,
-      border: theme.border,
-      primary: theme.accent,
-    },
-  };
-
   return (
-    <ThemeProvider value={navTheme}>
-      <I18nProvider>
-        <AppDialogProvider>
-          <CustomConfirmProvider>
-          <ShopCatalogProvider>
-            <CustomerAuthProvider>
-              <StoreCartProvider>
-              <ShopAuthProvider>
-                <AppBootstrap>
-                  <RootStack />
-                </AppBootstrap>
-              </ShopAuthProvider>
-              </StoreCartProvider>
-            </CustomerAuthProvider>
-          </ShopCatalogProvider>
-          </CustomConfirmProvider>
-        </AppDialogProvider>
-      </I18nProvider>
-    </ThemeProvider>
+    <I18nProvider>
+      <AppDialogProvider>
+        <CustomConfirmProvider>
+        <ShopCatalogProvider>
+          <CustomerAuthProvider>
+            <StoreCartProvider>
+            <ShopAuthProvider>
+              <AppBootstrap>
+                <RootStack />
+              </AppBootstrap>
+            </ShopAuthProvider>
+            </StoreCartProvider>
+          </CustomerAuthProvider>
+        </ShopCatalogProvider>
+        </CustomConfirmProvider>
+      </AppDialogProvider>
+    </I18nProvider>
   );
 }

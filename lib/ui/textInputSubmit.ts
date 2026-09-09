@@ -27,6 +27,8 @@ export function textInputSubmitProps({ enabled = true, onSubmit }: Options) {
     onSubmitEditing: submit,
     onKeyPress: (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
       if (Platform.OS === 'web' && event.nativeEvent?.key === 'Enter') {
+        event.preventDefault?.();
+        event.stopPropagation?.();
         submit();
       }
     },

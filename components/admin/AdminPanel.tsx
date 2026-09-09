@@ -318,8 +318,8 @@ export function AdminPanel() {
   }
 
   return (
-    <View style={[styles.screen, { backgroundColor: '#080D1A' }]}>
-      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: '#080D1A' }]}>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.card }]}>
         <View style={styles.headerTop}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>{t('admin_panel_title')}</Text>
           <Pressable onPress={() => signOut().then(() => router.replace('/welcome'))} hitSlop={8}>
@@ -338,8 +338,8 @@ export function AdminPanel() {
       </View>
 
       <ScrollView
-        style={{ backgroundColor: '#080D1A' }}
-        contentContainerStyle={[styles.content, { backgroundColor: '#080D1A' }]}
+        style={{ backgroundColor: theme.bg }}
+        contentContainerStyle={[styles.content, { backgroundColor: theme.bg }]}
         keyboardShouldPersistTaps="handled">
           {tab === 'dashboard' ? (
             <>
@@ -491,12 +491,12 @@ export function AdminPanel() {
                       style={[
                         styles.deleteMerchantBtn,
                         {
-                          backgroundColor: 'rgba(255, 59, 48, 0.12)',
-                          borderColor: '#FF3B30',
+                          backgroundColor: theme.dangerSoft,
+                          borderColor: theme.danger,
                           opacity: busyId === row.shopId ? 0.5 : 1,
                         },
                       ]}>
-                      <Text style={[styles.deleteMerchantText, { color: '#FF3B30' }]}>
+                      <Text style={[styles.deleteMerchantText, { color: theme.danger }]}>
                         🗑️ {t('admin_delete_merchant_btn')}
                       </Text>
                     </Pressable>
@@ -591,7 +591,7 @@ function PendingRequestsTab({
           return (
             <View
               key={row.userId}
-              style={[styles.pendingCard, { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: '#121826' }]}>
+              style={[styles.pendingCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
               <Text style={[styles.pendingShopName, { color: theme.text }, isRTL && styles.textRtl]}>{row.shopName}</Text>
               <Text style={[styles.pendingMeta, { color: theme.textMuted }, isRTL && styles.textRtl]}>
                 {shopTypeLabel(row.shopType, locale)} · {row.email}
@@ -607,7 +607,7 @@ function PendingRequestsTab({
                   disabled={isBusy}
                   style={({ pressed }) => [
                     styles.pendingRejectBtn,
-                    { borderColor: 'rgba(255,255,255,0.08)', opacity: isBusy ? 0.5 : pressed ? 0.75 : 1 },
+                    { borderColor: theme.border, backgroundColor: theme.card, opacity: isBusy ? 0.5 : pressed ? 0.75 : 1 },
                   ]}>
                   <Text style={[styles.pendingRejectText, { color: theme.textMuted }]}>{t('admin_reject_btn')}</Text>
                 </Pressable>
@@ -663,7 +663,7 @@ function DashboardStatsGrid({
         isRTL={isRTL}
         label={t('admin_stat_total_revenue')}
         value={formatEgp(stats.totalRevenueEgp, locale)}
-        accentColor="#00D4FF"
+        accentColor={theme.brand}
       />
       <DashboardStatCard
         theme={theme}
@@ -677,7 +677,7 @@ function DashboardStatsGrid({
         isRTL={isRTL}
         label={t('admin_stat_completed_bookings')}
         value={String(stats.completedBookingsCount)}
-        accentColor="#00D4FF"
+        accentColor={theme.brand}
       />
       <DashboardStatCard
         theme={theme}
@@ -705,7 +705,7 @@ function DashboardStatCard({
 }) {
   return (
     <View
-      style={[styles.dashboardStatCard, { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: '#121826' }]}>
+      style={[styles.dashboardStatCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
       <Text
         style={[styles.dashboardStatValue, { color: theme.text }, isRTL && styles.textRtl]}
         numberOfLines={1}
@@ -731,7 +731,7 @@ function AdminStatsSkeleton({ theme }: { theme: ReturnType<typeof useAppTheme> }
           style={[
             styles.dashboardStatCard,
             styles.skeletonBlock,
-            { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: '#121826' },
+            { borderColor: theme.border, backgroundColor: theme.card },
           ]}
         />
       ))}

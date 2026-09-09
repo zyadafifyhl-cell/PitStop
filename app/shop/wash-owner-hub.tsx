@@ -50,6 +50,7 @@ type HubTab = 'reviews' | 'orders';
 type RejectTarget = { booking: Booking; notificationId?: string };
 
 function UnreadPulseDot({ rtl }: { rtl?: boolean }) {
+  const theme = useAppTheme();
   const pulse = useRef(new Animated.Value(0.45)).current;
 
   useEffect(() => {
@@ -64,8 +65,13 @@ function UnreadPulseDot({ rtl }: { rtl?: boolean }) {
   }, [pulse]);
 
   return (
-    <Animated.View style={[styles.unreadDot, rtl ? styles.unreadDotRtl : null, { opacity: pulse }]}>
-      <View style={styles.unreadDotCore} />
+    <Animated.View
+      style={[
+        styles.unreadDot,
+        rtl ? styles.unreadDotRtl : null,
+        { opacity: pulse, backgroundColor: theme.accentSoft },
+      ]}>
+      <View style={[styles.unreadDotCore, { backgroundColor: theme.accent }]} />
     </Animated.View>
   );
 }
@@ -345,7 +351,7 @@ export default function WashOwnerHubScreen() {
           styles.card,
           styles.reviewCard,
           {
-            borderColor: unread ? '#3B82F6' : theme.border,
+            borderColor: unread ? theme.brand : theme.border,
             backgroundColor: unread ? theme.bgElevated : theme.card,
           },
         ]}>
@@ -702,7 +708,6 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: 'rgba(59, 130, 246, 0.25)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -710,7 +715,6 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: '#3B82F6',
   },
   unreadDotRtl: { right: undefined, left: 12 },
   notifHint: { fontSize: 11, fontWeight: '600', marginTop: 8 },

@@ -15,14 +15,14 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude }: Props) 
         minHeight: 140,
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: '#374151',
+        borderColor: '#E2E8F0',
         justifyContent: 'center',
         paddingHorizontal: 12,
       }}>
-      <Text style={{ color: '#9CA3AF', fontSize: 12 }}>
+      <Text style={{ color: '#64748B', fontSize: 12 }}>
         Map picker is available on web with OpenStreetMap.
       </Text>
-      <Text style={{ color: '#E5E7EB', marginTop: 6 }}>
+      <Text style={{ color: '#0F172A', marginTop: 6 }}>
         {initialLatitude.toFixed(5)}, {initialLongitude.toFixed(5)}
       </Text>
     </View>

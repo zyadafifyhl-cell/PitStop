@@ -79,7 +79,7 @@ export default function SettingsScreen() {
               style={({ pressed }) => [
                 styles.marketplacePill,
                 {
-                  borderColor: 'rgba(255,255,255,0.08)',
+                  borderColor: theme.border,
                   backgroundColor: theme.bgElevated,
                   opacity: pressed ? 0.85 : 1,
                 },

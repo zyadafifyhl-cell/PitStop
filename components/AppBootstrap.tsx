@@ -1,6 +1,12 @@
 import * as Linking from 'expo-linking';
-import { useGlobalSearchParams, usePathname, useRouter, type Href } from 'expo-router';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import {
+  useGlobalSearchParams,
+  usePathname,
+  useRootNavigationState,
+  useRouter,
+  type Href,
+} from 'expo-router';
+import { useEffect } from 'react';
 
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -21,18 +27,21 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-/** Wait for auth, route to the correct entry screen, then mount navigation (no guest/home flash). */
+/** Route to the correct entry screen after both auth and the root navigator are ready. */
 export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const params = useGlobalSearchParams();
   const { ready: customerReady, customer, isGuest, hasSession, busy: customerBusy } = useCustomerAuth();
   const { ready: shopReady, shop, staff, isAdmin, isPendingOwner, busy: shopBusy } = useShopAuth();
-  const [entryReady, setEntryReady] = useState(false);
 
   const authReady = customerReady && shopReady;
+  const navigationReady = Boolean(rootNavigationState?.key);
 
   useEffect(() => {
+    if (!navigationReady) return;
+
     function openDeepLink(url: string) {
       const path = parsePitstopDeepLink(url);
       if (path) router.push(path as Href);
@@ -46,25 +55,21 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
 
     const subscription = Linking.addEventListener('url', ({ url }) => openDeepLink(url));
     return () => subscription.remove();
-  }, [router]);
+  }, [navigationReady, router]);
 
-  useLayoutEffect(() => {
-    if (!authReady) {
-      setEntryReady(false);
-      return;
-    }
+  useEffect(() => {
+    if (!navigationReady || !authReady) return;
 
     const isPublic = isPublicPath(pathname);
     const isLoggedIn = !!customer || !!shop || isGuest || !!staff;
-    const authPending =
-      customerBusy || shopBusy || (hasSession && !customer && !shop && !staff);
+    const loginInFlight = customerBusy || shopBusy;
+    const restoringSession = hasSession && !customer && !shop && !staff && !loginInFlight;
 
     if (isAdmin) {
       const onAdminArea = pathname === '/admin' || pathname.startsWith('/admin/');
       if (!onAdminArea) {
         router.replace('/admin' as Href);
       }
-      setEntryReady(true);
       return;
     }
 
@@ -72,7 +77,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       if (pathname !== '/welcome' && !isPublic) {
         router.replace('/welcome?focus=owner&pending=1');
       }
-      setEntryReady(true);
       return;
     }
 
@@ -81,34 +85,38 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       if (!onShopArea) {
         router.replace('/shop');
       }
-      setEntryReady(true);
       return;
     }
 
-    if (authPending && !isLoggedIn) {
-      setEntryReady(false);
+    // Keep /welcome mounted during a login attempt. Unmounting here looked like a
+    // full page reload and wiped the email/password fields on invalid credentials.
+    if (loginInFlight && !isLoggedIn) {
       return;
     }
 
-    if (!isLoggedIn && !isPublic && !authPending) {
+    if (restoringSession && !isLoggedIn && !isPublic) {
+      return;
+    }
+
+    if (!isLoggedIn && !isPublic && !restoringSession && !loginInFlight) {
       router.replace('/welcome?focus=login');
-      setEntryReady(true);
       return;
     }
 
     if ((customer || isGuest) && pathname === '/welcome') {
+      if (loginInFlight) {
+        return;
+      }
       const focus = readRouteParam(params.focus);
       if (isGuest && isWelcomeAuthIntent(focus)) {
-        setEntryReady(true);
         return;
       }
 
       const destination = resolveReturnTo(params.returnTo) ?? '/';
       router.replace(destination);
     }
-
-    setEntryReady(true);
   }, [
+    navigationReady,
     authReady,
     customer,
     shop,
@@ -124,8 +132,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     params.returnTo,
     params.focus,
   ]);
-
-  if (!authReady || !entryReady) return null;
 
   return <>{children}</>;
 }

@@ -4,10 +4,12 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 
 import { OwnerMetricsGrid, type OwnerMetric } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import type { Shop, StoreOperatingStatus } from '@/lib/booking/types';
+import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { getStoreOwnerStats, type StoreOwnerStats } from '@/lib/store/storeStatsRepository';
 import { getSupabase } from '@/lib/supabase/client';
 
@@ -36,6 +38,7 @@ export function StoreOwnerDashboard({
 }: Props) {
   const theme = useAppTheme();
   const { t, locale } = useI18n();
+  const { isPro } = useShopSubscription(shop.id);
   const [stats, setStats] = useState<StoreOwnerStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,19 +77,8 @@ export function StoreOwnerDashboard({
     };
   }, [loadStats, shop.id]);
 
-  const metrics = useMemo<OwnerMetric[]>(
+  const basicMetrics = useMemo<OwnerMetric[]>(
     () => [
-      {
-        id: 'revenue',
-        label: t('store_owner_total_revenue'),
-        value: formatEgp(stats.totalRevenue, locale),
-        icon: 'money',
-        tone: 'success',
-        onPress: () => {
-          if (onNavigate) onNavigate('reports');
-          else router.push('/shop/store-reports');
-        },
-      },
       {
         id: 'orders',
         label: t('store_owner_total_orders'),
@@ -102,6 +94,23 @@ export function StoreOwnerDashboard({
         tone: 'warning',
         onPress: onNavigate ? () => onNavigate('pending_orders') : undefined,
       },
+    ],
+    [onNavigate, stats.pendingOrders, stats.totalOrders, t],
+  );
+
+  const proMetrics = useMemo<OwnerMetric[]>(
+    () => [
+      {
+        id: 'revenue',
+        label: t('store_owner_total_revenue'),
+        value: formatEgp(stats.totalRevenue, locale),
+        icon: 'money',
+        tone: 'success',
+        onPress: () => {
+          if (onNavigate) onNavigate('reports');
+          else router.push('/shop/store-reports');
+        },
+      },
       {
         id: 'stock',
         label: t('store_owner_low_stock'),
@@ -111,7 +120,12 @@ export function StoreOwnerDashboard({
         onPress: onNavigate ? () => onNavigate('low_stock') : undefined,
       },
     ],
-    [locale, onNavigate, stats, t],
+    [locale, onNavigate, stats.lowStockCount, stats.totalRevenue, t],
+  );
+
+  const metrics = useMemo<OwnerMetric[]>(
+    () => (isPro ? [...proMetrics, ...basicMetrics] : basicMetrics),
+    [basicMetrics, isPro, proMetrics],
   );
 
   const refresh = useCallback(async () => {
@@ -157,12 +171,27 @@ export function StoreOwnerDashboard({
       </OwnerSectionCard>
 
       <OwnerMetricsGrid metrics={metrics} />
-      <Pressable
-        onPress={() => router.push('/shop/store-reports')}
-        style={[styles.reportsBtn, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.reportsTitle, { color: theme.text }]}>{t('store_reports_open')}</Text>
-        <Text style={[styles.reportsHint, { color: theme.textMuted }]}>{t('store_reports_lead')}</Text>
-      </Pressable>
+      {!isPro ? (
+        <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
+          <OwnerMetricsGrid metrics={proMetrics} />
+        </PremiumFeatureGate>
+      ) : null}
+      {isPro ? (
+        <Pressable
+          onPress={() => router.push('/shop/store-reports')}
+          style={[styles.reportsBtn, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <Text style={[styles.reportsTitle, { color: theme.text }]}>{t('store_reports_open')}</Text>
+          <Text style={[styles.reportsHint, { color: theme.textMuted }]}>{t('store_reports_lead')}</Text>
+        </Pressable>
+      ) : (
+        <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
+          <Pressable
+            style={[styles.reportsBtn, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.reportsTitle, { color: theme.text }]}>{t('store_reports_open')}</Text>
+            <Text style={[styles.reportsHint, { color: theme.textMuted }]}>{t('store_reports_lead')}</Text>
+          </Pressable>
+        </PremiumFeatureGate>
+      )}
     </ScrollView>
   );
 }

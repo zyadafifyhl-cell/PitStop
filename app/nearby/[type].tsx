@@ -159,7 +159,7 @@ export default function NearbyScreen() {
   }
 
   return (
-    <ScrollView style={[styles.screen, { backgroundColor: '#080D1A' }]} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
       <Text style={[styles.title, { color: theme.text }]}>{t('nearby_title')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>
         {locationDenied ? t('nearby_no_location') : t('nearby_lead')}
@@ -176,11 +176,11 @@ export default function NearbyScreen() {
               style={[
                 styles.radiusPill,
                 {
-                  borderColor: active ? '#00D4FF' : 'rgba(255,255,255,0.05)',
-                  backgroundColor: active ? 'rgba(0, 212, 255, 0.14)' : '#121826',
+                  borderColor: active ? theme.accent : theme.border,
+                  backgroundColor: active ? theme.accent : theme.card,
                 },
               ]}>
-              <Text style={[styles.radiusPillText, { color: active ? '#00D4FF' : theme.textMuted }]}>
+              <Text style={[styles.radiusPillText, { color: active ? theme.onAccent : theme.text }]}>
                 {formatRadiusLabel(km, locale)}
               </Text>
             </Pressable>
@@ -334,14 +334,14 @@ const styles = StyleSheet.create({
   radiusRow: { gap: 8, paddingBottom: 14 },
   radiusPill: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
-  radiusPillText: { fontSize: 13, fontWeight: '800' },
+  radiusPillText: { fontSize: 13, fontWeight: '500' },
   search: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -350,9 +350,9 @@ const styles = StyleSheet.create({
   filtersRow: { gap: 8, paddingBottom: 12 },
   filterChip: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 20,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
   empty: { textAlign: 'center', marginTop: 12 },
 });

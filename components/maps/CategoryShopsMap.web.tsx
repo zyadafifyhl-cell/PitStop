@@ -26,11 +26,11 @@ const SHOP_MARKER_THEME: Record<
   ShopType,
   { bg: string; border: string; glow: string; label: string }
 > = {
-  wash: { bg: '#080D1A', border: '#00D4FF', glow: 'rgba(0, 212, 255, 0.35)', label: 'Wash' },
-  maintenance: { bg: '#0B1422', border: '#0052FF', glow: 'rgba(0, 82, 255, 0.35)', label: 'Service' },
-  parts: { bg: '#102018', border: '#34D399', glow: 'rgba(52, 211, 153, 0.32)', label: 'Parts' },
-  accessories: { bg: '#101828', border: '#38BDF8', glow: 'rgba(56, 189, 248, 0.32)', label: 'Store' },
-  winch: { bg: '#15181F', border: '#94A3B8', glow: 'rgba(148, 163, 184, 0.32)', label: 'Winch' },
+  wash: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Wash' },
+  maintenance: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Service' },
+  parts: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Parts' },
+  accessories: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Store' },
+  winch: { bg: '#FFFFFF', border: '#64748B', glow: 'rgba(15, 23, 42, 0.12)', label: 'Winch' },
 };
 
 function shopMarkerSvg(type: ShopType): string {
@@ -134,16 +134,16 @@ function ensureMarkerStyles(): void {
       height: 36px;
       margin-left: -18px;
       border-radius: 999px;
-      background: rgba(59, 130, 246, 0.22);
+      background: rgba(15, 23, 42, 0.14);
       animation: pitstop-user-pulse 1.8s ease-out infinite;
     }
     .pitstop-user-pin__core {
       width: 32px;
       height: 32px;
       border-radius: 999px;
-      background: linear-gradient(145deg, #3B82F6 0%, #2563EB 100%);
+      background: #0F172A;
       border: 2px solid #ffffff;
-      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.24);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -154,7 +154,7 @@ function ensureMarkerStyles(): void {
       margin-top: 4px;
       padding: 2px 8px;
       border-radius: 999px;
-      background: rgba(59, 130, 246, 0.92);
+      background: rgba(15, 23, 42, 0.92);
       color: #ffffff;
       font-size: 10px;
       font-weight: 800;
@@ -322,7 +322,7 @@ export function CategoryShopsMap({
           <div style="min-width:180px;line-height:1.45;">
             <strong>${escapeHtml(shop.label)}</strong><br/>
             <span style="opacity:0.85;">${escapeHtml(shop.address)}</span><br/>
-            <a href="${shop.profilePath}" style="display:inline-block;margin-top:8px;font-weight:700;color:#0052FF;">
+            <a href="${shop.profilePath}" style="display:inline-block;margin-top:8px;font-weight:700;color:#0F172A;">
               ${locale === 'ar' ? 'عرض الملف' : 'View profile'}
             </a>
           </div>`;

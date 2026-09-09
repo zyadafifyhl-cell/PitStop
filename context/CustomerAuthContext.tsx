@@ -21,6 +21,7 @@ import {
   isShopStaffEmailRemote,
 } from '@/lib/booking/catalogRepository';
 import { normalizePhoneE164 } from '@/lib/phone';
+import { classifySignInError } from '@/lib/auth/classifySignInError';
 import { beginAuthMutation, endAuthMutation, isAuthMutationInProgress } from '@/lib/auth/authMutationLock';
 import { tabAuthStorage } from '@/lib/storage/webTabAuthStorage';
 import { getSupabase } from '@/lib/supabase/client';
@@ -28,7 +29,15 @@ import { signOutCurrentTab } from '@/lib/supabase/webTabAuthIsolation';
 
 const SESSION_KEY = '@pitstop/customer-session';
 const GUEST_KEY = '@pitstop/guest-session';
-type LoginResult = 'ok' | 'invalid' | 'email_not_confirmed' | 'email_login_disabled' | 'not_configured';
+type LoginResult =
+  | 'ok'
+  | 'invalid'
+  | 'invalid_credentials'
+  | 'email_not_confirmed'
+  | 'email_login_disabled'
+  | 'rate_limited'
+  | 'network_error'
+  | 'not_configured';
 type RegisterResult = 'ok' | 'check_email' | 'email_taken' | 'invalid' | 'weak_password' | 'not_configured';
 type UpdateProfileResult = 'ok' | 'invalid' | 'not_configured' | 'email_taken' | 'weak_password';
 type DeleteAccountResult = 'ok' | 'invalid' | 'not_configured';
@@ -185,10 +194,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
 
       const { data, error } = await Promise.race([authPromise, timeoutPromise]);
       if (error) {
-        const message = error.message.toLowerCase();
-        if (message.includes('email logins are disabled')) return 'email_login_disabled';
-        if (message.includes('email not confirmed')) return 'email_not_confirmed';
-        return 'invalid';
+        const kind = classifySignInError(error);
+        return kind === 'invalid_credentials' ? 'invalid' : kind;
       }
       const match = data.user ? await resolveCustomerFromUser(data.user) : null;
       if (!match) {
@@ -203,8 +210,8 @@ export function CustomerAuthProvider({ children }: { children: React.ReactNode }
       setCustomer(match);
       return 'ok';
     } catch (error) {
-      if (error instanceof Error && error.message === 'timeout') return 'not_configured';
-      return 'invalid';
+      const kind = classifySignInError(error);
+      return kind === 'invalid_credentials' ? 'invalid' : kind;
     } finally {
       endAuthMutation();
       setBusy(false);

@@ -16,8 +16,10 @@ import {
   type ShopStaffUser,
 } from '@/lib/shop/shopStaffUser';
 import type { Shop } from '@/lib/booking/types';
+import { findMerchantShopRemote } from '@/lib/booking/catalogRepository';
 import { isStaffInviteLocked } from '@/lib/auth/staffInviteLock';
 import { beginAuthMutation, endAuthMutation, isAuthMutationInProgress } from '@/lib/auth/authMutationLock';
+import { classifySignInError } from '@/lib/auth/classifySignInError';
 import { getSupabase } from '@/lib/supabase/client';
 import { signOutCurrentTab } from '@/lib/supabase/webTabAuthIsolation';
 
@@ -29,6 +31,8 @@ export type ShopLoginResult =
   | 'email_login_disabled'
   | 'shop_not_found'
   | 'pending_approval'
+  | 'rate_limited'
+  | 'network_error'
   | 'not_configured';
 
 export type ShopRegisterResult =
@@ -150,13 +154,17 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await Promise.race([authPromise, timeoutPromise]);
       if (error || !data.user?.email) {
-        const message = error?.message.toLowerCase() ?? '';
-        if (message.includes('email logins are disabled')) return 'email_login_disabled';
-        if (message.includes('email not confirmed')) return 'email_not_confirmed';
-        return 'invalid_credentials';
+        return classifySignInError(error ?? new Error('invalid login credentials'));
       }
 
-      const resolved = await applySession(data.user.id, data.user.email);
+      let resolved = await applySession(data.user.id, data.user.email);
+      if (resolved.staff?.role === 'pending_owner' || (!resolved.shop && resolved.staff?.role !== 'admin')) {
+        const delayedShop = await findMerchantShopRemote(data.user.email);
+        if (delayedShop) {
+          resolved = await applySession(data.user.id, data.user.email);
+        }
+      }
+
       if (!resolved.staff) {
         await supabase.auth.signOut();
         return 'shop_not_found';
@@ -177,8 +185,7 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
 
       return 'ok';
     } catch (error) {
-      if (error instanceof Error && error.message === 'timeout') return 'not_configured';
-      return 'invalid_credentials';
+      return classifySignInError(error);
     } finally {
       endAuthMutation();
       setBusy(false);

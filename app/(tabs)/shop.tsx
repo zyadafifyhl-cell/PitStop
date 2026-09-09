@@ -22,6 +22,7 @@ import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
 import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
+import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
 import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
@@ -41,7 +42,9 @@ import {
   resolveOwnerNotification,
 } from '@/lib/booking/commerceEvents';
 import { formatEgp } from '@/lib/booking/reporting';
+import { preventAuthFormRefresh } from '@/lib/auth/classifySignInError';
 import { useShopAuth } from '@/context/ShopAuthContext';
+import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { userAlert } from '@/lib/ui/userAlert';
@@ -91,6 +94,7 @@ export default function ShopScreen() {
   const theme = useAppTheme();
   const { t, tp, locale } = useI18n();
   const { ready, shop, busy, login, isAdmin, shopStaff } = useShopAuth();
+  const { isPro } = useShopSubscription(shop?.id);
 
   useEffect(() => {
     if (ready && isAdmin) {
@@ -100,6 +104,7 @@ export default function ShopScreen() {
   const { signOut } = useAppSignOut();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
   const [storeAdminTab, setStoreAdminTab] = useState<OwnerShellTabId>('dashboard');
@@ -232,19 +237,26 @@ export default function ShopScreen() {
     [bookings],
   );
 
-  const serviceOwnerMetrics = useMemo(() => {
-    const today = new Date().toDateString();
-    const completedRevenue = bookings
-      .filter((booking) => booking.status === 'done')
-      .reduce((sum, booking) => sum + Number(booking.servicePriceEgp ?? 0), 0);
-    return [
-      {
+  const serviceRevenueMetric = useMemo(
+    () => {
+      const completedRevenue = bookings
+        .filter((booking) => booking.status === 'done')
+        .reduce((sum, booking) => sum + Number(booking.servicePriceEgp ?? 0), 0);
+      return {
         id: 'revenue',
         label: t('store_owner_total_revenue'),
         value: formatEgp(completedRevenue, locale),
         icon: 'money' as const,
         tone: 'success' as const,
-      },
+      };
+    },
+    [bookings, locale, t],
+  );
+
+  const serviceOwnerMetrics = useMemo(() => {
+    const today = new Date().toDateString();
+    return [
+      ...(isPro ? [serviceRevenueMetric] : []),
       {
         id: 'today',
         label: t('owner_dashboard_today_bookings'),
@@ -265,25 +277,33 @@ export default function ShopScreen() {
         icon: 'wrench' as const,
       },
     ];
-  }, [activeBookings.length, bookings, locale, shopExtras?.services, t]);
+  }, [activeBookings.length, bookings, isPro, serviceRevenueMetric, shopExtras?.services, t]);
 
-  async function onLogin() {
+  async function onLogin(event?: { preventDefault?: () => void }) {
+    preventAuthFormRefresh(event);
+    setLoginError('');
     const result = await login(email, password);
-    if (result === 'invalid_credentials') {
-      userAlert(t('shop_login_auth_fail_title'), t('shop_login_auth_fail_body'));
+    if (result === 'ok_admin') {
+      router.replace('/admin');
+      return;
+    }
+    if (result === 'ok') {
       return;
     }
     if (result === 'shop_not_found') {
       userAlert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
       return;
     }
-    if (result === 'ok_admin') {
-      router.replace('/admin');
+    setPassword('');
+    if (result === 'rate_limited') {
+      setLoginError(t('auth_login_rate_limited_body'));
       return;
     }
-    if (result !== 'ok') {
-      userAlert(t('shop_login_fail_title'), t('shop_login_fail_body'));
+    if (result === 'network_error') {
+      setLoginError(t('auth_login_network_body'));
+      return;
     }
+    setLoginError(t('auth_login_invalid_body'));
   }
 
   function onLogout() {
@@ -812,8 +832,18 @@ export default function ShopScreen() {
           placeholderTextColor={theme.textDim}
           secureTextEntry
           value={password}
-          onChangeText={setPassword}
-          style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+          onChangeText={(text) => {
+            setPassword(text);
+            if (loginError) setLoginError('');
+          }}
+          style={[
+            styles.input,
+            {
+              color: theme.text,
+              borderColor: loginError ? theme.text : theme.border,
+              backgroundColor: theme.bgElevated,
+            },
+          ]}
           {...textInputSubmitProps({
             enabled: !busy && !!email.trim() && !!password.trim(),
             onSubmit: () => {
@@ -821,9 +851,14 @@ export default function ShopScreen() {
             },
           })}
         />
+        {loginError ? (
+          <Text style={[styles.lead, { color: theme.text, marginTop: 8 }]}>{loginError}</Text>
+        ) : null}
         <Pressable
           onPress={onLogin}
           disabled={busy}
+          accessibilityRole="button"
+          {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}
           style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: busy ? 0.65 : 1 }]}>
           <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_login_btn')}</Text>
         </Pressable>
@@ -969,9 +1004,11 @@ export default function ShopScreen() {
         ) : null}
       </OwnerSectionCard>
 
-      <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
-        <MerchantCampaignsPanel shopId={shop.id} />
-      </OwnerSectionCard>
+      <PremiumFeatureGate shopId={shop.id} hint={t('premium_campaigns_lock_hint')}>
+        <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+          <MerchantCampaignsPanel shopId={shop.id} />
+        </OwnerSectionCard>
+      </PremiumFeatureGate>
 
       <StoreInventoryManager shop={shop} />
     </>
@@ -1248,9 +1285,11 @@ export default function ShopScreen() {
                 mapPinCoords={mapPinCoords}
                 onSetMapPin={onSetStoreMapPin}
               />
-              <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
-                <MerchantCampaignsPanel shopId={shop.id} />
-              </OwnerSectionCard>
+              <PremiumFeatureGate shopId={shop.id} hint={t('premium_campaigns_lock_hint')}>
+                <OwnerSectionCard theme={theme} title={t('campaign_panel_title')} subtitle={t('campaign_panel_lead')}>
+                  <MerchantCampaignsPanel shopId={shop.id} />
+                </OwnerSectionCard>
+              </PremiumFeatureGate>
             </>
           ) : null}
 
@@ -1330,6 +1369,13 @@ export default function ShopScreen() {
               </Pressable>
               <OwnerMetricsGrid metrics={serviceOwnerMetrics} />
             </OwnerSectionCard>
+            {!isPro ? (
+              <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
+                <OwnerSectionCard theme={theme} title={t('wash_analytics_title')} subtitle={t('premium_feature_analytics')}>
+                  <OwnerMetricsGrid metrics={[serviceRevenueMetric]} />
+                </OwnerSectionCard>
+              </PremiumFeatureGate>
+            ) : null}
           </>
         ) : null}
 

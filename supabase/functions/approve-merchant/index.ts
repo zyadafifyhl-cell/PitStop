@@ -168,6 +168,26 @@ serve(async (req) => {
       );
     }
 
+    const { data: shopRow, error: shopReadError } = await supabaseAdmin
+      .from('shops')
+      .select('id, is_active, owner_email, owner_user_id')
+      .eq('id', shopId)
+      .maybeSingle();
+
+    if (shopReadError || !shopRow?.is_active || shopRow.owner_user_id !== userId) {
+      console.error('Approved shop is not queryable:', shopReadError, shopRow);
+      return new Response(
+        JSON.stringify({
+          error: 'Shop row was not activated',
+          details: shopReadError?.message ?? 'shops.is_active is still false',
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

@@ -1,4 +1,5 @@
 import type { Locale } from '@/lib/i18n/strings';
+import type { AppThemeTokens } from '@/constants/Theme';
 import type { Booking, Shop, ShopType } from '@/lib/booking/types';
 import { bookingStatusLabel, shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
@@ -135,51 +136,54 @@ export type OrderStatusBadgeTone = {
   borderColor: string;
 };
 
-export function orderStatusBadgeTone(status: Booking['status']): OrderStatusBadgeTone {
+export function orderStatusBadgeTone(
+  status: Booking['status'],
+  theme: AppThemeTokens,
+): OrderStatusBadgeTone {
   if (status === 'suspended_by_shop') {
     return {
-      backgroundColor: 'rgba(234, 179, 8, 0.22)',
-      color: '#FDE68A',
-      borderColor: 'rgba(234, 179, 8, 0.45)',
+      backgroundColor: theme.cardHover,
+      color: theme.textMuted,
+      borderColor: theme.chipBorder,
     };
   }
   const normalized = normalizeCustomerOrderStatus(status);
   switch (normalized) {
     case 'pending':
       return {
-        backgroundColor: 'rgba(245, 158, 11, 0.18)',
-        color: '#FCD34D',
-        borderColor: 'rgba(245, 158, 11, 0.35)',
+        backgroundColor: theme.cardHover,
+        color: theme.textMuted,
+        borderColor: theme.chipBorder,
       };
     case 'confirmed':
       return {
-        backgroundColor: 'rgba(0, 212, 255, 0.16)',
-        color: '#67E8F9',
-        borderColor: 'rgba(0, 212, 255, 0.35)',
+        backgroundColor: theme.accentSoft,
+        color: theme.text,
+        borderColor: theme.chipBorder,
       };
     case 'done':
       return {
-        backgroundColor: 'rgba(34, 197, 94, 0.18)',
-        color: '#86EFAC',
-        borderColor: 'rgba(34, 197, 94, 0.35)',
+        backgroundColor: theme.accent,
+        color: theme.onAccent,
+        borderColor: theme.accent,
       };
     case 'cancelled':
       return {
-        backgroundColor: 'rgba(239, 68, 68, 0.16)',
-        color: '#FCA5A5',
-        borderColor: 'rgba(239, 68, 68, 0.35)',
+        backgroundColor: theme.cardHover,
+        color: theme.textMuted,
+        borderColor: theme.chipBorder,
       };
     case 'no_show':
       return {
-        backgroundColor: 'rgba(234, 179, 8, 0.18)',
-        color: '#FDE047',
-        borderColor: 'rgba(234, 179, 8, 0.35)',
+        backgroundColor: theme.cardHover,
+        color: theme.textDim,
+        borderColor: theme.chipBorder,
       };
     default:
       return {
-        backgroundColor: 'rgba(255,255,255,0.08)',
-        color: '#C5D1E3',
-        borderColor: 'rgba(255,255,255,0.12)',
+        backgroundColor: theme.cardHover,
+        color: theme.textMuted,
+        borderColor: theme.chipBorder,
       };
   }
 }

@@ -20,8 +20,6 @@ import {
 import { getShopById } from '@/lib/booking/catalogRepository';
 import type { Booking } from '@/lib/booking/types';
 
-const RATING_DIVIDER = 'rgba(255,255,255,0.05)';
-
 type Props = {
   booking: Booking;
   locale: Locale;
@@ -52,7 +50,7 @@ export function OrderListCard({
   const shop = getShopById(booking.shopId);
   const shopName = resolveShopDisplayName(shop, booking.shopId, locale);
   const displayStatus = resolveCustomerDisplayStatus(booking, nowMs);
-  const statusTone = orderStatusBadgeTone(displayStatus);
+  const statusTone = orderStatusBadgeTone(displayStatus, theme);
   const showBookAgain = canBookAgainFromOrder(displayStatus);
   const showRatingFooter = canRateCompletedOrder(displayStatus);
   const [selectedRating, setSelectedRating] = useState(savedRating);
@@ -120,7 +118,7 @@ export function OrderListCard({
       </View>
 
       {showRatingFooter ? (
-        <View style={[styles.rateFooter, { borderTopColor: RATING_DIVIDER }]}>
+        <View style={[styles.rateFooter, { borderTopColor: theme.border }]}>
           <Text style={[styles.rateLabel, { color: theme.textMuted }]}>{t('orders_rate')}</Text>
           {ratingBusy ? (
             <ActivityIndicator color={theme.warm} />
@@ -144,7 +142,7 @@ export function OrderListCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 16,
     marginBottom: 14,
     overflow: 'hidden',
   },

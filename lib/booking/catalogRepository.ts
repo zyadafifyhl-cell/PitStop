@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { Area, Shop, ShopType } from '@/lib/booking/types';
+import { isProSubscription, snapshotFromShopRow } from '@/lib/shop/subscription';
 import { getSupabase } from '@/lib/supabase/client';
 
 const CATALOG_CACHE_KEY = '@pitstop/catalog/v1';
@@ -28,6 +29,9 @@ type ShopRow = {
   owner_email: string;
   rating: number | string | null;
   is_premium?: boolean | null;
+  subscription_tier?: string | null;
+  subscription_status?: string | null;
+  subscription_expires_at?: string | null;
 };
 
 let areasCache: Area[] = [];
@@ -97,6 +101,7 @@ function mapAreaRow(row: AreaRow): Area {
 }
 
 function mapShopRow(row: ShopRow): Shop {
+  const snapshot = snapshotFromShopRow(row);
   return {
     id: row.id,
     name: row.name,
@@ -110,7 +115,10 @@ function mapShopRow(row: ShopRow): Shop {
     longitude: row.longitude,
     ownerEmail: row.owner_email,
     rating: row.rating != null ? Number(row.rating) : undefined,
-    isPremium: row.is_premium === true,
+    isPremium: isProSubscription(snapshot),
+    subscriptionTier: snapshot.tier,
+    subscriptionStatus: snapshot.status,
+    subscriptionExpiresAt: snapshot.expiresAt,
   };
 }
 
@@ -137,6 +145,21 @@ export function getShopById(id: string): Shop | undefined {
   return shopsCache.find((shop) => shop.id === id);
 }
 
+function cacheShopRow(shop: Shop): void {
+  const existingIdx = shopsCache.findIndex((row) => row.id === shop.id);
+  if (existingIdx >= 0) {
+    shopsCache[existingIdx] = shop;
+  } else {
+    shopsCache.push(shop);
+  }
+  catalogReady = true;
+  void saveCatalogToStorage();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Fetch a single active shop row when it is missing from the in-memory catalog cache. */
 export async function fetchShopByIdRemote(id: string): Promise<Shop | null> {
   const supabase = getSupabase();
@@ -152,18 +175,48 @@ export async function fetchShopByIdRemote(id: string): Promise<Shop | null> {
     // shops.id is the public slug (e.g. shop-wash-nile); there is no separate slug column.
     if (error || !data) return null;
     const shop = mapShopRow(data as ShopRow);
-    const existingIdx = shopsCache.findIndex((row) => row.id === shop.id);
-    if (existingIdx >= 0) {
-      shopsCache[existingIdx] = shop;
-    } else {
-      shopsCache.push(shop);
-    }
-    catalogReady = true;
-    void saveCatalogToStorage();
+    cacheShopRow(shop);
     return shop;
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve an active merchant shop by owner email, retrying briefly for replica lag
+ * right after admin approval.
+ */
+export async function findMerchantShopRemote(
+  email: string,
+  retries = 3,
+  delayMs = 500,
+): Promise<Shop | null> {
+  const supabase = getSupabase();
+  const cleanEmail = email.trim().toLowerCase();
+  if (!supabase || !cleanEmail) return null;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const cached = getShopByOwnerEmail(cleanEmail);
+    if (cached) return cached;
+
+    const { data, error } = await supabase
+      .from('shops')
+      .select('*')
+      .ilike('owner_email', cleanEmail)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      const shop = mapShopRow(data as ShopRow);
+      cacheShopRow(shop);
+      return shop;
+    }
+    if (attempt < retries - 1) {
+      await sleep(delayMs);
+    }
+  }
+  return null;
 }
 
 /** Keep in-memory catalog in sync after owner updates shop GPS. */

@@ -175,7 +175,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
           right: 0,
           bottom: 0,
           left: 0,
-          backgroundColor: 'rgba(2, 6, 12, 0.7)',
+          backgroundColor: theme.overlay,
           alignItems: 'center',
           justifyContent: 'center',
           padding: 20,
@@ -212,7 +212,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
         buttonBase: {
           flex: 1,
           minHeight: 44,
-          borderRadius: theme.radiusSm,
+          borderRadius: theme.radiusBtn,
           borderWidth: 1,
           alignItems: 'center',
           justifyContent: 'center',

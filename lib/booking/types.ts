@@ -21,8 +21,11 @@ export type Shop = {
   longitude: number;
   ownerEmail: string;
   rating?: number;
-  /** SaaS tier — unlocks premium wash owner CMS sections. */
+  /** SaaS tier — unlocks premium merchant dashboard sections. */
   isPremium?: boolean;
+  subscriptionTier?: 'free' | 'pro' | 'enterprise';
+  subscriptionStatus?: 'active' | 'expired' | 'trial';
+  subscriptionExpiresAt?: string | null;
 };
 
 export type Booking = {

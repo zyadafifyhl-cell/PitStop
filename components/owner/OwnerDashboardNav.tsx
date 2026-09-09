@@ -27,9 +27,6 @@ const NAV_ICONS: Record<OwnerNavIconId, React.ComponentProps<typeof MaterialComm
   settings: 'cog-outline',
 };
 
-const ACTIVE_COLOR = '#3b82f6';
-const INACTIVE_COLOR = '#9ca3af';
-
 export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange }: Props<T>) {
   const theme = useAppTheme();
   const compact = tabs.length >= 5;
@@ -38,7 +35,7 @@ export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange 
     <View style={[styles.container, { backgroundColor: theme.bgElevated, borderTopColor: theme.border }]}>
       {tabs.map((tab) => {
         const active = activeTab === tab.id;
-        const color = active ? ACTIVE_COLOR : INACTIVE_COLOR;
+        const color = active ? theme.brand : theme.textDim;
         return (
           <Pressable
             key={tab.id}
@@ -70,11 +67,11 @@ const styles = StyleSheet.create({
     minHeight: 72,
     flexDirection: 'row',
     borderTopWidth: 1,
-    elevation: 8,
-    shadowColor: '#000',
+    elevation: 2,
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.16,
-    shadowRadius: 8,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
   },
   item: {
     flex: 1,

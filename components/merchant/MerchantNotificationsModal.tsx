@@ -127,8 +127,8 @@ export function MerchantNotificationsModal({
                         <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={2}>
                           {item.title}
                         </Text>
-                        <View style={[styles.pendingChip, { backgroundColor: '#FF9800' }]}>
-                          <Text style={styles.pendingChipText}>{t('store_order_status_pending')}</Text>
+                        <View style={[styles.pendingChip, { backgroundColor: theme.warningSoft }]}>
+                          <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
                         </View>
                       </View>
                       <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>{item.message}</Text>
@@ -158,8 +158,8 @@ export function MerchantNotificationsModal({
                         <Text style={[styles.rowTitle, { color: theme.text }]}>
                           {t('merchant_notif_booking_title')}
                         </Text>
-                        <View style={[styles.pendingChip, { backgroundColor: '#FF9800' }]}>
-                          <Text style={styles.pendingChipText}>{t('store_order_status_pending')}</Text>
+                        <View style={[styles.pendingChip, { backgroundColor: theme.warningSoft }]}>
+                          <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
                         </View>
                       </View>
                       <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>
@@ -188,7 +188,7 @@ export function MerchantNotificationsModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(15,23,42,0.42)',
     justifyContent: 'center',
     padding: 16,
   },
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  pendingChipText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  pendingChipText: { fontSize: 10, fontWeight: '700' },
   rowBodyText: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
   rowTime: { fontSize: 11, fontWeight: '700' },
   okBtn: {
