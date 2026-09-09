@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   languageOption: {
-    direction: 'ltr',
+    writingDirection: 'ltr',
     minHeight: 46,
     paddingHorizontal: 12,
     flexDirection: 'row',
