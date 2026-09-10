@@ -26,6 +26,7 @@ export type ReportExportModel = {
   rows: ReportExportRow[];
   insights?: {
     totalBookings: number;
+    revenueBookingCount?: number;
     grossRevenue: number;
     appCount: number;
     walkInCount: number;
@@ -55,6 +56,7 @@ type HtmlPayload = {
   };
   insights?: {
     totalBookings?: number;
+    revenueBookingCount?: number;
     grossRevenue?: number;
     appCount?: number;
     walkInCount?: number;
@@ -150,7 +152,8 @@ export function buildReportExportModelFromSavedHtml(html: string): ReportExportM
       const bookingId = tr.getAttribute('data-booking-id') || cells[0]?.textContent || `row-${index + 1}`;
       const dateText = cells[1]?.textContent?.trim() || '-';
       const typeText = cells[2]?.textContent?.trim() || 'App';
-      const revenueEgp = parseMoney(cells[7]?.textContent ?? '');
+      // Ledger columns: #, scheduled, source, service, phone, car, color, status, price, fee, net
+      const revenueEgp = parseMoney(cells[8]?.textContent ?? cells[7]?.textContent ?? '');
       return { bookingId, dateText, typeText, revenueEgp };
     })
     .filter((row): row is ReportExportRow => !!row);

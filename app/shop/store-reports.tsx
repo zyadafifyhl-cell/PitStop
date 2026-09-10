@@ -1,5 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
@@ -88,8 +90,9 @@ export default function StoreReportsScreen() {
     }, [loadReport, ready, shop]),
   );
 
-  const metrics = useMemo<OwnerMetric[]>(
-    () => [
+  const metrics = useMemo<OwnerMetric[]>(() => {
+    const handled = report.completedOrdersCount + report.cancelledOrdersCount;
+    return [
       {
         id: 'revenue',
         label: t('store_reports_gross_revenue'),
@@ -117,18 +120,28 @@ export default function StoreReportsScreen() {
         icon: 'line-chart',
         tone: 'accent',
       },
-    ],
-    [locale, report, t],
-  );
+      {
+        id: 'cancel_rate',
+        label: t('store_reports_cancel_rate'),
+        value: handled > 0 ? `${Math.round((report.cancelledOrdersCount / handled) * 100)}%` : '0%',
+        icon: 'pie-chart',
+      },
+    ];
+  }, [locale, report, t]);
 
   const rangeLabel = `${range.start.toLocaleDateString()} – ${range.end.toLocaleDateString()}`;
 
   function buildCsv(): string {
+    const handled = report.completedOrdersCount + report.cancelledOrdersCount;
+    const cancelRate = handled > 0 ? (report.cancelledOrdersCount / handled) * 100 : 0;
     const lines = [
       'Metric,Value',
+      `Shop,"${(locale === 'ar' ? shop?.nameAr || shop?.name : shop?.name) ?? ''}"`,
+      `Range,"${rangeLabel}"`,
       `Gross revenue,${report.grossRevenue}`,
       `Completed orders,${report.completedOrdersCount}`,
       `Cancelled orders,${report.cancelledOrdersCount}`,
+      `Cancel rate %,${cancelRate.toFixed(1)}`,
       `Average order value,${report.averageOrderValue}`,
       '',
       'Product,Units sold,Total sales',
@@ -142,17 +155,31 @@ export default function StoreReportsScreen() {
   async function exportCsv() {
     const csv = buildCsv();
     const filename = `store-report-${shop?.id ?? 'shop'}.csv`;
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.click();
-      URL.revokeObjectURL(url);
-      return;
+    try {
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!baseDir || !(await Sharing.isAvailableAsync())) {
+        Alert.alert(t('store_reports_export_csv'), csv.slice(0, 800));
+        return;
+      }
+      const path = `${baseDir}${filename}`;
+      await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
+      await Sharing.shareAsync(path, {
+        mimeType: 'text/csv',
+        dialogTitle: t('store_reports_share_csv'),
+      });
+    } catch {
+      Alert.alert(t('store_reports_export_csv'), t('store_reports_export_fail'));
     }
-    Alert.alert(t('store_reports_export_csv'), csv.slice(0, 800));
   }
 
   async function printSummary() {
@@ -162,16 +189,21 @@ export default function StoreReportsScreen() {
           `<tr><td>${row.productName}</td><td>${row.unitsSold}</td><td>${formatEgp(row.totalSales, locale)}</td></tr>`,
       )
       .join('');
+    const handled = report.completedOrdersCount + report.cancelledOrdersCount;
+    const cancelRate = handled > 0 ? `${Math.round((report.cancelledOrdersCount / handled) * 100)}%` : '0%';
     const html = `
-      <html><body style="font-family:Segoe UI,Arial,sans-serif;padding:24px;">
+      <html><body style="font-family:Segoe UI,Arial,sans-serif;padding:24px;color:#0f172a;">
         <h1>${t('store_reports_title')}</h1>
         <p>${shop ? (locale === 'ar' ? shop.nameAr || shop.name : shop.name) : ''} · ${rangeLabel}</p>
-        <p><strong>${t('store_reports_gross_revenue')}:</strong> ${formatEgp(report.grossRevenue, locale)}</p>
-        <p><strong>${t('store_reports_completed')}:</strong> ${report.completedOrdersCount}</p>
-        <p><strong>${t('store_reports_cancelled')}:</strong> ${report.cancelledOrdersCount}</p>
-        <p><strong>${t('store_reports_aov')}:</strong> ${formatEgp(report.averageOrderValue, locale)}</p>
+        <p style="color:#64748b;font-size:13px;">${t('store_reports_lead')}</p>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0;">
+          <div style="border:1px solid #e2e8f0;padding:12px;"><strong>${t('store_reports_gross_revenue')}</strong><div>${formatEgp(report.grossRevenue, locale)}</div></div>
+          <div style="border:1px solid #e2e8f0;padding:12px;"><strong>${t('store_reports_aov')}</strong><div>${formatEgp(report.averageOrderValue, locale)}</div></div>
+          <div style="border:1px solid #e2e8f0;padding:12px;"><strong>${t('store_reports_completed')}</strong><div>${report.completedOrdersCount}</div></div>
+          <div style="border:1px solid #e2e8f0;padding:12px;"><strong>${t('store_reports_cancelled')}</strong><div>${report.cancelledOrdersCount} (${cancelRate})</div></div>
+        </div>
         <h2>${t('store_reports_top_skus')}</h2>
-        <table border="1" cellpadding="6" cellspacing="0" width="100%">
+        <table border="1" cellpadding="6" cellspacing="0" width="100%" style="border-collapse:collapse;">
           <tr><th>${t('store_owner_product_name')}</th><th>${t('store_reports_units_sold')}</th><th>${t('store_owner_total')}</th></tr>
           ${rows || `<tr><td colspan="3">${t('store_reports_empty')}</td></tr>`}
         </table>

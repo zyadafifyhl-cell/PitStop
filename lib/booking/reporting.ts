@@ -55,15 +55,33 @@ export function estimateDefaultPriceEgp(type: Booking['shopType']): number {
   return 420;
 }
 
-export function normalizeBookingMoney(booking: Booking): {
+export type NormalizeBookingMoneyOptions = {
+  /** When false, missing prices stay 0 instead of inventing catalog defaults (reports). */
+  estimateMissing?: boolean;
+};
+
+export function normalizeBookingMoney(
+  booking: Booking,
+  options: NormalizeBookingMoneyOptions = {},
+): {
   servicePriceEgp: number;
   platformFeeEgp: number;
   ownerNetEgp: number;
+  priceMissing: boolean;
 } {
-  const servicePriceEgp = Math.max(0, booking.servicePriceEgp ?? estimateDefaultPriceEgp(booking.shopType));
-  const platformFeeEgp = Math.max(0, booking.platformFeeEgp ?? servicePriceEgp * 0.12);
+  const estimateMissing = options.estimateMissing !== false;
+  const priceMissing =
+    booking.servicePriceEgp == null || !Number.isFinite(booking.servicePriceEgp);
+  const servicePriceEgp = Math.max(
+    0,
+    booking.servicePriceEgp ?? (estimateMissing ? estimateDefaultPriceEgp(booking.shopType) : 0),
+  );
+  const platformFeeEgp = Math.max(
+    0,
+    booking.platformFeeEgp ?? (priceMissing && !estimateMissing ? 0 : servicePriceEgp * 0.12),
+  );
   const ownerNetEgp = Math.max(0, servicePriceEgp - platformFeeEgp);
-  return { servicePriceEgp, platformFeeEgp, ownerNetEgp };
+  return { servicePriceEgp, platformFeeEgp, ownerNetEgp, priceMissing };
 }
 
 export function formatEgp(value: number, locale: 'en' | 'ar'): string {
@@ -138,6 +156,8 @@ function formatReportPercent(value: number, locale: 'en' | 'ar'): string {
 
 export function computeOperationalInsights(params: {
   totalBookings: number;
+  /** Completed revenue bookings used for AOV / vehicles (defaults to totalBookings). */
+  revenueBookingCount?: number;
   grossRevenue: number;
   appCount: number;
   walkInCount: number;
@@ -161,6 +181,7 @@ export function computeOperationalInsights(params: {
 } {
   const {
     totalBookings,
+    revenueBookingCount,
     grossRevenue,
     appCount,
     walkInCount,
@@ -170,7 +191,11 @@ export function computeOperationalInsights(params: {
     locale,
   } = params;
   const labels = getReportPrintLabels(locale);
-  const aov = totalBookings > 0 ? grossRevenue / totalBookings : 0;
+  const revenueCount =
+    typeof revenueBookingCount === 'number' && Number.isFinite(revenueBookingCount)
+      ? Math.max(0, revenueBookingCount)
+      : totalBookings;
+  const aov = revenueCount > 0 ? grossRevenue / revenueCount : 0;
   const appPct = totalBookings > 0 ? (appCount / totalBookings) * 100 : 0;
   const walkPct = totalBookings > 0 ? (walkInCount / totalBookings) * 100 : 0;
 
@@ -184,7 +209,7 @@ export function computeOperationalInsights(params: {
       formatReportPercent(walkPct, locale),
     ),
     vehiclesLabel: labels.vehiclesServiced,
-    vehiclesValue: totalBookings.toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
+    vehiclesValue: revenueCount.toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG'),
     appRevenueLabel: labels.appRevenue,
     appRevenueValue: formatEgp(appRevenueEgp, locale),
     walkInRevenueLabel: labels.walkInRevenue,
@@ -239,12 +264,14 @@ export function buildOwnerReportHtml(params: {
     .slice()
     .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
 
-  const statusCount = { pending: 0, confirmed: 0, done: 0, cancelled: 0 };
+  const statusCount = { pending: 0, confirmed: 0, done: 0, cancelled: 0, no_show: 0 };
   const typeCount = { maintenance: 0, wash: 0, parts: 0, winch: 0 };
   let walkInCount = 0;
   let appRevenueEgp = 0;
   let walkInRevenueEgp = 0;
   let cancelledNoShowCount = 0;
+  let revenueBookingCount = 0;
+  let missingPriceCount = 0;
   const totals = { gross: 0, fee: 0, net: 0 };
   const htmlRows: string[] = [];
   const payloadRows: Array<{
@@ -258,10 +285,12 @@ export function buildOwnerReportHtml(params: {
 
   for (let idx = 0; idx < sortedBookings.length; idx += 1) {
     const booking = sortedBookings[idx];
-    const money = normalizeBookingMoney(booking);
+    const money = normalizeBookingMoney(booking, { estimateMissing: false });
     const isRevenue = booking.status === 'done' && !booking.lifecycleAutoCompleted;
+    if (money.priceMissing && isRevenue) missingPriceCount += 1;
 
     if (isRevenue) {
+      revenueBookingCount += 1;
       totals.gross += money.servicePriceEgp;
       totals.fee += money.platformFeeEgp;
       totals.net += money.ownerNetEgp;
@@ -280,6 +309,7 @@ export function buildOwnerReportHtml(params: {
     else if (booking.status === 'confirmed') statusCount.confirmed += 1;
     else if (booking.status === 'done') statusCount.done += 1;
     else if (booking.status === 'cancelled') statusCount.cancelled += 1;
+    else if (booking.status === 'no_show') statusCount.no_show += 1;
 
     if (booking.shopType === 'maintenance') typeCount.maintenance += 1;
     else if (booking.shopType === 'wash') typeCount.wash += 1;
@@ -289,19 +319,33 @@ export function buildOwnerReportHtml(params: {
     if (isWalkIn) walkInCount += 1;
     const when = new Date(booking.scheduledAt).toLocaleString(isAr ? 'ar-EG' : 'en-EG');
     const sourceLabel = reportBookingSourceLabel(locale, isWalkIn);
+    const serviceLabel =
+      (isAr ? booking.serviceNameAr || booking.serviceName : booking.serviceName || booking.serviceNameAr) ||
+      (isAr ? '—' : '-');
+    const moneyCellClass = money.priceMissing ? 'col-money muted-money' : 'col-money';
+    const moneyDisplay = money.priceMissing
+      ? escapeHtml(labels.priceNotSet)
+      : escapeHtml(formatEgp(money.servicePriceEgp, locale));
+    const feeDisplay = money.priceMissing
+      ? escapeHtml(isAr ? '—' : '-')
+      : escapeHtml(formatEgp(money.platformFeeEgp, locale));
+    const netDisplay = money.priceMissing
+      ? escapeHtml(isAr ? '—' : '-')
+      : escapeHtml(formatEgp(money.ownerNetEgp, locale));
 
     htmlRows.push(`
-      <tr data-booking-id="${escapeHtml(booking.id)}">
+      <tr data-booking-id="${escapeHtml(booking.id)}" class="${isRevenue ? 'row-revenue' : 'row-ops'}">
         <td class="col-index">${idx + 1}</td>
         <td>${escapeHtml(when)}</td>
         <td>${sourceBadgeHtml(sourceLabel, isWalkIn)}</td>
+        <td>${escapeHtml(serviceLabel)}</td>
         <td>${escapeHtml(booking.customerPhone || (isAr ? '—' : '-'))}</td>
         <td>${escapeHtml(booking.carType)}</td>
         <td>${escapeHtml(booking.carColor || (isAr ? '—' : '-'))}</td>
         <td><span class="status-pill status-${escapeHtml(booking.status)}">${escapeHtml(booking.status)}</span></td>
-        <td class="col-money">${escapeHtml(formatEgp(money.servicePriceEgp, locale))}</td>
-        <td class="col-money col-fee">${escapeHtml(formatEgp(money.platformFeeEgp, locale))}</td>
-        <td class="col-money col-net">${escapeHtml(formatEgp(money.ownerNetEgp, locale))}</td>
+        <td class="${moneyCellClass}">${moneyDisplay}</td>
+        <td class="col-money col-fee">${feeDisplay}</td>
+        <td class="col-money col-net">${netDisplay}</td>
       </tr>`);
 
     payloadRows.push({
@@ -331,12 +375,14 @@ export function buildOwnerReportHtml(params: {
     },
     insights: {
       totalBookings: bookings.length,
+      revenueBookingCount,
       grossRevenue: totals.gross,
       appCount: bookings.length - walkInCount,
       walkInCount,
       appRevenueEgp,
       walkInRevenueEgp,
       cancelledNoShowCount,
+      missingPriceCount,
     },
     rows: payloadRows,
   });
@@ -347,6 +393,7 @@ export function buildOwnerReportHtml(params: {
   const generatedLabelKey = labels.generatedAt;
   const insights = computeOperationalInsights({
     totalBookings: bookings.length,
+    revenueBookingCount,
     grossRevenue: totals.gross,
     appCount: bookings.length - walkInCount,
     walkInCount,
@@ -356,6 +403,13 @@ export function buildOwnerReportHtml(params: {
     locale,
   });
   const insightsTitle = labels.operationalInsights;
+  const missingPriceNote =
+    missingPriceCount > 0
+      ? `<p class="report-note">${escapeHtml(
+          labels.missingPricesNote.replace('{count}', String(missingPriceCount)),
+        )}</p>`
+      : '';
+  const revenueNote = `<p class="report-note">${escapeHtml(labels.revenueCompletedOnlyNote)}</p>`;
 
   return `<!doctype html>
 <html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
@@ -570,6 +624,15 @@ export function buildOwnerReportHtml(params: {
       letter-spacing: -0.02em;
       word-break: break-word;
     }
+    .report-note {
+      margin: -8px 0 18px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted) !important;
+      line-height: 1.45;
+    }
+    .muted-money { color: var(--muted) !important; font-style: italic; }
+    .row-ops td { opacity: 0.92; }
     .table-wrap {
       width: 100%;
       overflow: hidden;
@@ -717,11 +780,13 @@ export function buildOwnerReportHtml(params: {
       <div class="stat-card"><div class="label">${escapeHtml(labels.walkInPos)}</div><div class="value">${walkInCount}</div></div>
       <div class="stat-card"><div class="label">${escapeHtml(labels.confirmed)}</div><div class="value">${statusCount.confirmed}</div></div>
       <div class="stat-card"><div class="label">${escapeHtml(labels.cancelled)}</div><div class="value">${statusCount.cancelled}</div></div>
-      <div class="stat-card"><div class="label">${escapeHtml(labels.maintenance)}</div><div class="value">${typeCount.maintenance}</div></div>
-      <div class="stat-card"><div class="label">${escapeHtml(labels.washPartsWinch)}</div><div class="value">${typeCount.wash + typeCount.parts + typeCount.winch}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.noShow)}</div><div class="value">${statusCount.no_show}</div></div>
+      <div class="stat-card"><div class="label">${escapeHtml(labels.washPartsWinch)}</div><div class="value">${typeCount.wash + typeCount.parts + typeCount.winch + typeCount.maintenance}</div></div>
     </div>
 
     <h2 class="section-title">${escapeHtml(labels.financialSummary)}</h2>
+    ${revenueNote}
+    ${missingPriceNote}
     <div class="financial-summary">
       <div class="metric-card" data-metric="gross">
         <div class="label">${escapeHtml(labels.grossRevenue)}</div>
@@ -745,20 +810,21 @@ export function buildOwnerReportHtml(params: {
       <table>
         <thead>
           <tr>
-            <th style="width:5%">#</th>
-            <th style="width:14%">${escapeHtml(labels.tableScheduled)}</th>
-            <th style="width:8%">${escapeHtml(labels.tableSource)}</th>
-            <th style="width:12%">${escapeHtml(labels.tableCustomerPhone)}</th>
-            <th style="width:11%">${escapeHtml(labels.tableCarType)}</th>
-            <th style="width:8%">${escapeHtml(labels.tableColor)}</th>
+            <th style="width:4%">#</th>
+            <th style="width:12%">${escapeHtml(labels.tableScheduled)}</th>
+            <th style="width:7%">${escapeHtml(labels.tableSource)}</th>
+            <th style="width:11%">${escapeHtml(labels.tableService)}</th>
+            <th style="width:11%">${escapeHtml(labels.tableCustomerPhone)}</th>
+            <th style="width:9%">${escapeHtml(labels.tableCarType)}</th>
+            <th style="width:7%">${escapeHtml(labels.tableColor)}</th>
             <th style="width:8%">${escapeHtml(labels.tableStatus)}</th>
-            <th style="width:11%">${escapeHtml(labels.tableServicePrice)}</th>
-            <th style="width:11%">${escapeHtml(labels.tablePlatformFee)}</th>
-            <th style="width:12%">${escapeHtml(labels.tableOwnerNet)}</th>
+            <th style="width:10%">${escapeHtml(labels.tableServicePrice)}</th>
+            <th style="width:10%">${escapeHtml(labels.tablePlatformFee)}</th>
+            <th style="width:11%">${escapeHtml(labels.tableOwnerNet)}</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || `<tr class="empty-row"><td colspan="10">${escapeHtml(labels.noBookingsPeriod)}</td></tr>`}
+          ${rows || `<tr class="empty-row"><td colspan="11">${escapeHtml(labels.noBookingsPeriod)}</td></tr>`}
         </tbody>
       </table>
     </div>

@@ -34,10 +34,12 @@ export type ReportPrintLabels = {
   walkInPos: string;
   confirmed: string;
   cancelled: string;
+  noShow: string;
   maintenance: string;
   washPartsWinch: string;
   tableScheduled: string;
   tableSource: string;
+  tableService: string;
   tableCustomerPhone: string;
   tableCarType: string;
   tableColor: string;
@@ -46,6 +48,9 @@ export type ReportPrintLabels = {
   tablePlatformFee: string;
   tableOwnerNet: string;
   noBookingsPeriod: string;
+  priceNotSet: string;
+  missingPricesNote: string;
+  revenueCompletedOnlyNote: string;
 };
 
 export function getReportPrintLabels(locale: Locale): ReportPrintLabels {
@@ -82,10 +87,12 @@ export function getReportPrintLabels(locale: Locale): ReportPrintLabels {
     walkInPos: translate(locale, 'report_print_walk_in_pos'),
     confirmed: translate(locale, 'report_print_confirmed'),
     cancelled: translate(locale, 'report_print_cancelled'),
+    noShow: translate(locale, 'report_print_no_show'),
     maintenance: translate(locale, 'report_print_maintenance'),
-    washPartsWinch: translate(locale, 'report_print_wash_parts_winch'),
+    washPartsWinch: translate(locale, 'report_print_jobs_by_type'),
     tableScheduled: translate(locale, 'report_print_table_scheduled'),
     tableSource: translate(locale, 'report_print_table_source'),
+    tableService: translate(locale, 'report_print_table_service'),
     tableCustomerPhone: translate(locale, 'report_print_table_customer_phone'),
     tableCarType: translate(locale, 'report_print_table_car_type'),
     tableColor: translate(locale, 'report_print_table_color'),
@@ -94,6 +101,9 @@ export function getReportPrintLabels(locale: Locale): ReportPrintLabels {
     tablePlatformFee: translate(locale, 'report_print_table_platform_fee'),
     tableOwnerNet: translate(locale, 'report_print_table_owner_net'),
     noBookingsPeriod: translate(locale, 'report_print_no_bookings_period'),
+    priceNotSet: translate(locale, 'report_print_price_not_set'),
+    missingPricesNote: translate(locale, 'report_print_missing_prices_note'),
+    revenueCompletedOnlyNote: translate(locale, 'report_print_revenue_completed_only'),
   };
 }
 

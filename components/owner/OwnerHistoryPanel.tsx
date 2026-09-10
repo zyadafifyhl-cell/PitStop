@@ -46,6 +46,13 @@ import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import { subscribeMerchantBookingRealtime } from '@/lib/notifications/notificationService';
 
 type HistoryFilter = 'all' | 'done' | 'cancelled';
+type ReportQuickPreset = 'today' | '7d' | '30d';
+type ReportBookingRow = Booking & {
+  servicePriceEgp: number;
+  platformFeeEgp: number;
+  ownerNetEgp: number;
+  priceMissing: boolean;
+};
 
 type Props = {
   shop: Shop;
@@ -158,18 +165,38 @@ export function OwnerHistoryPanel({
     [reportStartYmd, reportEndYmd],
   );
 
-  const reportBookings = useMemo(() => {
-    const normalized = deferredRows.map((row) => ({ ...row, ...normalizeBookingMoney(row) }));
-    const inRange = reportRange ? filterBookingsByRange(normalized, reportRange) : [];
-    return filterRevenueBookings(inRange);
+  const reportBookingsInRange = useMemo(() => {
+    const mapped: ReportBookingRow[] = deferredRows.map((row) => {
+      const money = normalizeBookingMoney(row, { estimateMissing: false });
+      return { ...row, ...money };
+    });
+    return reportRange ? filterBookingsByRange(mapped, reportRange) : [];
   }, [deferredRows, reportRange]);
+
+  const reportBookings = useMemo(
+    () => filterRevenueBookings(reportBookingsInRange) as ReportBookingRow[],
+    [reportBookingsInRange],
+  );
+
+  const reportOpsSummary = useMemo(() => {
+    const cancelled = reportBookingsInRange.filter(
+      (row) => row.status === 'cancelled' || row.status === 'no_show',
+    ).length;
+    const missingPrices = reportBookings.filter((row) => row.priceMissing).length;
+    return {
+      total: reportBookingsInRange.length,
+      done: reportBookings.length,
+      cancelled,
+      missingPrices,
+    };
+  }, [reportBookings, reportBookingsInRange]);
 
   const financialTotals = useMemo(() => {
     return reportBookings.reduce(
       (acc, row) => {
-        acc.gross += row.servicePriceEgp ?? 0;
-        acc.fee += row.platformFeeEgp ?? 0;
-        acc.net += (row.servicePriceEgp ?? 0) - (row.platformFeeEgp ?? 0);
+        acc.gross += row.servicePriceEgp;
+        acc.fee += row.platformFeeEgp;
+        acc.net += row.ownerNetEgp;
         return acc;
       },
       { gross: 0, fee: 0, net: 0 },
@@ -201,6 +228,25 @@ export function OwnerHistoryPanel({
       ] as const,
     [t],
   );
+
+  const reportQuickPresets = useMemo(
+    () =>
+      [
+        { id: 'today' as const, days: 1, label: t(`${prefix}_preset_today`) },
+        { id: '7d' as const, days: 7, label: t(`${prefix}_preset_7d`) },
+        { id: '30d' as const, days: 30, label: t(`${prefix}_preset_30d`) },
+      ] as const,
+    [prefix, t],
+  );
+
+  function applyQuickPreset(preset: ReportQuickPreset) {
+    const days = preset === 'today' ? 1 : preset === '7d' ? 7 : 30;
+    const range = resolveLastNDaysRange(days);
+    if (!range) return;
+    setLastDaysInput(String(days));
+    setReportStartYmd(toYmdLocal(range.start));
+    setReportEndYmd(toYmdLocal(range.end));
+  }
 
   function applyLastDaysRange() {
     const days = Number(lastDaysInput);
@@ -292,17 +338,20 @@ export function OwnerHistoryPanel({
       scopedBranchId === branchId
         ? rows
         : await listArchivedBookingsForStaff(shop.id, scopedBranchId);
-    const scopedReportBookings = filterRevenueBookings(
-      filterBookingsByRange(
-        sourceRows.map((row) => ({ ...row, ...normalizeBookingMoney(row) })),
-        reportRange,
-      ),
+    const scopedInRange = filterBookingsByRange(
+      sourceRows.map((row) => ({
+        ...row,
+        ...normalizeBookingMoney(row, { estimateMissing: false }),
+      })),
+      reportRange,
     );
+    const scopedReportBookings = filterRevenueBookings(scopedInRange);
     const scopedFinancialTotals = scopedReportBookings.reduce(
       (acc, row) => {
-        acc.gross += row.servicePriceEgp ?? 0;
-        acc.fee += row.platformFeeEgp ?? 0;
-        acc.net += (row.servicePriceEgp ?? 0) - (row.platformFeeEgp ?? 0);
+        const money = normalizeBookingMoney(row, { estimateMissing: false });
+        acc.gross += money.servicePriceEgp;
+        acc.fee += money.platformFeeEgp;
+        acc.net += money.ownerNetEgp;
         return acc;
       },
       { gross: 0, fee: 0, net: 0 },
@@ -310,7 +359,7 @@ export function OwnerHistoryPanel({
     const rangeLabel = formatRangeLabel(reportRange, locale);
     const html = await buildOwnerReportHtmlDeferred({
       shop,
-      bookings: scopedReportBookings,
+      bookings: scopedInRange,
       range: reportRange,
       rangeLabel,
       generatedAt: new Date(),
@@ -346,10 +395,17 @@ export function OwnerHistoryPanel({
         }
       }
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        const appRows = scopedReportBookings.filter((booking) => booking.bookingType !== 'walk_in');
-        const walkRows = scopedReportBookings.filter((booking) => booking.bookingType === 'walk_in');
-        const appRevenueEgp = appRows.reduce((sum, row) => sum + (row.servicePriceEgp ?? 0), 0);
-        const walkInRevenueEgp = walkRows.reduce((sum, row) => sum + (row.servicePriceEgp ?? 0), 0);
+        const appRows = scopedInRange.filter((booking) => booking.bookingType !== 'walk_in');
+        const walkRows = scopedInRange.filter((booking) => booking.bookingType === 'walk_in');
+        const appRevenueEgp = scopedReportBookings
+          .filter((booking) => booking.bookingType !== 'walk_in')
+          .reduce((sum, row) => sum + normalizeBookingMoney(row, { estimateMissing: false }).servicePriceEgp, 0);
+        const walkInRevenueEgp = scopedReportBookings
+          .filter((booking) => booking.bookingType === 'walk_in')
+          .reduce((sum, row) => sum + normalizeBookingMoney(row, { estimateMissing: false }).servicePriceEgp, 0);
+        const cancelledNoShowCount = scopedInRange.filter(
+          (booking) => booking.status === 'cancelled' || booking.status === 'no_show',
+        ).length;
         openReportPrintFrameWeb({
           shopName: locale === 'ar' ? shop.nameAr : shop.name,
           reportTitle: t(`${prefix}_title`),
@@ -360,17 +416,18 @@ export function OwnerHistoryPanel({
           netEarnings: scopedFinancialTotals.net,
           locale,
           insights: {
-            totalBookings: scopedReportBookings.length,
+            totalBookings: scopedInRange.length,
+            revenueBookingCount: scopedReportBookings.length,
             grossRevenue: scopedFinancialTotals.gross,
             appCount: appRows.length,
             walkInCount: walkRows.length,
             appRevenueEgp,
             walkInRevenueEgp,
-            cancelledNoShowCount: 0,
+            cancelledNoShowCount,
           },
-          rows: scopedReportBookings.map((booking, index) => {
+          rows: scopedInRange.map((booking, index) => {
             const sourceLabel = reportBookingSourceLabel(locale, booking.bookingType === 'walk_in');
-            const money = normalizeBookingMoney(booking);
+            const money = normalizeBookingMoney(booking, { estimateMissing: false });
             return {
               bookingId: booking.id || `#${index + 1}`,
               dateText: formatBookingDateTime(booking.scheduledAt, locale),
@@ -467,6 +524,16 @@ export function OwnerHistoryPanel({
       {mode !== 'history' ? (
         <View style={[styles.reportCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>{t(`${prefix}_title`)}</Text>
+          <View style={styles.presetRow}>
+            {reportQuickPresets.map((preset) => (
+              <Pressable
+                key={preset.id}
+                onPress={() => applyQuickPreset(preset.id)}
+                style={[styles.presetChip, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.presetChipText, { color: theme.text }]}>{preset.label}</Text>
+              </Pressable>
+            ))}
+          </View>
           {branchOptions?.length ? (
             <View>
               <Text style={[styles.inlineTitle, { color: theme.text }]}>{t('wash_branch_select_title')}</Text>
@@ -545,11 +612,27 @@ export function OwnerHistoryPanel({
               : t(`${prefix}_invalid_range_body`)}
           </Text>
           {reportRange ? (
+            <Text style={[styles.summary, { color: theme.textMuted }]}>
+              {t(`${prefix}_ops_line`)
+                .replace('{total}', String(reportOpsSummary.total))
+                .replace('{done}', String(reportOpsSummary.done))
+                .replace('{cancelled}', String(reportOpsSummary.cancelled))}
+            </Text>
+          ) : null}
+          {reportRange ? (
             <Text style={[styles.moneyLine, { color: theme.text }]}>
               {t(`${prefix}_money_line`)
                 .replace('{gross}', formatEgp(financialTotals.gross, locale))
                 .replace('{fee}', formatEgp(financialTotals.fee, locale))
                 .replace('{net}', formatEgp(financialTotals.net, locale))}
+            </Text>
+          ) : null}
+          {reportRange ? (
+            <Text style={[styles.summary, { color: theme.textMuted }]}>{t(`${prefix}_money_hint`)}</Text>
+          ) : null}
+          {reportOpsSummary.missingPrices > 0 ? (
+            <Text style={[styles.summary, { color: theme.danger }]}>
+              {t(`${prefix}_missing_prices`).replace('{count}', String(reportOpsSummary.missingPrices))}
             </Text>
           ) : null}
           {canGenerateAllBranches ? (
@@ -736,6 +819,14 @@ const styles = StyleSheet.create({
   historyFilterText: { fontSize: 13, fontWeight: '800' },
   reportCard: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 },
   sectionTitle: { fontSize: 17, fontWeight: '800' },
+  presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  presetChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  presetChipText: { fontSize: 12, fontWeight: '800' },
   dateRow: { gap: 8 },
   inlineTitle: { fontSize: 14, fontWeight: '700', marginTop: 4 },
   lastDaysRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
