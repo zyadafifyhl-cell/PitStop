@@ -453,7 +453,8 @@ export default function WelcomeScreen() {
       <AutomotiveBackground theme={theme} variant="welcome" />
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(15,23,42,0.06)', 'rgba(15,23,42,0.02)', theme.bg]}
+        colors={['rgba(32, 85, 196, 0.28)', 'rgba(74, 127, 224, 0.14)', 'rgba(11, 17, 32, 0)']}
+        locations={[0, 0.45, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -463,11 +464,9 @@ export default function WelcomeScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <View style={[styles.logoWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <PitStopEgWordmark size="hero" />
-            </View>
+            <PitStopEgWordmark size="hero" style={styles.logoWrap} />
             <Text style={[styles.heroHeadline, { color: theme.text }]}>{t('welcome_hero_title')}</Text>
-            <Text style={[styles.tagline, { color: theme.textMuted }]}>{t('welcome_tagline')}</Text>
+            <Text style={[styles.tagline, { color: '#94A3B8' }]}>{t('welcome_tagline')}</Text>
           </View>
 
           <View style={styles.modeRow}>
@@ -895,13 +894,7 @@ const styles = StyleSheet.create({
   },
   hero: { alignItems: 'center', marginBottom: 28 },
   logoWrap: {
-    width: 132,
-    height: 132,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 20,
-    borderWidth: 1,
   },
   heroHeadline: {
     fontSize: 24,

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, StyleSheet, View } from 'react-native';
 
-import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { BRAND_COBALT } from '@/constants/Brand';
 
 const HOLD_MS = 1000;
 const FADE_MS = 500;
@@ -11,7 +11,6 @@ type Props = {
 };
 
 export function PremiumAnimatedSplash({ onFinish }: Props) {
-  const theme = useAppTheme();
   const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -29,10 +28,14 @@ export function PremiumAnimatedSplash({ onFinish }: Props) {
   }, [opacity, onFinish]);
 
   return (
-    <Animated.View style={[styles.overlay, { opacity, backgroundColor: theme.bg }]} pointerEvents="auto">
+    <Animated.View style={[styles.overlay, { opacity, backgroundColor: BRAND_COBALT }]} pointerEvents="auto">
       <View style={styles.content}>
-        <Text style={[styles.title, { color: theme.text }]}>PitStop</Text>
-        <Text style={[styles.subtitle, { color: theme.brand }]}>Premium car care · EG</Text>
+        <Image
+          source={require('../assets/images/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+          accessibilityLabel="PitStop"
+        />
       </View>
     </Animated.View>
   );
@@ -54,15 +57,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  title: {
-    fontSize: 44,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
-  subtitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
+  logo: {
+    width: 280,
+    height: Math.round(280 / (848 / 437)),
+    tintColor: '#FFFFFF',
   },
 });

@@ -52,13 +52,15 @@
 <h1 id="pitstop-system-architecture-and-operational-flows">PitStop System Architecture and Operational Flows</h1>
 <p><strong>Document type:</strong> Production architecture &amp; flow specification  </p>
 <p><strong>Audience:</strong> Engineers, product stakeholders, operations, and auditors  </p>
-<p><strong>Stack:</strong> Expo Router (React Native / web) · Supabase Auth · PostgreSQL · RLS · Realtime · Storage · Edge Functions  </p>
+<p><strong>Stack:</strong> Expo SDK 57 · Expo Router 57 · React Native 0.86 · React 19 · TypeScript 6 · Supabase Auth · PostgreSQL · RLS · Realtime · Storage · Edge Functions  </p>
 <p><strong>Canonical schema sources:</strong> <code>supabase/schema.sql</code>, <code>supabase/complete_system_schema.sql</code>, incremental <code>apply-pitstop-2.0-step*.sql</code>  </p>
-<p><strong>Last aligned to codebase:</strong> 20 August 2026</p>
+<p><strong>Last aligned to codebase:</strong> 9 September 2026</p>
+<p><strong>September platform update:</strong> SDK 57 dependency alignment, Expo Router root-navigation migration, resilient customer/merchant authentication, Free versus Pro subscriptions, fail-closed merchant approval, client feature gates, five-product Free inventory cap, and paired monochrome light/dark themes. See the September delta below.</p>
 <p><strong>Production retail update:</strong> store owner 5-tab shell, completed-only revenue, order restock on cancel, customer <code>/(tabs)/orders</code> tab, tax invoice receipt, multi-image SKUs, and cart stock caps. See the delta section below plus 2.2–2.7, 3.1, 3.3–3.5, Appendix A, and Appendix C.</p>
 <hr />
 <h2 id="table-of-contents">Table of contents</h2>
 <ol>
+<li><a href="#september-2026-platform-and-saas-delta">September 2026 platform and SaaS delta</a></li>
 <li><a href="#august-2026-production-retail-delta">August 2026 production retail delta</a></li>
 <li><a href="#1-executive-overview--platform-roles">Executive overview and platform roles</a></li>
 <li><a href="#2-owner--merchant-ecosystem--dashboards">Owner / merchant ecosystem and dashboards</a></li>
@@ -68,13 +70,351 @@
 <li><a href="#6-realtime-event-pipelines--edge-integrations">Realtime event pipelines and edge integrations</a></li>
 </ol>
 <hr />
+<h2 id="september-2026-platform-and-saas-delta">September 2026 platform and SaaS delta</h2>
+<p>This delta records every architecture and operational-flow change shipped after the August retail snapshot. It supersedes older statements where they conflict, while the numbered chapters remain the complete baseline for bookings, commerce, admin, schema, Realtime, Storage, and integrations.</p>
+
+<h3 id="september-runtime-foundation">Runtime and build foundation</h3>
+<table><thead><tr>
+<th>Layer</th>
+<th>Current version / rule</th>
+<th>Operational consequence</th>
+</tr></thead><tbody>
+<tr>
+<td>Expo</td>
+<td><code>expo ^57.0.20</code></td>
+<td>Native modules are synchronized with <code>npx expo install --fix -- --legacy-peer-deps</code>.</td>
+</tr>
+<tr>
+<td>Router</td>
+<td><code>expo-router ~57.0.19</code></td>
+<td><code>app/_layout.tsx</code> uses Expo Router <code>Stack</code> directly. Application code must not import <code>@react-navigation/native</code>.</td>
+</tr>
+<tr>
+<td>React / React Native</td>
+<td><code>react 19.2.3</code> / <code>react-native 0.86.3</code></td>
+<td>Uses the current <code>ColorValue</code>, <code>ColorSchemeName</code>, and <code>StyleSheet.absoluteFill</code> typings.</td>
+</tr>
+<tr>
+<td>TypeScript</td>
+<td><code>~6.0.3</code></td>
+<td><code>npx tsc --noEmit</code> is the compatibility gate after SDK updates.</td>
+</tr>
+<tr>
+<td>Peer resolution</td>
+<td><code>npm install --legacy-peer-deps</code></td>
+<td>Resolves the optional <code>react-native-windows</code> peer declared by <code>@react-native-community/datetimepicker 9.1.0</code> without installing an incompatible Windows runtime.</td>
+</tr>
+</tbody></table>
+<p><strong>SDK reconciliation flow</strong></p>
+<pre><code>Delete node_modules + package-lock.json
+        ↓
+npm install --legacy-peer-deps
+        ↓
+npx expo install --fix -- --legacy-peer-deps
+        ↓
+npx expo install --check
+        ↓
+npx tsc --noEmit
+        ↓
+npx expo start --web --port 8082 -c</code></pre>
+
+<h3 id="september-root-navigation">Root provider, splash, and navigation lifecycle</h3>
+<p><code>app/_layout.tsx</code> renders the Expo Router <code>Stack</code> on the first render. Font loading and the animated splash no longer replace the navigator with <code>null</code>. <code>ThemePreferenceProvider</code> wraps both the navigator tree and <code>PremiumAnimatedSplash</code>, so every theme consumer has context from its first render.</p>
+<pre><code>RootLayout
+  └─ ThemePreferenceProvider
+      ├─ RootLayoutWithTheme
+      │   └─ I18nProvider
+      │       └─ AppDialogProvider
+      │           └─ CustomConfirmProvider
+      │               └─ ShopCatalogProvider
+      │                   └─ CustomerAuthProvider
+      │                       └─ StoreCartProvider
+      │                           └─ ShopAuthProvider
+      │                               └─ AppBootstrap
+      │                                   └─ RootStack (mounted immediately)
+      └─ PremiumAnimatedSplash (overlay; only shown after fonts load)</code></pre>
+<p><code>AppBootstrap</code> is the sole initial route arbiter. It waits for both auth contexts and <code>useRootNavigationState().key</code> before calling <code>router.replace</code> or opening an initial deep link.</p>
+<pre><code>Application render
+  ↓
+Root Stack mounts
+  ↓
+CustomerAuth + ShopAuth restore sessions
+  ↓
+rootNavigationState.key exists AND authReady = true
+  ↓
+┌─ admin ───────────────→ /admin
+├─ pending_owner ───────→ /welcome?focus=owner&amp;pending=1
+├─ owner / branch staff → /shop
+├─ unauthenticated ─────→ /welcome?focus=login
+└─ customer / guest ────→ requested returnTo or customer home</code></pre>
+<p>Public routes remain <code>/welcome</code>, <code>/reset-password</code>, and <code>/auth-required</code>. Deep links are parsed by <code>lib/linking/share.ts</code> only after navigator readiness.</p>
+
+<h3 id="september-auth-resilience">Customer and merchant authentication resilience</h3>
+<p>Supabase sign-in errors pass through <code>lib/auth/classifySignInError.ts</code>. Both <code>CustomerAuthContext</code> and <code>ShopAuthContext</code> return stable result codes instead of leaking provider messages.</p>
+<table><thead><tr>
+<th>Classification</th>
+<th>Detection</th>
+<th>UI behavior</th>
+</tr></thead><tbody>
+<tr>
+<td><code>invalid_credentials</code></td>
+<td>HTTP 400/401, <code>invalid_grant</code>, invalid-login messages</td>
+<td>Preserve email, clear password, mark password invalid, show localized inline message.</td>
+</tr>
+<tr>
+<td><code>rate_limited</code></td>
+<td>HTTP 429 / rate-limit text</td>
+<td>Stop loading and ask the user to wait before retrying.</td>
+</tr>
+<tr>
+<td><code>network_error</code></td>
+<td>Timeout, fetch, connection, 408/502/503/504</td>
+<td>Keep the form mounted and show a connection-specific message.</td>
+</tr>
+<tr>
+<td><code>email_not_confirmed</code> / <code>email_login_disabled</code></td>
+<td>Supabase Auth message</td>
+<td>Return a typed auth failure; no route transition occurs.</td>
+</tr>
+</tbody></table>
+<pre><code>Submit customer or owner form
+  ↓ preventAuthFormRefresh(event)
+  ↓ set busy; keep /welcome mounted
+Supabase signInWithPassword
+  ├─ failure → classify → clear password only → inline error → idle
+  └─ success → resolve public.users role / shop association
+                 ├─ customer → returnTo or /
+                 ├─ owner / branch_manager → /shop
+                 ├─ pending_owner → approval waiting state
+                 └─ admin → /admin</code></pre>
+<p>Web submit buttons use button semantics and Enter-key handlers prevent native form refresh. Navigation only occurs after a successful result or after <code>AppBootstrap</code> observes a restored authenticated role.</p>
+
+<h4 id="september-auth-concurrency">Auth mutation lock and web-tab isolation</h4>
+<p><code>lib/auth/authMutationLock.ts</code> increments a process-local lock around sign-in/sign-up mutations. Auth-state listeners defer resolver side effects while the lock is active, preventing Supabase callbacks from racing the mutation that caused them.</p>
+<p>On web, <code>lib/supabase/webTabAuthIsolation.ts</code> deliberately isolates sessions per browser tab: it disables GoTrue <code>BroadcastChannel</code> propagation, removes legacy <code>sb-*</code> localStorage tokens after the sessionStorage migration, and signs out with <code>scope='local'</code>. This permits an owner session and customer session to remain open in separate tabs.</p>
+<pre><code>Web tab starts
+  ↓ prepareWebTabAuthIsolation()
+disable cross-tab BroadcastChannel + clear legacy shared tokens
+  ↓
+sign-in mutation
+  ↓ beginAuthMutation()
+Supabase signIn/signUp
+  ↓ auth listeners observe lock and defer resolution
+endAuthMutation()
+  ↓ resolve role in this tab only
+
+Sign out on web → Supabase scope='local' → other tabs remain authenticated</code></pre>
+
+<h3 id="september-subscriptions">Free, Pro, and enterprise subscription model</h3>
+<p><code>public.shops</code> now stores the canonical SaaS state. <code>is_premium</code> remains a backward-compatible flag, but new code reads the explicit tier, status, and optional expiry.</p>
+<table><thead><tr>
+<th>Column</th>
+<th>Allowed values / type</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td><code>subscription_tier</code></td>
+<td><code>free | pro | enterprise</code></td>
+<td>Commercial plan; default <code>free</code>.</td>
+</tr>
+<tr>
+<td><code>subscription_status</code></td>
+<td><code>active | expired | trial</code></td>
+<td>Lifecycle status; default <code>active</code>.</td>
+</tr>
+<tr>
+<td><code>subscription_expires_at</code></td>
+<td><code>timestamptz nullable</code></td>
+<td>Optional paid-plan end time.</td>
+</tr>
+<tr>
+<td><code>is_premium</code></td>
+<td>boolean</td>
+<td>Legacy compatibility flag kept synchronized by the admin RPC.</td>
+</tr>
+</tbody></table>
+<p><code>useShopSubscription(shopId)</code> fetches these fields, falls back to the authenticated shop snapshot, and returns <code>{ isPro, tier, status, loading, refresh }</code>. Pro access is false when status is expired or <code>subscription_expires_at</code> is in the past. Active/trial <code>pro</code> and <code>enterprise</code> tiers resolve to the client display tier <code>pro</code>.</p>
+<pre><code>shops row / ShopAuth snapshot
+  ↓ snapshotFromShopRow()
+normalize tier + status + legacy is_premium
+  ↓ isProSubscription()
+  ├─ expired status or past expiry → isPro = false
+  ├─ active/trial pro|enterprise  → isPro = true
+  └─ legacy premium + active/trial → isPro = true
+  ↓
+PremiumFeatureGate / inventory policy / dashboard composition</code></pre>
+
+<h3 id="september-entitlements">Merchant entitlement matrix</h3>
+<table><thead><tr>
+<th>Capability</th>
+<th>Free</th>
+<th>Pro / enterprise</th>
+<th>Current enforcement point</th>
+</tr></thead><tbody>
+<tr>
+<td>Branches</td>
+<td>One branch</td>
+<td>Multi-branch management</td>
+<td><code>WashOwnerPanel</code> add-branch action + <code>PremiumFeatureGate</code></td>
+</tr>
+<tr>
+<td>Bookings, queue, hours</td>
+<td>Included</td>
+<td>Included</td>
+<td>Core merchant dashboard</td>
+</tr>
+<tr>
+<td>Services and basic pricing</td>
+<td>Included</td>
+<td>Included</td>
+<td>Service management panels</td>
+</tr>
+<tr>
+<td>History and status tracking</td>
+<td>Included</td>
+<td>Included</td>
+<td>Owner history and order panels</td>
+</tr>
+<tr>
+<td>Active retail products</td>
+<td>Maximum five</td>
+<td>Unlimited</td>
+<td><code>StoreInventoryManager</code>; <code>FREE_ACTIVE_PRODUCT_CAP = 5</code></td>
+</tr>
+<tr>
+<td>Low-stock alerts</td>
+<td>Locked</td>
+<td>Included</td>
+<td>Inventory low-stock badge/filter</td>
+</tr>
+<tr>
+<td>Staff and branch-manager logins</td>
+<td>Locked</td>
+<td>Included</td>
+<td>Wash branch staff/manager sections</td>
+</tr>
+<tr>
+<td>Campaigns and banners</td>
+<td>Locked</td>
+<td>Included</td>
+<td><code>MerchantCampaignsPanel</code> gate</td>
+</tr>
+<tr>
+<td>Advanced analytics and reports</td>
+<td>Locked preview</td>
+<td>Revenue, trends, report routes</td>
+<td>Service, wash, and store dashboards</td>
+</tr>
+</tbody></table>
+<p><strong>Enforcement boundary:</strong> the current feature gates and five-product activation check are client-side product-policy controls. PostgreSQL RLS still enforces tenant ownership and role authorization, but it does not independently enforce every commercial entitlement. Any future billing API or untrusted administrative client must add server-side entitlement checks.</p>
+
+<h3 id="september-upgrade-flow">Locked-feature and upgrade flow</h3>
+<pre><code>Merchant opens dashboard
+  ↓ useShopSubscription(shop.id)
+isPro?
+  ├─ yes → render feature and execute its existing handler
+  └─ no  → render PremiumFeatureGate / lock affordance
+              ↓ merchant taps
+          UpgradeProModal
+              ├─ feature list
+              ├─ Upgrade Now → support mailto request
+              └─ Close → return without changing dashboard state</code></pre>
+<p><code>PremiumFeatureGate</code> preserves the child layout under a lock overlay. <code>UpgradeProModal</code> is shared across branch, staff, campaigns, inventory, and analytics entry points. Subscription indicators use the theme premium token, which remains monochrome in both visual modes.</p>
+
+<h3 id="september-admin-approval">Merchant approval and admin SaaS control</h3>
+<p>The approval path now fails closed. <code>approve_shop_owner(p_target_user_id, p_target_shop_id)</code> verifies the pending owner/shop pair, promotes the user, activates the shop, assigns <code>owner_user_id</code>, normalizes <code>owner_email</code>, and then verifies that activation actually succeeded. Missing or mismatched rows raise an exception.</p>
+<pre><code>Owner registration
+  ↓ auth.users + public.users(role=pending_owner) + inactive shops row
+AdminPanel pending merchant list
+  ↓ admin confirms approval
+approve-merchant Edge Function / approve_shop_owner RPC
+  ├─ validate platform admin
+  ├─ validate pending user belongs to target shop
+  ├─ users.role = owner; users.is_active = true
+  ├─ shops.is_active = true; owner_user_id/email synchronized
+  ├─ verify active owner/shop relation
+  └─ exception on any mismatch (no false success)
+Approved owner signs in
+  ↓ ShopAuthContext resolves active owner
+/shop merchant dashboard</code></pre>
+<p><code>admin_toggle_shop_premium(shop_id, enabled)</code> now synchronizes all compatibility fields:</p>
+<pre><code>enabled = true  → is_premium=true,  subscription_tier=pro,  subscription_status=active
+enabled = false → is_premium=false, subscription_tier=free, subscription_status=active</code></pre>
+<p>Canonical migration files: <code>supabase/approve_shop_owner_verify.sql</code>, <code>supabase/shop_subscription_tier.sql</code>, <code>supabase/apply-pitstop-2.0-step9-admin-saas.sql</code>, and <code>supabase/functions/approve-merchant/index.ts</code>.</p>
+
+<h3 id="september-inventory-flow">Free inventory-cap flow</h3>
+<pre><code>Add Product or activate existing SKU
+  ↓ useShopSubscription(shop.id)
+Free account?
+  ├─ no → save / activate normally
+  └─ yes → count active products excluding the target SKU
+              ├─ count &lt; 5 → continue
+              └─ count ≥ 5 → block action + open UpgradeProModal</code></pre>
+<p>Free merchants retain basic inventory, product creation, pricing, stock quantity, visibility changes, and order fulfillment. Pro additionally receives unlimited active inventory and low-stock filtering/alerts.</p>
+
+<h3 id="september-theme-system">Paired monochrome theme architecture</h3>
+<p><code>ThemePreferenceContext</code> persists <code>light | dark | system</code> in AsyncStorage and resolves <code>ColorSchemeName</code> safely. Both modes are deliberately achromatic; no direct blue or saturated accent is part of the application theme.</p>
+<table><thead><tr>
+<th>Token purpose</th>
+<th>Light</th>
+<th>Dark</th>
+</tr></thead><tbody>
+<tr><td>Canvas</td><td><code>#F8FAFC</code></td><td><code>#0B0F17</code></td></tr>
+<tr><td>Card / elevated surface</td><td><code>#FFFFFF</code></td><td><code>#151B26</code></td></tr>
+<tr><td>Input / secondary surface</td><td><code>#F8FAFC / #F1F5F9</code></td><td><code>#1E293B</code></td></tr>
+<tr><td>Border / chip border</td><td><code>#E2E8F0</code></td><td><code>#1F2937 / #334155</code></td></tr>
+<tr><td>Primary text</td><td><code>#0F172A</code></td><td><code>#FFFFFF</code></td></tr>
+<tr><td>Muted text</td><td><code>#64748B</code></td><td><code>#94A3B8</code></td></tr>
+<tr><td>Primary CTA / on-CTA</td><td><code>#111827 / #FFFFFF</code></td><td><code>#FFFFFF / #0F172A</code></td></tr>
+</tbody></table>
+<p>Shared controls are <code>components/ui/PitStopButton.tsx</code> and <code>PitStopChip.tsx</code>. Cards use white/charcoal surfaces, one-pixel borders, 14–16 px radii, 48 px primary targets, neutral shadows, and slate focus borders. Navigation receives colors through Expo Router <code>Stack</code>/<code>Tabs</code> options rather than a direct React Navigation provider.</p>
+
+<h3 id="september-system-flow-map">Current cross-system flow map</h3>
+<pre><code>CUSTOMER
+Welcome/Auth → Home → discover by service/store/map
+  ├─ Service shop → profile → booking → confirmation → Bookings → details/rating
+  ├─ Retail shop  → catalog → cart → checkout RPC → My Orders → invoice/reorder
+  └─ Guest        → browse only → auth-required gate before protected writes
+
+MERCHANT
+Owner/Auth → role + shop resolution → /shop
+  ├─ Service/wash → queue, hours, services, history; Pro: branches/staff/reports/campaigns
+  └─ Retail       → overview, orders, inventory, profile, settings; Pro: reports/unlimited/alerts
+
+ADMIN
+Admin/Auth → /admin
+  ├─ pending merchant → verified approval → active owner/shop
+  ├─ active merchant  → Free/Pro toggle → synchronized subscription fields
+  ├─ platform ledger / statistics
+  └─ moderation and destructive merchant removal
+
+DATA AND EVENTS
+Expo client → Supabase Auth → public.users role resolution
+            → Postgres/RPC under RLS (tenant + role authorization)
+            → Realtime channels (bookings/orders/products/shops/branches)
+            → Storage (shop/product media)
+            → Edge Functions (merchant approval, push/email integrations)</code></pre>
+
+<h3 id="september-source-of-truth">September source-of-truth files</h3>
+<table><thead><tr>
+<th>Concern</th>
+<th>Primary files</th>
+</tr></thead><tbody>
+<tr><td>Runtime / root routing</td><td><code>package.json</code>, <code>app/_layout.tsx</code>, <code>components/AppBootstrap.tsx</code></td></tr>
+<tr><td>Auth failures</td><td><code>lib/auth/classifySignInError.ts</code>, <code>CustomerAuthContext.tsx</code>, <code>ShopAuthContext.tsx</code>, <code>app/welcome.tsx</code></td></tr>
+<tr><td>Subscriptions</td><td><code>lib/shop/subscription.ts</code>, <code>useShopSubscription.ts</code>, <code>PremiumFeatureGate.tsx</code>, <code>UpgradeProModal.tsx</code></td></tr>
+<tr><td>Entitled dashboards</td><td><code>app/(tabs)/shop.tsx</code>, <code>WashOwnerPanel.tsx</code>, <code>StoreOwnerDashboard.tsx</code>, <code>StoreInventoryManager.tsx</code></td></tr>
+<tr><td>Approval / SaaS SQL</td><td><code>approve_shop_owner_verify.sql</code>, <code>shop_subscription_tier.sql</code>, <code>apply-pitstop-2.0-step9-admin-saas.sql</code></td></tr>
+<tr><td>Theme and shared UI</td><td><code>constants/Theme.ts</code>, <code>constants/Colors.ts</code>, <code>ThemePreferenceContext.tsx</code>, <code>PitStopButton.tsx</code>, <code>PitStopChip.tsx</code></td></tr>
+</tbody></table>
+<hr />
 <h2 id="august-2026-production-retail-delta">August 2026 production retail delta</h2>
-<p>This section is the current source of truth for retail work shipped after the 18 August 2026 snapshot. Service shop shells (<code>wash</code> / <code>maintenance</code> / <code>winch</code>) stay on the 4-tab layout unless a later section says otherwise.</p>
+<p>This section records retail work shipped after the 18 August 2026 snapshot. The September delta supersedes the former service-shell distinction: every merchant type now uses the same five-tab structure with business-specific labels and content.</p>
 <h3 id="delta-store-owner-shell">Store owner shell (5 tabs)</h3>
 <ul>
 <li>Tab ids come from <code>lib/owner/dashboardConfig.ts</code> <code>getOwnerNavTabs(shopType)</code>.</li>
 <li><strong>Store</strong> (<code>parts</code>, <code>accessories</code>): Overview, Orders, Inventory (AR المخزن), Profile, Settings.</li>
-<li><strong>Service</strong>: Overview, Bookings, Services, combined Profile &amp; Settings. Header cog still opens <code>/shop/merchant-settings</code>.</li>
+<li><strong>Service</strong>: Overview, Management/Bookings, Services, Profile, Settings. Profile and Settings are separate tabs.</li>
 <li>Store header cog switches to the in-shell Settings tab (<code>components/store/owner/StoreOwnerSettings.tsx</code>).</li>
 <li>Profile is customer-facing shop info + GPS pin: <code>components/store/owner/StoreOwnerProfileSections.tsx</code>.</li>
 <li>Operating status Open / Closed / Maintenance is persisted as <code>shop_extras.storeOperatingStatus</code> via <code>setStoreOperatingStatus</code> in <code>lib/booking/shopExtrasStorage.ts</code>. Overview shows a read-only chip that navigates to Settings.</li>
@@ -371,8 +711,8 @@ public.shops  (tenant root)
     ├── isAdmin           → redirect /admin
     ├── shop.type = wash  → components/owner/wash/WashOwnerPanel.tsx
     ├── parts|accessories → Store owner shell (5 tabs via getOwnerNavTabs)
-    └── maintenance|winch → Service owner shell (4 tabs)</code></pre>
-<p>Shared bottom navigation: <code>components/owner/OwnerDashboardNav.tsx</code>. Tab ids come from <code>lib/owner/dashboardConfig.ts</code> → <code>getOwnerNavTabs(shopType)</code>. <strong>Store merchants have five tabs</strong> (Profile and Settings are split). Service merchants keep four tabs with combined Profile &amp; Settings.</p>
+    └── wash|maintenance|winch → Service owner shell (same 5-tab contract)</code></pre>
+<p>Shared bottom navigation: <code>components/owner/OwnerDashboardNav.tsx</code>. Tab ids come from <code>lib/owner/dashboardConfig.ts</code> → <code>getOwnerNavTabs(shopType)</code>. <strong>Every merchant type has five tabs</strong>: Overview, Management/Orders, Operations/Services/Inventory, Profile, and Settings. Labels and icons change with business mode.</p>
 <table><thead><tr>
 <th>Tab id</th>
 <th>Store merchants (<code>parts</code>, <code>accessories</code>)</th>
@@ -386,7 +726,7 @@ public.shops  (tenant root)
 <tr>
 <td><code>management</code></td>
 <td>Orders / الطلبات — <code>StoreOrdersPanel</code></td>
-<td>Bookings / queue</td>
+<td>Bookings / queue plus <code>StoreOrdersPanel</code> for hybrid retail orders</td>
 </tr>
 <tr>
 <td><code>operations</code></td>
@@ -396,12 +736,12 @@ public.shops  (tenant root)
 <tr>
 <td><code>profile</code></td>
 <td>Profile / الملف التعريفي — customer-facing shop info, cover, avatar, gallery, GPS pin</td>
-<td>Combined Profile &amp; Settings</td>
+<td>Customer-facing profile, media, contact, and map information</td>
 </tr>
 <tr>
 <td><code>settings</code></td>
 <td>Settings / الإعدادات — Open/Closed/Maintenance, hours, password, locale, legal, logout</td>
-<td><em>n/a — cog still opens <code>/shop/merchant-settings</code></em></td>
+<td>Dedicated settings sections; deep-link settings routes remain available</td>
 </tr>
 </tbody></table>
 <h3 id="2-1-merchant-categories">2.1 Merchant categories</h3>
@@ -414,8 +754,7 @@ public.shops  (tenant root)
 <th>Purpose</th>
 </tr></thead><tbody>
 <tr>
-<td>`/shop/wash-owner-hub?tab=orders\</td>
-<td>reviews`</td>
+<td><code>/shop/wash-owner-hub?tab=orders|reviews</code></td>
 <td><code>app/shop/wash-owner-hub.tsx</code></td>
 <td>Notification inbox + pending queue + reviews</td>
 </tr>
@@ -454,9 +793,9 @@ public.shops  (tenant root)
 <li>GPS (<code>latitude</code>, <code>longitude</code>)</li>
 <li>Cover + gallery (<code>profile_image_url</code>, <code>image_urls</code>)</li>
 </ul>
-<p>Premium (<code>shops.is_premium</code>) unlocks extra branches, coupons, campaigns, and several CMS sections via <code>components/owner/PremiumFeatureGate.tsx</code>. Free owners keep one branch (<code>premium_branch_free_hint</code>).</p>
+<p>Pro access is resolved from <code>shops.subscription_tier</code>, <code>subscription_status</code>, <code>subscription_expires_at</code>, and the legacy <code>is_premium</code> fallback via <code>useShopSubscription</code>. It unlocks extra branches, staff logins, campaigns, unlimited inventory, low-stock alerts, and advanced analytics through <code>components/owner/PremiumFeatureGate.tsx</code>. Free owners keep one branch.</p>
 <h4 id="b-service-providers-maintenance-winch">B. Service providers — maintenance / winch</h4>
-<p>Rendered inside <code>app/(tabs)/shop.tsx</code> (not <code>WashOwnerPanel</code>). Same four tabs. Extra: winch enable/phone on maintenance shops (<code>shop_manage_winch_*</code>). Schedule is shop-level <code>shop_extras</code> (<code>workOpenTime</code>, <code>workCloseTime</code>, <code>serviceDurationMinutes</code>, <code>weeklyHours</code>).</p>
+<p>Rendered inside <code>app/(tabs)/shop.tsx</code> (not <code>WashOwnerPanel</code>). Uses the unified five-tab merchant shell. Extra: winch enable/phone on maintenance shops (<code>shop_manage_winch_*</code>). Schedule is shop-level <code>shop_extras</code> (<code>workOpenTime</code>, <code>workCloseTime</code>, <code>serviceDurationMinutes</code>, <code>weeklyHours</code>).</p>
 <h4 id="c-retail-product-stores-spare-parts-and-accessories">C. Retail / product stores — spare parts &amp; accessories</h4>
 <p>Detected by <code>isStoreShopType()</code> in <code>lib/booking/storeCatalog.ts</code>. Catalog category mapping:</p>
 <ul>
@@ -1185,8 +1524,8 @@ Admin tab &quot;pending&quot;  listPendingOwnerRequests()
 <td>Yes (<code>userConfirm</code>)</td>
 </tr>
 <tr>
-<td>Feature flag (premium CMS)</td>
-<td><code>shops.is_premium</code></td>
+<td>Subscription entitlement</td>
+<td><code>shops.subscription_tier/status/expires_at</code> + legacy <code>is_premium</code></td>
 <td>Same toggle</td>
 </tr>
 <tr>
@@ -1406,7 +1745,22 @@ shop_extras (shop_id PK, payload jsonb)</code></pre>
 <tr>
 <td><code>is_premium</code></td>
 <td>boolean</td>
-<td>SaaS / CMS gate</td>
+<td>Legacy SaaS compatibility flag; synchronized with the explicit tier by admin toggle</td>
+</tr>
+<tr>
+<td><code>subscription_tier</code></td>
+<td>text</td>
+<td><code>free | pro | enterprise</code>; default <code>free</code></td>
+</tr>
+<tr>
+<td><code>subscription_status</code></td>
+<td>text</td>
+<td><code>active | expired | trial</code>; default <code>active</code></td>
+</tr>
+<tr>
+<td><code>subscription_expires_at</code></td>
+<td>timestamptz nullable</td>
+<td>Optional paid-plan expiry checked by <code>isProSubscription</code></td>
 </tr>
 <tr>
 <td><code>is_loyalty_enabled</code></td>
@@ -2437,7 +2791,7 @@ persist URL(s) on products.image_url + products.image_urls  OR  shop_extras / br
 <li><strong>Customer store orders live on <code>/(tabs)/orders</code></strong>, not on the bookings tab.</li>
 <li><strong>Delivery zones are not modeled.</strong> COD uses a customer-typed address and a flat 50 EGP fee. Pickup delivery line is Free / مجاناً on the tax invoice.</li>
 <li><strong>“Bays” = <code>shop_branches</code> + slot occupancy</strong>, not a separate bay entity.</li>
-<li><strong>Premium is the main merchant feature flag</strong> (<code>shops.is_premium</code>), toggled only by admins.</li>
+<li><strong>Subscription entitlement is explicit</strong>: <code>shops.subscription_tier/status/expires_at</code> is canonical, with <code>is_premium</code> retained as a synchronized compatibility flag. Admins control the current Free/Pro transition.</li>
 <li><strong>Realtime requires replica identity FULL</strong> on <code>store_orders</code>, <code>bookings</code>, and <code>products</code> for complete row payloads.</li>
 <li><strong>Virtual <code>done</code> is display-only</strong> until an owner persists status; do not book revenue on <code>lifecycleAutoCompleted</code>.</li>
 <li><strong>Admin delete is destructive</strong> and confirmation-gated in UI; bookings cascade with the shop.</li>

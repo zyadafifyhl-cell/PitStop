@@ -204,9 +204,21 @@ export default function HomeScreen() {
       <AutomotiveBackground theme={theme} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.heroHeaderBlock}>
+          <LinearGradient
+            colors={[
+              'rgba(32, 85, 196, 0.36)',
+              'rgba(32, 85, 196, 0.14)',
+              'rgba(74, 127, 224, 0.18)',
+              'rgba(11, 17, 32, 0)',
+            ]}
+            locations={[0, 0.35, 0.7, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroWash}
+          />
           <View style={styles.topHeaderRow}>
             <View style={styles.greetingBlock}>
-              <Text style={[styles.greetingEyebrow, { color: theme.textDim }]}>{t('home_greeting')}</Text>
+              <Text style={[styles.greetingEyebrow, { color: theme.textMuted }]}>{t('home_greeting')}</Text>
               <Text style={[styles.greetingName, { color: theme.text }]}>
                 {greetingName ? tp('home_greeting_named', { name: greetingName }) : t('home_greeting')}
               </Text>
@@ -293,8 +305,8 @@ export default function HomeScreen() {
             styles.searchInput,
             Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null,
             {
-              backgroundColor: theme.bgElevated,
-              borderColor: serviceSearchFocused ? theme.text : theme.border,
+              backgroundColor: theme.inputBg,
+              borderColor: serviceSearchFocused ? theme.accent : theme.border,
               color: theme.text,
             },
           ]}
@@ -309,8 +321,12 @@ export default function HomeScreen() {
               }
             }}
             style={[styles.serviceRow, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-            <View style={[styles.serviceIcon, { backgroundColor: theme.cardHover }]}>
-              <FontAwesome name={card.type === 'wash' ? 'tint' : card.type === 'maintenance' ? 'wrench' : 'cogs'} size={18} color={theme.text} />
+            <View style={[styles.serviceIcon, { backgroundColor: theme.greenSoft }]}>
+              <FontAwesome
+                name={card.type === 'wash' ? 'tint' : card.type === 'maintenance' ? 'wrench' : 'cogs'}
+                size={18}
+                color={theme.green}
+              />
             </View>
             <View style={styles.serviceMeta}>
               <Text style={[styles.serviceTitle, { color: theme.text }]}>{card.title}</Text>
@@ -372,6 +388,19 @@ const styles = StyleSheet.create({
   heroHeaderBlock: {
     gap: 8,
     marginBottom: 12,
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 16,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  heroWash: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   topHeaderRow: {
     flexDirection: 'row',

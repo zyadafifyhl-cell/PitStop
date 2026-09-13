@@ -93,7 +93,7 @@ export function HomeHeroCarAnimation() {
               transform: [{ translateX }, { translateY }],
             },
           ]}>
-          <CarVector color={theme.text} detailColor={theme.bg} />
+          <CarVector color={theme.accent} detailColor={theme.bg} />
         </Animated.View>
       </View>
     </View>

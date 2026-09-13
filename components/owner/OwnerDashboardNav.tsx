@@ -32,10 +32,10 @@ export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange 
   const compact = tabs.length >= 5;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bgElevated, borderTopColor: theme.border }]}>
+    <View style={[styles.container, { backgroundColor: theme.bg, borderTopColor: theme.border }]}>
       {tabs.map((tab) => {
         const active = activeTab === tab.id;
-        const color = active ? theme.brand : theme.textDim;
+        const color = active ? theme.accent : theme.textMuted;
         return (
           <Pressable
             key={tab.id}
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderTopWidth: 1,
     elevation: 2,
-    shadowColor: '#0F172A',
+    shadowColor: '#0B1120',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.06,
     shadowRadius: 10,

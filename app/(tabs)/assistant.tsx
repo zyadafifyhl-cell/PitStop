@@ -1,4 +1,5 @@
 import { router, useFocusEffect, type Href } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -98,6 +99,18 @@ export default function AssistantScreen() {
   const listHeader = useMemo(
     () => (
       <View style={styles.headerBlock}>
+        <LinearGradient
+          colors={[
+            'rgba(32, 85, 196, 0.34)',
+            'rgba(32, 85, 196, 0.12)',
+            'rgba(74, 127, 224, 0.16)',
+            'rgba(11, 17, 32, 0)',
+          ]}
+          locations={[0, 0.32, 0.68, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.headerWash}
+        />
         <Text style={[styles.screenTitle, { color: theme.text }]}>{t('driver_network_title')}</Text>
         <Text style={[styles.screenLead, { color: theme.textMuted }]}>{t('feed_subtitle')}</Text>
         <FeedFilterChips value={sortMode} onChange={setSortMode} />
@@ -142,8 +155,24 @@ export default function AssistantScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   listContent: { padding: 16, paddingBottom: 32 },
-  headerBlock: { gap: 12, marginBottom: 4 },
-  screenTitle: { fontSize: 24, fontWeight: '900' },
+  headerBlock: {
+    gap: 12,
+    marginBottom: 4,
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  headerWash: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  screenTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.4 },
   screenLead: { fontSize: 14, lineHeight: 21 },
   empty: { fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 12 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },

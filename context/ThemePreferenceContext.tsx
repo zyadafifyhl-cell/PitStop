@@ -26,7 +26,7 @@ function resolveEffective(preference: ThemePreference, systemScheme: ColorScheme
 
 export function ThemePreferenceProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [preference, setPreferenceState] = useState<ThemePreference>('light');
+  const [preference, setPreferenceState] = useState<ThemePreference>('dark');
 
   useEffect(() => {
     let cancelled = false;

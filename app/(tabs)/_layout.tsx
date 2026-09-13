@@ -31,9 +31,9 @@ export default function TabLayout() {
       key={locale}
       screenOptions={{
         tabBarActiveTintColor: theme.accent,
-        tabBarInactiveTintColor: theme.textDim,
+        tabBarInactiveTintColor: theme.textMuted,
         tabBarStyle: {
-          backgroundColor: theme.card,
+          backgroundColor: theme.bg,
           borderTopColor: theme.border,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopLeftRadius: 16,

@@ -1,4 +1,5 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -27,6 +28,18 @@ export function StoreSearchHeader({
 
   return (
     <View style={styles.wrap}>
+      <LinearGradient
+        colors={[
+          'rgba(32, 85, 196, 0.32)',
+          'rgba(32, 85, 196, 0.1)',
+          'rgba(74, 127, 224, 0.14)',
+          'rgba(11, 17, 32, 0)',
+        ]}
+        locations={[0, 0.35, 0.7, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerWash}
+      />
       <Text style={[styles.title, { color: theme.text }, isRTL && styles.rtl]}>
         {title ?? t('store_title')}
       </Text>
@@ -34,19 +47,19 @@ export function StoreSearchHeader({
         {subtitle ?? t('store_subtitle')}
       </Text>
       <View style={[styles.searchRow, isRTL && styles.searchRowRtl]}>
-        <View style={[styles.searchField, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-          <FontAwesome name="search" size={16} color={theme.textDim} />
+        <View style={[styles.searchField, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+          <FontAwesome name="search" size={16} color={theme.textMuted} />
           <TextInput
             value={query}
             onChangeText={onChangeQuery}
             placeholder={t('store_search_placeholder')}
-            placeholderTextColor={theme.textDim}
+            placeholderTextColor={theme.textMuted}
             style={[styles.searchInput, { color: theme.text }, isRTL && styles.rtl]}
           />
         </View>
         <Pressable
           onPress={onOpenCart}
-          style={[styles.cartBtn, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+          style={[styles.cartBtn, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
           <FontAwesome name="shopping-cart" size={18} color={theme.text} />
           {cartCount > 0 ? (
             <View style={[styles.badge, { backgroundColor: theme.accent }]}>
@@ -60,7 +73,22 @@ export function StoreSearchHeader({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 8 },
+  wrap: {
+    gap: 8,
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  headerWash: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   title: { fontSize: 28, fontWeight: '900', letterSpacing: -0.5 },
   subtitle: { fontSize: 14, lineHeight: 20 },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
@@ -71,15 +99,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    borderRadius: 999,
+    paddingHorizontal: 16,
     paddingVertical: 12,
   },
   searchInput: { flex: 1, fontSize: 15, padding: 0 },
   cartBtn: {
     width: 48,
     height: 48,
-    borderRadius: 14,
+    borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

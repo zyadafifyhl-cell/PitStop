@@ -606,7 +606,7 @@ export const EN = {
   shop_profile_services_empty: 'No services currently available.',
 
   welcome_app_name: 'PitStop EG',
-  welcome_tagline: 'Book maintenance or car wash, or buy spare parts near you.',
+  welcome_tagline: 'Effortless car management, from routine wash to rare parts.',
   welcome_hero_title: 'Technology in motion',
   welcome_guest_btn: 'Continue as guest',
   welcome_customer_btn: 'Customer',
@@ -2535,7 +2535,7 @@ export const AR: Record<TranslationKey, string> = {
   shop_profile_services_empty: 'مفيش خدمات متاحة حالياً.',
 
   welcome_app_name: 'PitStop EG',
-  welcome_tagline: 'احجز صيانة أو غسيل، أو اشتري قطع غيار قريب منك.',
+  welcome_tagline: 'إدارة سيارتك بسهولة، من الغسيل اليومي إلى أندر قطع الغيار.',
   welcome_hero_title: 'تكنولوجيا في حركة',
   welcome_guest_btn: 'دخول كزائر',
   welcome_customer_btn: 'عميل',

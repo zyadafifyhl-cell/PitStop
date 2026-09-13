@@ -40,7 +40,7 @@ try {
     headerTemplate: `<div></div>`,
     footerTemplate: `
       <div style="font-size:8px;color:#667;width:100%;padding:0 16mm;display:flex;justify-content:space-between;">
-        <span>PitStop — System Architecture and Operational Flows (20 Aug 2026)</span>
+        <span>PitStop — System Architecture and Operational Flows (9 Sep 2026)</span>
         <span class="pageNumber"></span> / <span class="totalPages"></span>
       </div>`,
   });

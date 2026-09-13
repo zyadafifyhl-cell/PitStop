@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "PitStop EG",
+    "name": "PitStop",
     "slug": "pitstop",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2055C4"
     },
     "ios": {
       "supportsTablet": true
@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#2055C4"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -34,7 +34,7 @@
       [
         "expo-notifications",
         {
-          "color": "#1a73e8",
+          "color": "#2055C4",
           "defaultChannel": "weekly-maintenance"
         }
       ],
@@ -44,7 +44,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow PitStop EG to show the nearest workshops and car washes."
+          "locationWhenInUsePermission": "Allow PitStop to show the nearest workshops and car washes."
         }
       ],
       "@react-native-community/datetimepicker"
