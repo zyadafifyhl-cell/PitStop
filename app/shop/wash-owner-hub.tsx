@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -743,13 +744,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: '600', letterSpacing: 0.5, color: '#fff' },
   primaryBtn: { borderRadius: 9, paddingVertical: 13, alignItems: 'center' },
   primaryBtnText: { fontWeight: '600', fontSize: 15, letterSpacing: 0.5 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: { width: '100%', maxWidth: 420, borderWidth: 1, borderRadius: 16, padding: 16 },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
+  modalCard: BOXED_OVERLAY.card,
   noteInput: { borderWidth: 1, borderRadius: 12, padding: 12, minHeight: 80, marginTop: 10, textAlignVertical: 'top' },
 });

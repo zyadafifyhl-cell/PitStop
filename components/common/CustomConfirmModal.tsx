@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
@@ -40,18 +41,9 @@ export function CustomConfirmModal({
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        backdrop: {
-          flex: 1,
-          backgroundColor: theme.overlay,
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24,
-        },
+        backdrop: BOXED_OVERLAY.backdrop,
         card: {
-          width: '100%',
-          maxWidth: 420,
-          borderRadius: theme.radiusMd,
-          borderWidth: 1,
+          ...BOXED_OVERLAY.card,
           borderColor: theme.border,
           backgroundColor: theme.card,
           paddingHorizontal: 22,

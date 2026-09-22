@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 
-import { AppTheme } from '@/constants/Theme';
+import { AppTheme, BOXED_OVERLAY } from '@/constants/Theme';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { MerchantTermsBody } from '@/components/legal/MerchantTermsBody';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -818,7 +818,7 @@ export default function WelcomeScreen() {
       </KeyboardAvoidingView>
       <Modal
         visible={ownerTermsModalOpen}
-        animationType="slide"
+        animationType="fade"
         transparent
         onRequestClose={() => setOwnerTermsModalOpen(false)}>
         <View style={styles.termsModalOverlay}>
@@ -1029,16 +1029,10 @@ const styles = StyleSheet.create({
   textRtl: { textAlign: 'right' },
   termsViewLink: { alignSelf: 'flex-start', marginBottom: 8, paddingVertical: 2 },
   termsViewText: { fontSize: 13, fontWeight: '800' },
-  termsModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
-    padding: 16,
-  },
+  termsModalOverlay: BOXED_OVERLAY.backdrop,
   termsModalCard: {
-    borderWidth: 1,
-    borderRadius: 24,
-    maxHeight: '82%',
+    ...BOXED_OVERLAY.card,
+    padding: 0,
     overflow: 'hidden',
   },
   termsModalScroll: { padding: 18, paddingBottom: 8 },

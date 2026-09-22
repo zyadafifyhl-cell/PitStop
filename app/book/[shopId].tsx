@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
@@ -1529,20 +1530,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryBtnText: { fontWeight: '600', fontSize: 16, letterSpacing: 0.5 },
-  successBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
+  successBackdrop: BOXED_OVERLAY.backdrop,
   successCard: {
-    width: '100%',
-    maxWidth: 360,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 24,
+    ...BOXED_OVERLAY.card,
     alignItems: 'center',
+    padding: 24,
   },
   successIconWrap: {
     width: 64,

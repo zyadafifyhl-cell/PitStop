@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { APP_BRAND_NAME } from '@/constants/Brand';
-import type { AppThemeTokens } from '@/constants/Theme';
+import { BOXED_OVERLAY, type AppThemeTokens } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import type { CustomerStoreOrder } from '@/lib/store/types';
@@ -248,20 +248,10 @@ export function StoreOrderInvoiceModal({
 }
 
 const styles = StyleSheet.create({
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
   modalCard: {
-    width: '100%',
-    maxWidth: 440,
+    ...BOXED_OVERLAY.card,
     maxHeight: '90%',
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 16,
   },
   scroll: { maxHeight: 520 },
   scrollContent: { paddingBottom: 8 },

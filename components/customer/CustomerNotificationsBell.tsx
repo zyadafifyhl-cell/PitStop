@@ -3,6 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -193,21 +194,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   badgeText: { color: '#fff', fontSize: 9, fontWeight: '900' },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 420,
-    maxHeight: '85%',
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 20,
-  },
+  backdrop: BOXED_OVERLAY.backdrop,
+  card: BOXED_OVERLAY.card,
   title: { fontSize: 20, fontWeight: '900', marginBottom: 12 },
   scroll: { maxHeight: 420 },
   scrollContent: { paddingBottom: 8 },
@@ -228,7 +216,7 @@ const styles = StyleSheet.create({
   },
   meta: { fontSize: 13, lineHeight: 19, marginTop: 6 },
   closeBtn: {
-    borderRadius: 12,
+    borderRadius: 999,
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 12,

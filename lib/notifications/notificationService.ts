@@ -84,6 +84,15 @@ export function isPendingBookingStatus(status: string): boolean {
   return status === 'pending';
 }
 
+/** Inbox/badge only keep pending bookings whose slot is still in the future. */
+export function isActionablePendingBooking(booking: Booking, now = Date.now()): boolean {
+  const effective = applyVirtualBookingLifecycle(booking, now);
+  if (!isPendingBookingStatus(effective.status)) return false;
+  const scheduledMs = new Date(booking.scheduledAt).getTime();
+  if (!Number.isFinite(scheduledMs)) return false;
+  return scheduledMs > now;
+}
+
 /** Sync branch-manager scope (async owner fallback handled in loadScopedShopBookings). */
 export function scopeBookingsForStaffView(bookings: Booking[], staff: ShopStaffUser | null): Booking[] {
   if (!staff || staff.role !== 'branch_manager' || !staff.branchId) return bookings;
@@ -97,6 +106,7 @@ export async function resolvePendingBookingsForStaff(
 ): Promise<Booking[]> {
   const scoped = scopeBookingsForStaffView(bookings, staff);
   let pending = await filterPendingQueueBookingsForStaff(staff, scoped);
+  pending = pending.filter((row) => isActionablePendingBooking(row));
   if (activeBranchId) {
     pending = pending.filter((row) => !row.branchId || row.branchId === activeBranchId);
   }
@@ -117,7 +127,7 @@ export async function bookingEligibleForStaffAlert(
   booking: Booking,
   activeBranchId?: string,
 ): Promise<boolean> {
-  if (!isPendingBookingStatus(booking.status)) return false;
+  if (!isActionablePendingBooking(booking)) return false;
   if (activeBranchId && booking.branchId && booking.branchId !== activeBranchId) return false;
   const [match] = await filterPendingQueueBookingsForStaff(staff, [booking]);
   return !!match;
@@ -132,14 +142,12 @@ export function mergeBookingList(existing: Booking[], incoming: Booking): Bookin
 
 export function upsertPendingBookingSorted(existing: Booking[], incoming: Booking): Booking[] {
   const normalized = applyVirtualBookingLifecycle(incoming);
-  if (existing.some((row) => row.id === normalized.id)) {
-    return sortBookingsByScheduledAtDesc(
-      applyVirtualBookingLifecycleBatch(
-        existing.map((row) => (row.id === normalized.id ? normalized : row)),
-      ),
-    );
-  }
-  return sortBookingsByScheduledAtDesc(applyVirtualBookingLifecycleBatch([normalized, ...existing]));
+  const next = existing.some((row) => row.id === normalized.id)
+    ? existing.map((row) => (row.id === normalized.id ? normalized : row))
+    : [normalized, ...existing];
+  return sortBookingsByScheduledAtDesc(
+    applyVirtualBookingLifecycleBatch(next).filter((row) => isActionablePendingBooking(row)),
+  );
 }
 
 export function removePendingBookingLocally(bookings: Booking[], bookingId: string): Booking[] {

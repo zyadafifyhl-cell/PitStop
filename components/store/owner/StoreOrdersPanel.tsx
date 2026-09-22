@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { HistoryCardMenu } from '@/components/owner/HistoryOverflowMenu';
 import { useI18n } from '@/context/I18nContext';
@@ -607,12 +608,12 @@ export function StoreOrdersPanel({
       {/* Order Details Modal */}
       <Modal
         visible={selectedOrder !== null}
-        animationType="slide"
+        animationType="fade"
         transparent
         onRequestClose={() => setSelectedOrder(null)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {t('store_owner_order_details')}
@@ -887,15 +888,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
+  modalOverlay: BOXED_OVERLAY.backdrop,
   modalContent: {
+    ...BOXED_OVERLAY.card,
+    maxWidth: 480,
     maxHeight: '80%',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
     padding: 20,
   },
   modalHeader: {

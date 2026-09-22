@@ -34,6 +34,7 @@ import { StoreOrdersPanel } from '@/components/store/owner/StoreOrdersPanel';
 import { StoreOwnerProfileSections } from '@/components/store/owner/StoreOwnerProfileSections';
 import { StoreOwnerSettings } from '@/components/store/owner/StoreOwnerSettings';
 import type { StoreInventoryListFilter, StoreOrderListFilter } from '@/lib/store/ownerFilters';
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -219,8 +220,9 @@ export default function ShopScreen() {
     if (shop && isStoreShopType(shop.type)) {
       void orderNotifier.refreshStoreOrders();
     }
+    void orderNotifier.markInboxSeen();
     setNotificationsModalVisible(true);
-  }, [shop, orderNotifier.refreshStoreOrders]);
+  }, [shop, orderNotifier.refreshStoreOrders, orderNotifier.markInboxSeen]);
 
   useEffect(() => {
     if (!shop || !isStoreShopType(shop.type)) return;
@@ -401,9 +403,7 @@ export default function ShopScreen() {
     return 'pending';
   }
 
-  const pendingNotificationCount = isStoreShopType(shop?.type ?? 'parts')
-    ? Math.max(orderNotifier.pendingStoreOrderCount, dashboardPendingOrders)
-    : orderNotifier.notificationBadgeCount;
+  const pendingNotificationCount = orderNotifier.unseenBadgeCount;
 
   function notificationForBooking(booking: Booking): OwnerNotification {
     return (
@@ -1578,21 +1578,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 420,
-    maxHeight: '85%',
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 20,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
+  modalCard: BOXED_OVERLAY.card,
   modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 8 },
   modalScroll: { maxHeight: 420 },
   modalScrollContent: { paddingBottom: 8 },

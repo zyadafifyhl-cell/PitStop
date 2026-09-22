@@ -2,6 +2,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React from 'react';
 import { Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
@@ -64,17 +65,11 @@ export function UpgradeProModal({ visible, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.42)',
-    justifyContent: 'center',
-    padding: 24,
-  },
+  backdrop: BOXED_OVERLAY.backdrop,
   card: {
-    borderWidth: 1,
-    borderRadius: 20,
-    padding: 22,
+    ...BOXED_OVERLAY.card,
     alignItems: 'center',
+    padding: 22,
   },
   iconWrap: {
     width: 64,

@@ -65,6 +65,31 @@ export const SCREEN_CONTENT = {
   paddingBottom: 48,
 };
 
+/** Centered overlay card for dialogs, notifications, and sheets on web. */
+export const BOXED_OVERLAY = {
+  backdrop: {
+    flex: 1 as const,
+    backgroundColor: LightAppTheme.overlay,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    padding: 20,
+  },
+  card: {
+    width: '100%' as const,
+    maxWidth: 440,
+    alignSelf: 'center' as const,
+    borderWidth: 1,
+    borderRadius: LightAppTheme.radiusLg,
+    padding: 20,
+    maxHeight: '82%' as const,
+    shadowColor: LightAppTheme.shadowColor,
+    shadowOpacity: 0.14,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+};
+
 export const SERVICE_COLORS = {
   maintenance: LightAppTheme.accent,
   wash: LightAppTheme.warm,

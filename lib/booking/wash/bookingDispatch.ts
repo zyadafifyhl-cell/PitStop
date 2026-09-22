@@ -103,5 +103,12 @@ export async function filterPendingQueueBookingsForStaff<T extends { status: str
   bookings: T[],
 ): Promise<T[]> {
   const operational = await filterOperationalBookingsForStaff(staff, bookings);
-  return operational.filter((row) => row.status === 'pending');
+  const now = Date.now();
+  return operational.filter((row) => {
+    if (row.status !== 'pending') return false;
+    const scheduledAt = (row as { scheduledAt?: string }).scheduledAt;
+    if (!scheduledAt) return true;
+    const scheduledMs = new Date(scheduledAt).getTime();
+    return Number.isFinite(scheduledMs) && scheduledMs > now;
+  });
 }

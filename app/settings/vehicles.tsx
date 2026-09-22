@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { formatVehicleDisplay } from '@/components/customer/ActiveVehiclePicker';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -234,20 +235,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionText: { fontSize: 13, fontWeight: '700' },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 400,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
+  modalCard: BOXED_OVERLAY.card,
   modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 12 },
   input: {
     borderWidth: 1,

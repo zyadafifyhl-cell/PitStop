@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { MAX_STORE_PRODUCT_IMAGES, STORE_SUB_CATEGORIES } from '@/lib/store/constants';
@@ -307,13 +308,14 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
 }
 
 const styles = StyleSheet.create({
-  modalBackdrop: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
+  modalBackdrop: BOXED_OVERLAY.backdrop,
+  modalCard: {
+    ...BOXED_OVERLAY.card,
+    maxWidth: 480,
+    maxHeight: '88%',
+    padding: 0,
+    overflow: 'hidden',
   },
-  modalCard: { width: '100%', maxWidth: 520, maxHeight: '88%', borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1 },
   modalTitle: { fontSize: 19, fontWeight: '900' },
   modalBody: { padding: 18 },

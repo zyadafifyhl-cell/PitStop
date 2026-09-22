@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
@@ -363,8 +364,9 @@ export function WashOwnerPanel({ shop }: Props) {
 
   const openNotificationsModal = useCallback(() => {
     void orderNotifier.refreshStoreOrders();
+    void orderNotifier.markInboxSeen();
     setNotificationsModalVisible(true);
-  }, [orderNotifier.refreshStoreOrders]);
+  }, [orderNotifier.refreshStoreOrders, orderNotifier.markInboxSeen]);
 
   const formSetters = useMemo(
     () => ({
@@ -1725,7 +1727,7 @@ export function WashOwnerPanel({ shop }: Props) {
             pickingImage={pickingImage}
             coverEditLabel={t('wash_manage_set_cover_image')}
             notificationsLabel={t('wash_notifications_button')}
-            notificationCount={orderNotifier.pendingCount + orderNotifier.pendingStoreOrderCount}
+            notificationCount={orderNotifier.unseenBadgeCount}
             accountRoleLabel={accountRoleLabel}
             accountEmail={accountEmail}
             onEditCover={onSetCoverImage}
@@ -2772,20 +2774,11 @@ const styles = StyleSheet.create({
   reportSummary: { marginTop: 12, fontSize: 13, lineHeight: 19 },
   reportMoney: { marginTop: 6, fontSize: 13, lineHeight: 19, fontWeight: '800' },
   historyScroll: { maxHeight: 280, marginTop: 12 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
   modalCard: {
-    width: '100%',
-    maxWidth: 560,
+    ...BOXED_OVERLAY.card,
+    maxWidth: 480,
     maxHeight: '85%',
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 20,
   },
   modalScrollOuter: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 8 },

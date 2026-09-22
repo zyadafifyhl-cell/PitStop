@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -515,20 +516,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   helpBtnText: { fontSize: 17, fontWeight: '600', letterSpacing: 0.5 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 20,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
+  modalCard: BOXED_OVERLAY.card,
   modalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 10 },
   modalBody: { fontSize: 16, lineHeight: 24, fontWeight: '600' },
   disputeInput: {

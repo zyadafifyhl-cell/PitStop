@@ -1,5 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { Booking, BookingStatus } from '@/lib/booking/types';
 import {
@@ -18,6 +19,24 @@ import {
 } from '@/lib/notifications/notificationService';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import { listPendingStoreOrders, type StoreOrderWithItems } from '@/lib/store/orderRepository';
+
+function merchantInboxSeenKey(shopId: string): string {
+  return `@pitstop/merchant-inbox-seen/${shopId}`;
+}
+
+async function readMerchantInboxSeenIds(shopId: string): Promise<Set<string>> {
+  try {
+    const raw = await AsyncStorage.getItem(merchantInboxSeenKey(shopId));
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+async function writeMerchantInboxSeenIds(shopId: string, ids: Set<string>): Promise<void> {
+  await AsyncStorage.setItem(merchantInboxSeenKey(shopId), JSON.stringify([...ids]));
+}
 
 function mapRealtimeStoreOrder(row: MerchantStoreOrderRealtimeRow): StoreOrderWithItems {
   return {
@@ -55,8 +74,10 @@ export type MerchantOrderNotifierState = {
   pendingCount: number;
   pendingStoreOrders: StoreOrderWithItems[];
   pendingStoreOrderCount: number;
-  /** Bookings + pending store orders (for mixed merchant shells). */
   notificationBadgeCount: number;
+  /** Unread inbox count — clears when the merchant opens notifications. */
+  unseenBadgeCount: number;
+  markInboxSeen: () => Promise<void>;
   allBookings: Booking[];
   loading: boolean;
   refresh: () => Promise<void>;
@@ -93,6 +114,7 @@ export function useMerchantOrderNotifier({
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   const [pendingBookings, setPendingBookings] = useState<Booking[]>([]);
   const [pendingStoreOrders, setPendingStoreOrders] = useState<StoreOrderWithItems[]>([]);
+  const [seenInboxIds, setSeenInboxIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [storeOrdersRevision, setStoreOrdersRevision] = useState(0);
   const alertedIdsRef = useRef<Set<string>>(new Set());
@@ -275,6 +297,33 @@ export function useMerchantOrderNotifier({
   }, [shopId, enabled, enableStoreOrders, alertOnFocus]);
 
   useEffect(() => {
+    if (!shopId) {
+      setSeenInboxIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    void readMerchantInboxSeenIds(shopId).then((ids) => {
+      if (!cancelled) setSeenInboxIds(ids);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shopId]);
+
+  const markInboxSeen = useCallback(async () => {
+    if (!shopId) return;
+    const next = new Set(seenInboxIds);
+    for (const row of pendingBookings) next.add(row.id);
+    for (const row of pendingStoreOrders) next.add(row.id);
+    const liveIds = new Set([...pendingBookings.map((row) => row.id), ...pendingStoreOrders.map((row) => row.id)]);
+    for (const id of [...next]) {
+      if (!liveIds.has(id)) next.delete(id);
+    }
+    setSeenInboxIds(next);
+    await writeMerchantInboxSeenIds(shopId, next);
+  }, [shopId, seenInboxIds, pendingBookings, pendingStoreOrders]);
+
+  useEffect(() => {
     alertedIdsRef.current.clear();
     cancellationAlertedIdsRef.current.clear();
     storeOrderAlertedIdsRef.current.clear();
@@ -282,13 +331,18 @@ export function useMerchantOrderNotifier({
 
   const pendingStoreOrderCount = pendingStoreOrders.length;
   const pendingCount = pendingBookings.length;
+  const unseenBadgeCount =
+    pendingBookings.filter((row) => !seenInboxIds.has(row.id)).length +
+    pendingStoreOrders.filter((row) => !seenInboxIds.has(row.id)).length;
 
   return {
     pendingBookings,
     pendingCount,
     pendingStoreOrders,
     pendingStoreOrderCount,
-    notificationBadgeCount: pendingCount + pendingStoreOrderCount,
+    notificationBadgeCount: unseenBadgeCount,
+    unseenBadgeCount,
+    markInboxSeen,
     allBookings,
     loading,
     refresh,

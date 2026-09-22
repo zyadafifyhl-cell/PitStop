@@ -2,17 +2,53 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import type { Booking } from '@/lib/booking/types';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
+import { formatPhoneDisplay } from '@/lib/linking/contact';
 import {
   fetchMerchantStoreOrderNotifications,
   type MerchantNotificationItem,
 } from '@/lib/notifications/merchantStoreNotifications';
 import type { StoreOrderWithItems } from '@/lib/store/orderRepository';
+import type { Locale } from '@/lib/i18n/strings';
 import { formatRelativeTimeAgo } from '@/lib/ui/relativeTime';
+
+function fallbackCustomer(locale: Locale): string {
+  return locale === 'ar' ? 'عميل' : 'Customer';
+}
+
+function bookingCustomerLabel(booking: Booking, locale: Locale): string {
+  return booking.customerName?.trim() || formatPhoneDisplay(booking.customerPhone) || fallbackCustomer(locale);
+}
+
+function bookingMetaLine(booking: Booking, locale: Locale): string {
+  const name = booking.customerName?.trim();
+  const phone = formatPhoneDisplay(booking.customerPhone);
+  return [name && phone && phone !== name ? phone : null, booking.carType, formatBookingDateTime(booking.scheduledAt, locale)]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function storeCustomerLabel(order: StoreOrderWithItems, locale: Locale): string {
+  return (
+    order.customerName?.trim() ||
+    (order.customerPhone ? formatPhoneDisplay(order.customerPhone) : '') ||
+    fallbackCustomer(locale)
+  );
+}
+
+function storeMetaLine(order: StoreOrderWithItems, locale: Locale): string {
+  const name = order.customerName?.trim();
+  const phone = order.customerPhone ? formatPhoneDisplay(order.customerPhone) : '';
+  const fulfillment = order.fulfillmentMethod === 'pickup' ? (locale === 'ar' ? 'استلام' : 'Pickup') : locale === 'ar' ? 'توصيل' : 'Delivery';
+  return [name && phone && phone !== name ? phone : null, formatEgp(order.totalPrice, locale), fulfillment]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 type Props = {
   visible: boolean;
@@ -58,30 +94,15 @@ export function MerchantNotificationsModal({
     void loadStoreNotifications();
   }, [visible, loadStoreNotifications, pendingStoreOrders.length]);
 
-  const displayStoreRows =
+  const displayStoreRows: MerchantNotificationItem[] =
     storeNotifications.length > 0
       ? storeNotifications
       : pendingStoreOrders.map((order) => {
           const shortId = order.id.replace(/-/g, '').slice(0, 8).toUpperCase();
-          const customer =
-            order.customerName?.trim() ||
-            order.customerPhone?.trim() ||
-            (locale === 'ar' ? 'عميل' : 'Customer');
-          const fulfillment =
-            order.fulfillmentMethod === 'pickup'
-              ? locale === 'ar'
-                ? 'استلام'
-                : 'Pickup'
-              : locale === 'ar'
-                ? 'توصيل'
-                : 'Delivery';
           return {
             id: order.id,
-            title:
-              locale === 'ar'
-                ? `طلب جديد #${shortId}`
-                : `New Order Received / طلب جديد #${shortId}`,
-            message: `${customer} • ${formatEgp(order.totalPrice, locale)} (${fulfillment})`,
+            title: locale === 'ar' ? `طلب جديد #${shortId}` : `New Order Received / طلب جديد #${shortId}`,
+            message: storeMetaLine(order, locale),
             timestamp: order.createdAt,
             type: 'store_order' as const,
             order,
@@ -131,7 +152,12 @@ export function MerchantNotificationsModal({
                           <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
                         </View>
                       </View>
-                      <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>{item.message}</Text>
+                      <Text style={[styles.rowUser, { color: theme.text }]} numberOfLines={1}>
+                        {storeCustomerLabel(item.order, locale)}
+                      </Text>
+                      <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>
+                        {storeMetaLine(item.order, locale)}
+                      </Text>
                       <Text style={[styles.rowTime, { color: theme.textDim }]}>
                         {formatRelativeTimeAgo(item.timestamp, locale)}
                       </Text>
@@ -162,10 +188,10 @@ export function MerchantNotificationsModal({
                           <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
                         </View>
                       </View>
-                      <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>
-                        {booking.customerPhone} · {booking.carType} ·{' '}
-                        {formatBookingDateTime(booking.scheduledAt, locale)}
+                      <Text style={[styles.rowUser, { color: theme.text }]} numberOfLines={1}>
+                        {bookingCustomerLabel(booking, locale)}
                       </Text>
+                      <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>{bookingMetaLine(booking, locale)}</Text>
                       <Text style={[styles.rowTime, { color: theme.textDim }]}>
                         {formatRelativeTimeAgo(booking.createdAt, locale)}
                       </Text>
@@ -186,18 +212,8 @@ export function MerchantNotificationsModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.42)',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  card: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 16,
-    maxHeight: '82%',
-  },
+  backdrop: BOXED_OVERLAY.backdrop,
+  card: BOXED_OVERLAY.card,
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -210,7 +226,7 @@ const styles = StyleSheet.create({
   empty: { fontSize: 14, lineHeight: 20, textAlign: 'center', paddingVertical: 24 },
   row: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -231,6 +247,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   rowTitle: { fontSize: 13, fontWeight: '900', flex: 1 },
+  rowUser: { fontSize: 15, fontWeight: '800' },
   pendingChip: {
     borderRadius: 999,
     paddingHorizontal: 8,
@@ -241,8 +258,8 @@ const styles = StyleSheet.create({
   rowTime: { fontSize: 11, fontWeight: '700' },
   okBtn: {
     marginTop: 12,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 999,
+    paddingVertical: 13,
     alignItems: 'center',
   },
   okText: { fontSize: 15, fontWeight: '800' },

@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import type { Customer } from '@/lib/booking/customers';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -304,20 +305,10 @@ export function PrivacySettingsModal({
 }
 
 const styles = StyleSheet.create({
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
   modalCard: {
-    width: '100%',
-    maxWidth: 420,
+    ...BOXED_OVERLAY.card,
     maxHeight: '90%',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
   },
   modalScroll: { paddingBottom: 8 },
   modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 6 },

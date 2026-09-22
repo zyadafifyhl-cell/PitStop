@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatBookingDateTime } from '@/lib/booking/format';
@@ -203,7 +204,7 @@ export function WalkInBookingModal({
       : '—';
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCloseModal}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCloseModal}>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.title, { color: theme.text }, isRTL && styles.textRtl]}>{t('walk_in_modal_title')}</Text>
@@ -387,16 +388,11 @@ export function WalkInBookingModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
-  },
+  backdrop: BOXED_OVERLAY.backdrop,
   card: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: 1,
-    maxHeight: '92%',
+    ...BOXED_OVERLAY.card,
+    maxWidth: 480,
+    maxHeight: '88%',
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 24,

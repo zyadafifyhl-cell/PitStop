@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { OrderListCard } from '@/components/customer/OrderListCard';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -281,20 +282,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   eraseBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 20,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
+  modalCard: BOXED_OVERLAY.card,
   modalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 10 },
   modalBody: { fontSize: 16, lineHeight: 24, fontWeight: '600' },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 18 },

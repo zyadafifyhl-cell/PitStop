@@ -6,6 +6,7 @@ import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'rea
 import { PrivacySettingsModal } from '@/components/settings/PrivacySettingsModal';
 import { VehicleManagementCard } from '@/components/settings/VehicleManagementCard';
 import { SettingsRow } from '@/components/ui/SettingsRow';
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { SUPPORT } from '@/constants/support';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -384,19 +385,8 @@ const styles = StyleSheet.create({
   toggleNote: { fontSize: 12, marginTop: 8, marginBottom: 4 },
   toggleTextRtl: { textAlign: 'right' },
   signOutWrap: { marginTop: 12 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    width: '100%',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
+  modalCard: BOXED_OVERLAY.card,
   modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
   modalLead: { fontSize: 13, lineHeight: 19, marginBottom: 10 },
   modalCloseBtn: {

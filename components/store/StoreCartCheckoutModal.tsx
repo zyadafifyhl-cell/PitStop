@@ -17,6 +17,7 @@ import {
 import { StoreQuantityStepper } from '@/components/store/StoreQuantityStepper';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useStoreCart } from '@/context/StoreCartContext';
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
@@ -166,7 +167,7 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, p
   const checkoutDisabled = placing || checkoutItems.length === 0 || selectedHasStockIssue;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: theme.bg }]}>
           <View style={[styles.header, isRTL && styles.rowRtl]}>
@@ -360,8 +361,13 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, p
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
-  sheet: { maxHeight: '88%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16 },
+  overlay: BOXED_OVERLAY.backdrop,
+  sheet: {
+    ...BOXED_OVERLAY.card,
+    maxWidth: 480,
+    maxHeight: '88%',
+    padding: 16,
+  },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   rowRtl: { flexDirection: 'row-reverse' },
   title: { fontSize: 20, fontWeight: '900' },

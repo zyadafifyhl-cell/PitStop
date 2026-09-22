@@ -2,6 +2,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
@@ -372,15 +373,9 @@ const styles = StyleSheet.create({
   offerBreakdownLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
   offerBreakdownOffer: { fontSize: 14, fontWeight: '800', lineHeight: 20 },
   offerBreakdownSaving: { fontSize: 13, fontWeight: '800' },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    padding: 20,
-  },
+  modalBackdrop: BOXED_OVERLAY.backdrop,
   modalCard: {
-    borderWidth: 1,
-    borderRadius: 16,
+    ...BOXED_OVERLAY.card,
     maxHeight: '70%',
     padding: 14,
   },
