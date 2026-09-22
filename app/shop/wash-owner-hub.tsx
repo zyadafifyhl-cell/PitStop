@@ -649,7 +649,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   tabText: { fontSize: 12, fontWeight: '800' },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 24 },
   textRtl: { writingDirection: 'rtl', textAlign: 'right' },

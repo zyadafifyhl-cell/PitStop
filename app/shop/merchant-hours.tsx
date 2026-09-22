@@ -221,7 +221,7 @@ export default function MerchantHoursScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   sectionLabel: { fontSize: 14, fontWeight: '800', marginBottom: 8 },
   dayRow: { gap: 8, paddingBottom: 12 },

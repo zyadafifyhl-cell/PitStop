@@ -255,6 +255,14 @@ export default function OrderDetailsScreen() {
                 {formatEgp(breakdown.vat, locale)}
               </Text>
             </View>
+            {breakdown.collectedPenaltyEgp > 0 ? (
+              <View style={styles.breakdownRow}>
+                <Text style={[styles.breakdownLabel, { color: theme.danger }]}>{t('book_no_show_penalty_previous')}</Text>
+                <Text style={[styles.breakdownValue, { color: theme.danger }]}>
+                  +{formatEgp(breakdown.collectedPenaltyEgp, locale)}
+                </Text>
+              </View>
+            ) : null}
             <View style={[styles.breakdownRow, styles.totalRow, { borderTopColor: theme.border }]}>
               <Text style={[styles.totalLabel, { color: theme.text }]}>{t('order_total')}</Text>
               <Text style={[styles.totalValue, { color: theme.warm }]}>{formatEgp(breakdown.total, locale)}</Text>
@@ -405,11 +413,11 @@ export default function OrderDetailsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
-  content: { padding: 16, gap: 14 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, gap: 14 },
   empty: { textAlign: 'center', marginTop: 48, fontSize: 16, fontWeight: '700' },
   summaryCard: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 16,
     gap: 14,
   },
@@ -429,7 +437,7 @@ const styles = StyleSheet.create({
   summaryId: { fontSize: 15, fontWeight: '600' },
   sectionCard: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 16,
     gap: 10,
   },

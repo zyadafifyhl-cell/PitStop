@@ -196,7 +196,7 @@ export default function MerchantPasswordScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, marginTop: 8 },
   hint: { fontSize: 12, lineHeight: 18, marginTop: 10 },
   recoveryRow: { marginTop: 10, gap: 6 },

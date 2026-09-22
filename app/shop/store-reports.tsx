@@ -321,7 +321,7 @@ export default function StoreReportsScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 16, paddingBottom: 40, gap: 14 },
+  page: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48, gap: 14 },
   center: { minHeight: 180, alignItems: 'center', justifyContent: 'center' },
   presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   preset: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },

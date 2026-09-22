@@ -848,6 +848,7 @@ export default function ShopScreen() {
       <ScrollView
         style={[styles.screen, { backgroundColor: theme.bg }]}
         contentContainerStyle={styles.loginContent}>
+        <View style={[styles.loginCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Text style={[styles.title, { color: theme.text }]}>{t('shop_login_title')}</Text>
         <Text style={[styles.lead, { color: theme.textMuted }]}>{t('shop_login_lead')}</Text>
         <Text style={[styles.label, { color: theme.text }]}>{t('shop_email_label')}</Text>
@@ -898,6 +899,7 @@ export default function ShopScreen() {
           <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_login_btn')}</Text>
         </Pressable>
         <Text style={[styles.demoHint, { color: theme.textDim }]}>{t('shop_demo_accounts')}</Text>
+        </View>
       </ScrollView>
     );
   }
@@ -1460,8 +1462,27 @@ export default function ShopScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loginContent: { padding: 20, paddingBottom: 40 },
-  page: { padding: 16, paddingBottom: 40 },
+  loginContent: {
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 48,
+    paddingBottom: 48,
+    justifyContent: 'center',
+    flexGrow: 1,
+  },
+  loginCard: {
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 22,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  page: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   pageWithBottomNav: { paddingBottom: 96 },
   panelTabRow: {
     flexDirection: 'row',
@@ -1484,7 +1505,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 8 },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -1492,7 +1513,7 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     marginTop: 14,
-    borderRadius: 12,
+    borderRadius: 999,
     paddingVertical: 13,
     alignItems: 'center',
   },

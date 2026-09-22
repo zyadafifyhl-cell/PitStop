@@ -53,11 +53,13 @@ export function computeCustomerOrderBreakdown(booking: Booking) {
   const serviceFee = platformFeeEgp;
   const vat = Math.round(((servicePriceEgp - serviceFee) * 14) / 114 * 100) / 100;
   const subtotal = Math.round((servicePriceEgp - serviceFee - vat) * 100) / 100;
+  const collectedPenaltyEgp = Math.max(0, booking.collectedPenaltyEgp ?? 0);
   return {
     subtotal,
     serviceFee,
     vat,
-    total: servicePriceEgp,
+    collectedPenaltyEgp,
+    total: servicePriceEgp + collectedPenaltyEgp,
   };
 }
 
@@ -190,7 +192,8 @@ export function orderStatusBadgeTone(
 
 export function orderTotalLabel(booking: Booking, locale: Locale): string {
   const { servicePriceEgp } = normalizeBookingMoney(booking);
-  return formatEgp(servicePriceEgp, locale);
+  const collectedPenaltyEgp = Math.max(0, booking.collectedPenaltyEgp ?? 0);
+  return formatEgp(servicePriceEgp + collectedPenaltyEgp, locale);
 }
 
 export { sortBookingsByScheduledAtDesc } from '@/lib/booking/storage';

@@ -325,7 +325,7 @@ export default function StoreScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center' },
-  content: { gap: 12 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', gap: 12 },
   headerBlock: { gap: 12, marginBottom: 8 },
   backBtn: {
     flexDirection: 'row',

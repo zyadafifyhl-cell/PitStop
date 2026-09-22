@@ -186,6 +186,7 @@ type BookingRow = {
   final_amount_paid_egp?: number | string | null;
   penalty_fee?: number | string | null;
   penalty_paid?: boolean | null;
+  collected_penalty_egp?: number | string | null;
   dispute_status?: Booking['disputeStatus'] | null;
   dispute_reason?: string | null;
   dispute_resolved_at?: string | null;
@@ -263,6 +264,7 @@ function mapBookingRow(row: BookingRow): Booking {
       row.final_amount_paid_egp != null ? Number(row.final_amount_paid_egp) : undefined,
     penaltyFee: Number(row.penalty_fee ?? 0),
     penaltyPaid: Boolean(row.penalty_paid),
+    collectedPenaltyEgp: Number(row.collected_penalty_egp ?? 0),
     disputeStatus: row.dispute_status ?? 'none',
     disputeReason: row.dispute_reason ?? undefined,
     disputeResolvedAt: row.dispute_resolved_at ?? undefined,
@@ -532,7 +534,32 @@ export async function createBooking(
     }
   }
   await notifyWashOwnerBooking(created, 'new_booking', options);
+  if (isUuid(created.customerId) && created.customerId === input.customerId) {
+    try {
+      const attached = await attachOutstandingPenaltyToBooking(created.id);
+      if (attached > 0) {
+        return {
+          ...created,
+          collectedPenaltyEgp: attached,
+          finalAmountPaidEgp: (created.finalAmountPaidEgp ?? created.servicePriceEgp ?? 0) + attached,
+        };
+      }
+    } catch (error) {
+      console.warn('Penalty attach on booking create failed (non-blocking):', error);
+    }
+  }
   return created;
+}
+
+export async function attachOutstandingPenaltyToBooking(bookingId: string): Promise<number> {
+  const supabase = getSupabase();
+  if (!supabase || !isUuid(bookingId)) return 0;
+  const { data, error } = await supabase.rpc('attach_outstanding_penalty_to_booking', {
+    p_booking_id: bookingId,
+  });
+  if (error) throw new Error(error.message);
+  const payload = (data ?? {}) as Record<string, number | string | boolean | null>;
+  return Number(payload.paid_amount ?? 0);
 }
 
 export async function createWalkInBooking(input: WalkInBookingInput): Promise<Booking> {
@@ -650,6 +677,55 @@ export async function getMyPenaltyBalance(): Promise<PenaltyBalance> {
     pendingDisputes: Number(payload.pending_disputes ?? 0),
     collectibleBalance: Number(payload.collectible_balance ?? 0),
   };
+}
+
+function isOutstandingPenaltyBooking(booking: Booking): boolean {
+  return (booking.penaltyFee ?? 0) > 0 && !booking.penaltyPaid && booking.disputeStatus !== 'waived';
+}
+
+function penaltyBookingRank(booking: Booking): number {
+  if (booking.disputeStatus === 'none') return 0;
+  if (booking.disputeStatus === 'pending') return 1;
+  return 2;
+}
+
+function penaltyBookingTimestamp(booking: Booking): string {
+  return booking.noShowMarkedAt || booking.scheduledAt || booking.createdAt;
+}
+
+/** Newest unpaid no-show first; prefer bookings the customer can still dispute. */
+export function pickPrimaryOutstandingPenaltyBooking(bookings: Booking[]): Booking | null {
+  return (
+    bookings
+      .filter(isOutstandingPenaltyBooking)
+      .sort((a, b) => {
+        const rankDiff = penaltyBookingRank(a) - penaltyBookingRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return penaltyBookingTimestamp(b).localeCompare(penaltyBookingTimestamp(a));
+      })[0] ?? null
+  );
+}
+
+export async function listOutstandingPenaltyBookingsForPhone(phone: string): Promise<Booking[]> {
+  const supabase = getSupabase();
+  if (supabase) {
+    const phoneVariants = phoneLookupVariants(phone);
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .in('customer_phone', phoneVariants.length ? phoneVariants : [phone])
+      .gt('penalty_fee', 0)
+      .eq('penalty_paid', false)
+      .neq('dispute_status', 'waived')
+      .order('no_show_marked_at', { ascending: false, nullsFirst: false })
+      .order('scheduled_at', { ascending: false });
+    if (!error && data) {
+      return (data as BookingRow[]).map(mapBookingRow).filter(isOutstandingPenaltyBooking);
+    }
+  }
+
+  const rows = await listBookingsForPhone(phone);
+  return rows.filter(isOutstandingPenaltyBooking);
 }
 
 export async function markBookingNoShow(

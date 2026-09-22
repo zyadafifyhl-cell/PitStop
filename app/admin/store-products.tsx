@@ -77,7 +77,7 @@ export default function AdminStoreProductsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, gap: 12, paddingBottom: 32 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32, gap: 12 },
   backBtn: { alignSelf: 'flex-start', paddingVertical: 4 },
   backText: { fontSize: 14, fontWeight: '700' },
   productRow: {

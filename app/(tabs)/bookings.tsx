@@ -260,10 +260,10 @@ export default function MyBookingsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   pageHeader: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 16,
     marginBottom: 14,
     gap: 4,

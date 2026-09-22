@@ -17,8 +17,8 @@ export const CUSTOMER_STORE_STATUS_TONE: Record<
 > = {
   pending: { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0', color: '#64748B' },
   preparing: { backgroundColor: '#E2E8F0', borderColor: '#94A3B8', color: '#0F172A' },
-  ready: { backgroundColor: '#0F172A', borderColor: '#0F172A', color: '#FFFFFF' },
-  completed: { backgroundColor: '#111827', borderColor: '#111827', color: '#FFFFFF' },
+  ready: { backgroundColor: '#E0F2FE', borderColor: 'rgba(14, 165, 233, 0.28)', color: '#0369A1' },
+  completed: { backgroundColor: 'rgba(16, 185, 129, 0.12)', borderColor: 'rgba(16, 185, 129, 0.28)', color: '#047857' },
   cancelled: { backgroundColor: '#F1F5F9', borderColor: '#94A3B8', color: '#64748B' },
 };
 

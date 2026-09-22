@@ -158,7 +158,7 @@ export function CustomerStoreOrderCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 24,
     marginBottom: 14,
     padding: 16,
   },

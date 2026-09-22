@@ -118,7 +118,7 @@ export default function AdminPenaltyDisputesScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48, gap: 12 },
   backBtn: { alignSelf: 'flex-start', paddingVertical: 4 },
   backText: { fontSize: 14, fontWeight: '800' },
   card: { borderWidth: 1, borderRadius: 12, padding: 14, gap: 7, marginTop: 10 },

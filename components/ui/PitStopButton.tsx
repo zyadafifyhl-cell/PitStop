@@ -44,7 +44,7 @@ export function PitStopButton({
         ? { backgroundColor: theme.dangerSoft, borderColor: theme.danger, color: theme.danger }
         : variant === 'ghost'
           ? { backgroundColor: 'transparent', borderColor: 'transparent', color: theme.text }
-          : { backgroundColor: 'rgba(30, 90, 230, 0.06)', borderColor: 'rgba(30, 90, 230, 0.40)', color: theme.warm };
+          : { backgroundColor: theme.accentSoft, borderColor: theme.chipBorder, color: theme.accent };
 
   return (
     <Pressable
@@ -63,10 +63,10 @@ export function PitStopButton({
             pressed && variant === 'primary'
               ? theme.accentHover
               : pressed && variant === 'secondary'
-                ? 'rgba(30, 90, 230, 0.15)'
+                ? theme.accentSoft
                 : colors.backgroundColor,
           borderColor: focused ? theme.accent : colors.borderColor,
-          borderTopColor: variant === 'primary' ? 'rgba(255, 255, 255, 0.20)' : undefined,
+          borderTopColor: undefined,
           opacity: blocked ? 0.5 : 1,
           transform: [{ scale: pressed ? 0.98 : 1 }],
           shadowColor: focused ? theme.focusRing : 'transparent',

@@ -1,19 +1,19 @@
-const electricCobalt = '#1E5AE6';
-const obsidian = '#0A0E17';
+const electricBlue = '#0066FF';
+const canvas = '#F8FAFC';
 
 export default {
   light: {
-    text: '#F8FAFC',
-    background: obsidian,
-    tint: electricCobalt,
+    text: '#0F172A',
+    background: canvas,
+    tint: electricBlue,
     tabIconDefault: '#64748B',
-    tabIconSelected: electricCobalt,
+    tabIconSelected: electricBlue,
   },
   dark: {
-    text: '#F8FAFC',
-    background: obsidian,
-    tint: electricCobalt,
+    text: '#0F172A',
+    background: canvas,
+    tint: electricBlue,
     tabIconDefault: '#64748B',
-    tabIconSelected: electricCobalt,
+    tabIconSelected: electricBlue,
   },
 };

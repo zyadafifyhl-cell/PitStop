@@ -182,7 +182,7 @@ export default function MerchantServicesScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   matrixRow: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 10 },
   serviceName: { fontSize: 16, fontWeight: '800', marginBottom: 2 },

@@ -2,7 +2,6 @@ import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,17 +14,11 @@ import { MerchantSettingsCard } from '@/components/owner/merchant/MerchantSettin
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { clearBranchManagerCache } from '@/lib/booking/wash/bookingDispatch';
 import {
   addBranchEmployeeRemote,
   listBranchEmployeesRemote,
   removeBranchEmployeeRemote,
 } from '@/lib/booking/wash/branchRepository';
-import {
-  createBranchManagerAccount,
-  fetchBranchManagerRemote,
-  linkBranchManagerByEmail,
-} from '@/lib/booking/wash/branchManagerRepository';
 import {
   getActiveWashBranch,
   getWashBranchState,
@@ -33,7 +26,7 @@ import {
   type WashBranchContext,
 } from '@/lib/booking/wash/washBranchStorage';
 import type { WashBranch } from '@/lib/booking/wash/types';
-import type { DbBranchEmployee, DbUser } from '@/lib/supabase/database.types';
+import type { DbBranchEmployee } from '@/lib/supabase/database.types';
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -56,12 +49,7 @@ export default function MerchantStaffScreen() {
   const [loading, setLoading] = useState(true);
   const [branches, setBranches] = useState<WashBranch[]>([]);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
-  const [branchManager, setBranchManager] = useState<DbUser | null>(null);
   const [employees, setEmployees] = useState<DbBranchEmployee[]>([]);
-  const [managerFullName, setManagerFullName] = useState('');
-  const [managerEmail, setManagerEmail] = useState('');
-  const [managerPassword, setManagerPassword] = useState('');
-  const [managerBusy, setManagerBusy] = useState(false);
   const [newEmployeeName, setNewEmployeeName] = useState('');
   const [newEmployeePhone, setNewEmployeePhone] = useState('');
   const [newEmployeeJobTitle, setNewEmployeeJobTitle] = useState('');
@@ -81,15 +69,10 @@ export default function MerchantStaffScreen() {
       const branch = await getActiveWashBranch(shop, branchCtx);
       setActiveBranchId(branch.id);
       if (!isUuid(branch.id)) {
-        setBranchManager(null);
         setEmployees([]);
         return;
       }
-      const [managerRow, employeeRows] = await Promise.all([
-        fetchBranchManagerRemote(branch.id),
-        listBranchEmployeesRemote(branch.id),
-      ]);
-      setBranchManager(managerRow);
+      const employeeRows = await listBranchEmployeesRemote(branch.id);
       setEmployees(employeeRows);
     } finally {
       setLoading(false);
@@ -111,12 +94,8 @@ export default function MerchantStaffScreen() {
     if (!shop || !activeBranchId || !isUuid(activeBranchId)) return;
     let cancelled = false;
     (async () => {
-      const [managerRow, employeeRows] = await Promise.all([
-        fetchBranchManagerRemote(activeBranchId),
-        listBranchEmployeesRemote(activeBranchId),
-      ]);
+      const employeeRows = await listBranchEmployeesRemote(activeBranchId);
       if (cancelled) return;
-      setBranchManager(managerRow);
       setEmployees(employeeRows);
     })();
     return () => {
@@ -128,65 +107,6 @@ export default function MerchantStaffScreen() {
     if (!shop) return;
     setActiveBranchId(branchId);
     await setActiveWashBranch(shop, branchId, branchCtx);
-  }
-
-  async function finishManagerSave(
-    result: Awaited<ReturnType<typeof createBranchManagerAccount>>,
-  ) {
-    if (!activeBranch) return;
-    if (!result.ok) {
-      Alert.alert(t('wash_manager_save_fail_title'), result.message ?? t('wash_manager_save_fail_body'));
-      return;
-    }
-    clearBranchManagerCache();
-    const managerRow = await fetchBranchManagerRemote(activeBranch.id);
-    setBranchManager(managerRow);
-    setManagerFullName('');
-    setManagerEmail('');
-    setManagerPassword('');
-    Alert.alert(
-      result.mode === 'linked' ? t('wash_manager_linked_title') : t('wash_manager_created_title'),
-      result.mode === 'linked' ? t('wash_manager_linked_body') : t('wash_manager_created_body'),
-    );
-  }
-
-  async function onLinkBranchManager() {
-    if (!activeBranch || !isUuid(activeBranch.id)) return;
-    if (!managerFullName.trim() || !managerEmail.trim()) {
-      Alert.alert(t('wash_manager_link_invalid_title'), t('wash_manager_link_invalid_body'));
-      return;
-    }
-    setManagerBusy(true);
-    try {
-      const result = await linkBranchManagerByEmail({
-        email: managerEmail,
-        fullName: managerFullName,
-        branchId: activeBranch.id,
-      });
-      await finishManagerSave(result);
-    } finally {
-      setManagerBusy(false);
-    }
-  }
-
-  async function onCreateBranchManager() {
-    if (!activeBranch || !isUuid(activeBranch.id)) return;
-    if (!managerFullName.trim() || !managerEmail.trim()) {
-      Alert.alert(t('wash_manager_invalid_title'), t('wash_manager_invalid_body'));
-      return;
-    }
-    setManagerBusy(true);
-    try {
-      const result = await createBranchManagerAccount({
-        email: managerEmail,
-        password: managerPassword,
-        fullName: managerFullName,
-        branchId: activeBranch.id,
-      });
-      await finishManagerSave(result);
-    } finally {
-      setManagerBusy(false);
-    }
   }
 
   async function onAddEmployee() {
@@ -265,64 +185,6 @@ export default function MerchantStaffScreen() {
         <ActivityIndicator color={theme.accent} />
       ) : (
         <>
-          <MerchantSettingsCard theme={theme} title={t('wash_manager_title')} subtitle={t('wash_manager_lead')}>
-            {branchManager ? (
-              <View style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.rowTitle, { color: theme.text }]}>
-                    {branchManager.full_name || branchManager.email}
-                  </Text>
-                  <Text style={[styles.rowMeta, { color: theme.textMuted }]}>{branchManager.email}</Text>
-                </View>
-                <Text style={[styles.rowMeta, { color: theme.accent, fontWeight: '800' }]}>
-                  {t('wash_role_branch_manager')}
-                </Text>
-              </View>
-            ) : (
-              <>
-                <Text style={[styles.rowMeta, { color: theme.textMuted, marginBottom: 8 }, isRTL && styles.textRtl]}>
-                  {t('wash_manager_empty')}
-                </Text>
-                <TextInput
-                  placeholder={t('wash_manager_name_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  value={managerFullName}
-                  onChangeText={setManagerFullName}
-                  style={fieldStyle}
-                />
-                <TextInput
-                  placeholder={t('wash_manager_email_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={managerEmail}
-                  onChangeText={setManagerEmail}
-                  style={fieldStyle}
-                />
-                <TextInput
-                  placeholder={t('wash_manager_password_placeholder')}
-                  placeholderTextColor={theme.textDim}
-                  secureTextEntry
-                  value={managerPassword}
-                  onChangeText={setManagerPassword}
-                  style={fieldStyle}
-                />
-                <Pressable
-                  onPress={() => void onLinkBranchManager()}
-                  disabled={managerBusy}
-                  style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: managerBusy ? 0.65 : 1 }]}>
-                  <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_manager_link')}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => void onCreateBranchManager()}
-                  disabled={managerBusy}
-                  style={[styles.secondaryBtn, { borderColor: theme.border, opacity: managerBusy ? 0.65 : 1 }]}>
-                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_manager_create')}</Text>
-                </Pressable>
-              </>
-            )}
-          </MerchantSettingsCard>
-
           <MerchantSettingsCard theme={theme} title={t('wash_employees_title')} subtitle={t('wash_employees_lead')}>
             <TextInput
               placeholder={t('wash_employee_name_placeholder')}
@@ -389,7 +251,7 @@ export default function MerchantStaffScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   branchRow: { gap: 8, paddingVertical: 4 },
   branchChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },

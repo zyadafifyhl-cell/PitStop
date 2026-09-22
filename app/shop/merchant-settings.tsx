@@ -41,10 +41,9 @@ export default function MerchantSettingsScreen() {
     shop?.name ||
     '—';
   const displayEmail = shopStaff?.email ?? staff?.email ?? shop?.ownerEmail ?? '—';
-  const roleLabel = staff?.role === 'owner'
-    ? t('wash_role_owner')
-    : staff?.role === 'branch_manager'
-      ? t('wash_role_branch_manager')
+  const roleLabel =
+    staff?.role === 'owner' || staff?.role === 'branch_manager'
+      ? t('wash_role_owner')
       : t('merchant_settings_role_unknown');
 
   const loadBranch = useCallback(async () => {
@@ -210,7 +209,7 @@ export default function MerchantSettingsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginBottom: 16 },
   primaryBtn: { borderRadius: 9, paddingHorizontal: 20, paddingVertical: 12 },

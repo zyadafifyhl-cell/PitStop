@@ -155,9 +155,14 @@ export function OrderListCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     marginBottom: 14,
     overflow: 'hidden',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   cardBody: {
     padding: 16,
@@ -219,7 +224,7 @@ const styles = StyleSheet.create({
   bookAgainBtn: {
     minWidth: 132,
     borderWidth: 1.5,
-    borderRadius: 9,
+    borderRadius: 999,
     paddingHorizontal: 18,
     paddingVertical: 12,
     alignItems: 'center',

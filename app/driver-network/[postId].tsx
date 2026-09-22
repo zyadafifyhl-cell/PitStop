@@ -289,7 +289,7 @@ export default function DriverNetworkPostScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  content: { padding: 16, paddingBottom: 120 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 },
   postShell: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 16, gap: 10 },
   postHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   flair: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },

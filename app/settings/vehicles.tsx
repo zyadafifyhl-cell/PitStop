@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   screen: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   emptyText: { fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 24 },
   addBtn: {

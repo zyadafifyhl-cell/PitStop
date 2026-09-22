@@ -450,10 +450,6 @@ export default function WelcomeScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <AutomotiveBackground theme={theme} variant="welcome" />
-      <View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(30, 90, 230, 0.05)' }]}
-      />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -876,6 +872,9 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: {
     flexGrow: 1,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
     paddingHorizontal: 24,
     paddingTop: 56,
     paddingBottom: 40,
@@ -904,7 +903,7 @@ const styles = StyleSheet.create({
   modeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   guestBtn: {
     borderWidth: 1,
-    borderRadius: 9,
+    borderRadius: 999,
     alignItems: 'center',
     paddingVertical: 13,
     marginBottom: 12,
@@ -917,7 +916,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 14,
-    borderRadius: 9,
+    borderRadius: 999,
     borderWidth: 1,
   },
   modeBtnActive: {
@@ -926,13 +925,18 @@ const styles = StyleSheet.create({
   modeText: { fontSize: 15, fontWeight: '700' },
   formBox: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 22,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
   formLead: { fontSize: 15, lineHeight: 22, fontWeight: '600', marginBottom: 14 },
   input: {
     borderWidth: 1,
-    borderRadius: 9,
+    borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
@@ -942,7 +946,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 9,
+    borderRadius: 999,
     marginBottom: 12,
   },
   passwordRowRtl: { flexDirection: 'row-reverse' },
@@ -957,13 +961,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   submitBtn: {
-    borderRadius: 9,
+    borderRadius: 999,
     overflow: 'hidden',
     marginTop: 8,
     shadowColor: 'transparent',
     elevation: 0,
   },
-  submitGradient: { minHeight: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 9 },
+  submitGradient: { minHeight: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 999 },
   submitText: { color: '#fff', fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
   switchLink: { marginTop: 14, alignItems: 'center' },
   switchText: { fontSize: 15, fontWeight: '700' },
@@ -1033,7 +1037,7 @@ const styles = StyleSheet.create({
   },
   termsModalCard: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     maxHeight: '82%',
     overflow: 'hidden',
   },
@@ -1041,7 +1045,7 @@ const styles = StyleSheet.create({
   termsModalCloseBtn: {
     margin: 16,
     marginTop: 8,
-    borderRadius: 9,
+    borderRadius: 999,
     paddingVertical: 14,
     alignItems: 'center',
   },
@@ -1057,7 +1061,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     paddingHorizontal: 22,
     paddingTop: 28,
     paddingBottom: 20,
@@ -1088,7 +1092,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
     minHeight: 48,
     width: '100%',
-    borderRadius: 9,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 18,

@@ -1,10 +1,11 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Platform, StyleSheet, View, type ColorValue } from 'react-native';
+import { StyleSheet, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
+import { FintechTabBar } from '@/components/ui/FintechTabBar';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -14,15 +15,8 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
   color: ColorValue;
-  focused: boolean;
 }) {
-  const { focused, ...iconProps } = props;
-  return (
-    <View style={styles.tabIconFrame}>
-      <FontAwesome size={22} {...iconProps} />
-      {focused ? <View style={styles.activeDot} /> : null}
-    </View>
-  );
+  return <FontAwesome size={20} {...props} />;
 }
 
 export default function TabLayout() {
@@ -32,23 +26,15 @@ export default function TabLayout() {
   const theme = useAppTheme();
   const hasCustomerArea = !shop && (!!customer || isGuest);
   const customerHeaderRight = () => (customer && !isGuest && !shop ? <CustomerNotificationsBell /> : null);
+  const hideTabBar = Boolean(shop && !hasCustomerArea);
 
   return (
     <Tabs
       key={locale}
+      tabBar={(props) => (hideTabBar ? null : <FintechTabBar {...(props as any)} />)}
       screenOptions={{
-        tabBarActiveTintColor: '#3B82F6',
-        tabBarInactiveTintColor: '#64748B',
-        tabBarStyle: {
-          backgroundColor: theme.bgElevated,
-          borderTopColor: 'rgba(255, 255, 255, 0.06)',
-          borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 88 : 68,
-          paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-          display: shop && !hasCustomerArea ? 'none' : 'flex',
-        },
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
+        tabBarActiveTintColor: theme.accent,
+        tabBarInactiveTintColor: theme.textMuted,
         headerStyle: {
           backgroundColor: theme.bg,
           borderBottomColor: theme.border,
@@ -63,7 +49,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t('tab_home'),
-          tabBarIcon: ({ color, focused }) => <TabBarIcon name="home" color={color} focused={focused} />,
+          tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
           headerShown: false,
           href: hasCustomerArea || !shop ? undefined : null,
         }}
@@ -72,7 +58,7 @@ export default function TabLayout() {
         name="bookings"
         options={{
           title: t('tab_my_bookings'),
-          tabBarIcon: ({ color, focused }) => <TabBarIcon name="list-alt" color={color} focused={focused} />,
+          tabBarIcon: ({ color }) => <TabBarIcon name="list-alt" color={color} />,
           headerRight: customerHeaderRight,
           href: hasCustomerArea || !shop ? undefined : null,
         }}
@@ -81,10 +67,9 @@ export default function TabLayout() {
         name="orders"
         options={{
           title: t('tab_my_orders'),
-          tabBarIcon: ({ color, focused }) => (
-            <View style={styles.tabIconFrame}>
-              <Ionicons name="bag-handle-outline" size={22} color={color} />
-              {focused ? <View style={styles.activeDot} /> : null}
+          tabBarIcon: ({ color }) => (
+            <View style={styles.iconSlot}>
+              <Ionicons name="bag-handle-outline" size={20} color={color} />
             </View>
           ),
           headerRight: customerHeaderRight,
@@ -95,7 +80,7 @@ export default function TabLayout() {
         name="favorites"
         options={{
           title: t('tab_favorites'),
-          tabBarIcon: ({ color, focused }) => <TabBarIcon name="heart" color={color} focused={focused} />,
+          tabBarIcon: ({ color }) => <TabBarIcon name="heart" color={color} />,
           headerRight: customerHeaderRight,
           href: hasCustomerArea ? undefined : null,
         }}
@@ -104,7 +89,7 @@ export default function TabLayout() {
         name="assistant"
         options={{
           title: t('tab_driver_network'),
-          tabBarIcon: ({ color, focused }) => <TabBarIcon name="comments" color={color} focused={focused} />,
+          tabBarIcon: ({ color }) => <TabBarIcon name="comments" color={color} />,
           headerShown: false,
           href: hasCustomerArea ? undefined : null,
         }}
@@ -113,7 +98,7 @@ export default function TabLayout() {
         name="shop"
         options={{
           title: t('tab_shop'),
-          tabBarIcon: ({ color, focused }) => <TabBarIcon name="briefcase" color={color} focused={focused} />,
+          tabBarIcon: ({ color }) => <TabBarIcon name="briefcase" color={color} />,
           href: shop ? undefined : hasCustomerArea ? null : undefined,
         }}
       />
@@ -121,9 +106,7 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: shop ? t('tab_settings') : t('tab_account'),
-          tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name={shop ? 'cog' : 'user'} color={color} focused={focused} />
-          ),
+          tabBarIcon: ({ color }) => <TabBarIcon name={shop ? 'cog' : 'user'} color={color} />,
           headerRight: customerHeaderRight,
           href: shop ? '/shop/merchant-settings' : hasCustomerArea ? undefined : null,
         }}
@@ -133,17 +116,8 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  tabIconFrame: {
-    minWidth: 28,
-    height: 30,
+  iconSlot: {
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: 4,
-  },
-  activeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
   },
 });

@@ -1379,7 +1379,7 @@ function inputStyle(theme: AppThemeTokens) {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   shopName: { fontSize: 24, fontWeight: '700', marginBottom: 4, letterSpacing: -0.3 },
   meta: { fontSize: 14, marginBottom: 12 },
   offerBanner: { borderWidth: 1, borderRadius: 10, padding: 14, marginBottom: 0 },

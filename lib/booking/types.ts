@@ -65,6 +65,8 @@ export type Booking = {
   /** No-show fee attached to this booking. */
   penaltyFee?: number;
   penaltyPaid?: boolean;
+  /** Previous no-show fees collected with this booking. */
+  collectedPenaltyEgp?: number;
   disputeStatus?: PenaltyDisputeStatus;
   disputeReason?: string;
   disputeResolvedAt?: string;

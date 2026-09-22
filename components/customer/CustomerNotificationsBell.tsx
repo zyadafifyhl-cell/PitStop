@@ -21,7 +21,13 @@ import {
 } from '@/lib/booking/customerNotificationText';
 import type { CustomerNotification } from '@/lib/booking/types';
 
-export function CustomerNotificationsBell({ embedded = false }: { embedded?: boolean }) {
+export function CustomerNotificationsBell({
+  embedded = false,
+  iconColor,
+}: {
+  embedded?: boolean;
+  iconColor?: string;
+}) {
   const { customer, isGuest } = useCustomerAuth();
   const { t, tp, locale } = useI18n();
   const theme = useAppTheme();
@@ -82,7 +88,7 @@ export function CustomerNotificationsBell({ embedded = false }: { embedded?: boo
         style={[styles.bellBtn, embedded && styles.bellBtnEmbedded]}
         accessibilityLabel={t('customer_notifications_button')}
         hitSlop={8}>
-        <FontAwesome name="bell" size={20} color={theme.text} />
+        <FontAwesome name="bell" size={20} color={iconColor ?? theme.text} />
         {unreadCount > 0 ? (
           <View style={[styles.badge, { backgroundColor: theme.danger }]}>
             <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>

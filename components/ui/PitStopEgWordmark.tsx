@@ -2,7 +2,6 @@ import React from 'react';
 import { Image, StyleSheet, View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
 
 import { APP_BRAND_NAME, BRAND_COBALT } from '@/constants/Brand';
-import { useThemePreference } from '@/context/ThemePreferenceContext';
 
 type Size = 'hero' | 'compact' | 'watermark';
 
@@ -28,10 +27,9 @@ const OPACITY: Record<Size, number> = {
 };
 
 export function PitStopEgWordmark({ size = 'hero', style, imageStyle }: Props) {
-  const { effectivePreference } = useThemePreference();
   const width = WIDTH[size];
   const height = Math.round(width / LOGO_ASPECT);
-  const tintColor = effectivePreference === 'light' ? BRAND_COBALT : '#FFFFFF';
+  const tintColor = BRAND_COBALT;
 
   return (
     <View

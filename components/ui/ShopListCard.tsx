@@ -268,9 +268,14 @@ export function ShopListCard({
 const styles = StyleSheet.create({
   wrap: { marginBottom: 14 },
   card: {
-    borderRadius: 12,
+    borderRadius: 24,
     borderWidth: 1,
     padding: 18,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   topRow: {
     flexDirection: 'row',
@@ -348,7 +353,7 @@ const styles = StyleSheet.create({
   bookBtn: {
     flex: 1,
     minHeight: 48,
-    borderRadius: 9,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },

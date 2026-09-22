@@ -169,7 +169,7 @@ export default function WashReportsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 24, gap: 8 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32, gap: 8 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backBtn: { paddingVertical: 4, alignSelf: 'flex-start' },
   backText: { fontSize: 14, fontWeight: '700' },

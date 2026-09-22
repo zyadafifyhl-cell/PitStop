@@ -92,7 +92,7 @@ export function ActiveVehiclePicker({
                   styles.pickerBtn,
                   {
                     borderColor: pickerFocused ? theme.accent : embedded ? 'transparent' : theme.inputBorder,
-                    backgroundColor: embedded ? '#131F35' : theme.inputBg,
+                    backgroundColor: theme.inputBg,
                   },
                 ]}>
                 <Text style={[styles.pickerBtnText, { color: theme.textMuted }, isRTL && styles.textRtl]}>
@@ -138,12 +138,12 @@ export function ActiveVehiclePicker({
               styles.pickerBtn,
               {
                 borderColor: pickerFocused ? theme.accent : embedded ? 'transparent' : theme.inputBorder,
-                backgroundColor: embedded ? '#131F35' : theme.inputBg,
+                backgroundColor: theme.inputBg,
               },
             ]}>
             {embedded ? (
               <View style={styles.embeddedCarBadge}>
-                <FontAwesome name="car" size={14} color="#3B82F6" />
+                <FontAwesome name="car" size={14} color={theme.accent} />
               </View>
             ) : null}
             <Text style={[styles.pickerBtnText, { color: theme.text }, isRTL && styles.textRtl]}>
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
-  activeDot: { width: 5, height: 5, borderRadius: 999, backgroundColor: '#3B82F6' },
+  activeDot: { width: 5, height: 5, borderRadius: 999, backgroundColor: '#0066FF' },
   activeBadgeText: { color: '#60A5FA', fontSize: 10, fontWeight: '700' },
   dropdown: {
     borderWidth: 1,

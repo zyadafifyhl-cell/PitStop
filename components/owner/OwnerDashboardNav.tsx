@@ -1,6 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import type { OwnerNavIconId } from '@/lib/owner/dashboardConfig';
@@ -29,65 +30,98 @@ const NAV_ICONS: Record<OwnerNavIconId, React.ComponentProps<typeof MaterialComm
 
 export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange }: Props<T>) {
   const theme = useAppTheme();
-  const compact = tabs.length >= 5;
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg, borderTopColor: theme.border }]}>
-      {tabs.map((tab) => {
-        const active = activeTab === tab.id;
-        const color = active ? theme.accent : theme.textMuted;
-        return (
-          <Pressable
-            key={tab.id}
-            onPress={() => onChange(tab.id)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            style={[styles.item, compact && styles.itemCompact]}>
-            <MaterialCommunityIcons name={NAV_ICONS[tab.icon]} size={22} color={color} />
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-              style={[styles.label, compact && styles.labelCompact, { color }]}>
-              {tab.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View
+      style={[
+        styles.dock,
+        {
+          backgroundColor: theme.bg,
+          paddingBottom: Math.max(insets.bottom, 12),
+        },
+      ]}>
+      <View
+        style={[
+          styles.pill,
+          {
+            backgroundColor: theme.card,
+            borderColor: theme.border,
+            shadowColor: theme.shadowColor,
+          },
+        ]}>
+        {tabs.map((tab) => {
+          const active = activeTab === tab.id;
+          const color = active ? theme.accent : theme.textMuted;
+          return (
+            <Pressable
+              key={tab.id}
+              onPress={() => onChange(tab.id)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
+              <View style={[styles.iconWrap, active && { backgroundColor: theme.accentSoft }]}>
+                <MaterialCommunityIcons name={NAV_ICONS[tab.icon]} size={20} color={color} />
+              </View>
+              <Text numberOfLines={1} style={[styles.label, { color }]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  dock: {
     position: 'absolute',
     right: 0,
     bottom: 0,
     left: 0,
-    minHeight: 72,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  pill: {
     flexDirection: 'row',
-    borderTopWidth: 1,
+    alignItems: 'center',
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 720,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' } as object)
+      : null),
   },
   item: {
     flex: 1,
     minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
-    paddingVertical: 9,
-  },
-  itemCompact: {
+    gap: 4,
+    paddingVertical: 6,
     paddingHorizontal: 2,
-    paddingVertical: 8,
+  },
+  itemPressed: { opacity: 0.72 },
+  iconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   label: {
-    marginTop: 5,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
+    letterSpacing: 0.1,
     textAlign: 'center',
-  },
-  labelCompact: {
-    marginTop: 4,
-    fontSize: 9,
   },
 });

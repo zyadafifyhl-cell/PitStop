@@ -39,7 +39,7 @@ export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, styl
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 16,
     marginBottom: 12,
     overflow: 'hidden',

@@ -170,7 +170,7 @@ export default function PointsMarketplaceScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 40, gap: 4 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48, gap: 4 },
   introNote: {
     fontSize: 16,
     fontWeight: '700',

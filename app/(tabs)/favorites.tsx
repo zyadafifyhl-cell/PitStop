@@ -86,7 +86,7 @@ export default function FavoritesScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   title: { fontSize: 26, fontWeight: '900', marginBottom: 8 },
   lead: { fontSize: 15, lineHeight: 22, marginBottom: 22 },
   empty: { textAlign: 'center', marginTop: 32, lineHeight: 22 },

@@ -38,7 +38,7 @@ const styles = StyleSheet.create({
   link: {
     marginTop: 15,
     minHeight: 48,
-    borderRadius: 9,
+    borderRadius: 999,
     paddingHorizontal: 24,
     paddingVertical: 12,
     justifyContent: 'center',

@@ -22,7 +22,7 @@ export function AutomotiveBackground({ theme, variant = 'home' }: Props) {
           stroke={cobalt}
           strokeWidth={variant === 'welcome' ? 2 : 1.5}
           fill="none"
-          opacity={0.18}
+          opacity={0.08}
         />
         <Path
           d="M-40 126 L440 42"

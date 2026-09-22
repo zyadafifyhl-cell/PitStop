@@ -142,7 +142,7 @@ export default function AssistantScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  listContent: { padding: 16, paddingBottom: 32 },
+  listContent: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   headerBlock: {
     gap: 12,
     marginBottom: 4,

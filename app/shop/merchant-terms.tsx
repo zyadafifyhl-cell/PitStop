@@ -20,7 +20,7 @@ export default function MerchantTermsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingBottom: 32 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 32 },
   card: {
     borderWidth: 1,
     borderRadius: 16,

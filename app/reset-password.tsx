@@ -72,7 +72,7 @@ export default function ResetPasswordScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: 20, justifyContent: 'center' },
-  card: { borderWidth: 1, borderRadius: 18, padding: 18 },
+  card: { borderWidth: 1, borderRadius: 24, padding: 18 },
   title: { fontSize: 24, fontWeight: '900', marginBottom: 8 },
   lead: { fontSize: 14, lineHeight: 20, marginBottom: 14 },
   input: {
@@ -83,6 +83,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   hint: { fontSize: 12, lineHeight: 18, marginTop: 8 },
-  btn: { marginTop: 18, borderRadius: 9, paddingVertical: 14, alignItems: 'center' },
+  btn: { marginTop: 18, borderRadius: 999, paddingVertical: 14, alignItems: 'center' },
   btnText: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
 });

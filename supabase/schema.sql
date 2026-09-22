@@ -277,6 +277,8 @@ create table if not exists public.bookings (
   penalty_fee numeric(10, 2) not null default 0
     check (penalty_fee >= 0),
   penalty_paid boolean not null default false,
+  collected_penalty_egp numeric(10, 2) not null default 0
+    check (collected_penalty_egp >= 0),
   dispute_status text not null default 'none'
     check (dispute_status in ('none', 'pending', 'waived', 'rejected')),
   dispute_reason text,
@@ -629,6 +631,8 @@ on public.users
 for each row execute function public.protect_penalty_balance_columns();
 
 revoke execute on function public.protect_penalty_balance_columns() from public, anon, authenticated;
+revoke execute on function public.attach_outstanding_penalty_to_booking(uuid) from public, anon;
+grant execute on function public.attach_outstanding_penalty_to_booking(uuid) to authenticated;
 
 alter table public.areas enable row level security;
 alter table public.shops enable row level security;

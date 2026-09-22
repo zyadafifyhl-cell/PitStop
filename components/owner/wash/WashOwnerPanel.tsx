@@ -259,11 +259,7 @@ export function WashOwnerPanel({ shop }: Props) {
   const { isPro } = useShopSubscription(shop.id);
   const isPremium = isPro || authPremium;
   const accountEmail = shopStaff?.email ?? staff?.email ?? shop.ownerEmail;
-  const accountRoleLabel = isOwner
-    ? t('wash_role_owner')
-    : isBranchManager
-      ? t('wash_role_branch_manager')
-      : undefined;
+  const accountRoleLabel = isOwner || isBranchManager ? t('wash_role_owner') : undefined;
 
   const branchCtx = useMemo<WashBranchContext | undefined>(
     () => (shopStaff ? { staff: shopStaff } : undefined),
@@ -1564,8 +1560,7 @@ export function WashOwnerPanel({ shop }: Props) {
     );
   }
 
-  const canUseWalkInPos =
-    isBranchManager || (isOwner && managerResolved && !hasAnyBranchManager && !hasDedicatedBranchManager);
+  const canUseWalkInPos = isOwner || isBranchManager;
   const showCoupons = false;
 
   const TABS = getOwnerNavTabs(shop.type).map((tab) => ({
@@ -1784,9 +1779,6 @@ export function WashOwnerPanel({ shop }: Props) {
                       <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
                         {branchDisplayName(activeBranch, locale)}
                       </Text>
-                      <Text style={[styles.emptyHint, { color: theme.textDim, marginTop: 6 }, isRTL && styles.textRtl]}>
-                        {t('wash_branch_manager_scope_hint')}
-                      </Text>
                     </View>
                   </View>
                 ) : isOwner ? (
@@ -1904,7 +1896,7 @@ export function WashOwnerPanel({ shop }: Props) {
                   <OwnerSectionCard
                     theme={theme}
                     title={t('wash_analytics_title')}
-                    subtitle={t(isBranchManager ? 'wash_analytics_lead_manager' : 'wash_analytics_lead')}>
+                    subtitle={t('wash_analytics_lead')}>
                     {isOwner ? (
                       <Text style={[styles.metaStrong, { color: theme.text }]}>
                         {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
@@ -2187,98 +2179,13 @@ export function WashOwnerPanel({ shop }: Props) {
               focusOrderId={focusStoreOrderId}
               onFocusOrderHandled={() => setFocusStoreOrderId(null)}
             />
-            {/* Branch manager */}
-            {isOwner && activeBranch && isUuid(activeBranch.id) ? (
-              <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_staff')}>
-                <OwnerSectionCard theme={theme} title={t('wash_manager_title')} subtitle={t('wash_manager_lead')}>
-                  {branchManager ? (
-                    <>
-                      <View style={[styles.serviceRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.metaStrong, { color: theme.text }]}>
-                            {branchManager.full_name || branchManager.email}
-                          </Text>
-                          <Text style={[styles.meta, { color: theme.textMuted }]}>{branchManager.email}</Text>
-                        </View>
-                        <Text style={[styles.meta, { color: theme.accent, fontWeight: '800' }]}>
-                          {branchManager.role === 'owner'
-                            ? t('wash_role_owner')
-                            : t('wash_role_branch_manager')}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => void onRemoveBranchManager()}
-                        disabled={managerBusy}
-                        style={[
-                          styles.secondaryBtn,
-                          {
-                            borderColor: theme.danger,
-                            marginTop: 10,
-                            opacity: managerBusy ? 0.65 : 1,
-                          },
-                        ]}>
-                        <Text style={[styles.secondaryBtnText, { color: theme.danger }]}>
-                          {t('wash_manager_remove_action')}
-                        </Text>
-                      </Pressable>
-                    </>
-                  ) : (
-                    <>
-                      <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 4 }]}>
-                        {t('wash_manager_empty')}
-                      </Text>
-                      <TextInput
-                        placeholder={t('wash_manager_name_placeholder')}
-                        placeholderTextColor={theme.textDim}
-                        value={managerFullName}
-                        onChangeText={setManagerFullName}
-                        style={fieldStyle}
-                      />
-                      <TextInput
-                        placeholder={t('wash_manager_email_placeholder')}
-                        placeholderTextColor={theme.textDim}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        value={managerEmail}
-                        onChangeText={setManagerEmail}
-                        style={fieldStyle}
-                      />
-                      <TextInput
-                        placeholder={t('wash_manager_password_placeholder')}
-                        placeholderTextColor={theme.textDim}
-                        secureTextEntry
-                        value={managerPassword}
-                        onChangeText={setManagerPassword}
-                        style={fieldStyle}
-                      />
-                      <Text style={[styles.meta, { color: theme.textMuted, marginTop: 4 }]}>
-                        {t('wash_manager_hint')}
-                      </Text>
-                      <Pressable
-                        onPress={onLinkBranchManager}
-                        disabled={managerBusy}
-                        style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: managerBusy ? 0.65 : 1 }]}>
-                        <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_manager_link')}</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={onCreateBranchManager}
-                        disabled={managerBusy}
-                        style={[styles.secondaryBtn, { borderColor: theme.border, marginTop: 10, opacity: managerBusy ? 0.65 : 1 }]}>
-                        <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{t('wash_manager_create')}</Text>
-                      </Pressable>
-                    </>
-                  )}
-                </OwnerSectionCard>
-              </PremiumFeatureGate>
-            ) : null}
-
             {/* Branch employees */}
             {activeBranch && isUuid(activeBranch.id) ? (
               <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_staff')}>
               <OwnerSectionCard
                 theme={theme}
                 title={t('wash_employees_title')}
-                subtitle={t(isBranchManager ? 'wash_employees_lead_manager' : 'wash_employees_lead')}>
+                subtitle={t('wash_employees_lead')}>
                 {branchMetaLoading ? (
                   <View style={styles.inlineLoadingRow}>
                     <ActivityIndicator size="small" color={theme.accent} />
@@ -2353,7 +2260,7 @@ export function WashOwnerPanel({ shop }: Props) {
               </PremiumFeatureGate>
             ) : null}
 
-            <OwnerReviewsHistory shopId={shop.id} leadVariant={isBranchManager ? 'manager' : 'owner'} />
+            <OwnerReviewsHistory shopId={shop.id} leadVariant="owner" />
           </>
         )}
       </ScrollView>

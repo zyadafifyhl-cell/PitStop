@@ -662,7 +662,7 @@ export default function ShopProfileScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content: { padding: 16, paddingBottom: 32, gap: 12 },
+  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingBottom: 32, gap: 12 },
   heroCard: { borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
   coverImage: { width: '100%', height: 170 },
   profileRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingBottom: 12, alignItems: 'center', marginTop: -36 },
