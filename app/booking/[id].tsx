@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,7 +35,13 @@ import {
 } from '@/lib/booking/customerOrderPresentation';
 import { formatEgp } from '@/lib/booking/reporting';
 import { addShopReview, getCustomerShopReview } from '@/lib/booking/reviewsStorage';
-import { clearCustomerBookingHistory, cancelCustomerServiceBooking, getBookingForCustomer, wouldApplyLateCancelPenalty } from '@/lib/booking/storage';
+import {
+  clearCustomerBookingHistory,
+  cancelCustomerServiceBooking,
+  getBookingForCustomer,
+  submitPenaltyDispute,
+  wouldApplyLateCancelPenalty,
+} from '@/lib/booking/storage';
 import type { Booking } from '@/lib/booking/types';
 import { fetchBranchProfile } from '@/lib/booking/wash/branchRepository';
 import { formatPhoneDisplay, openPhone, openSupportEmail } from '@/lib/linking/contact';
@@ -51,6 +58,9 @@ export default function OrderDetailsScreen() {
   const [busy, setBusy] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [cancelVisible, setCancelVisible] = useState(false);
+  const [disputeVisible, setDisputeVisible] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeBusy, setDisputeBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const loadBooking = useCallback(async () => {
@@ -123,6 +133,25 @@ export default function OrderDetailsScreen() {
       );
     } catch {
       Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body'));
+    }
+  }
+
+  async function onSubmitDispute() {
+    if (!booking || disputeReason.trim().length < 10) return;
+    setDisputeBusy(true);
+    try {
+      await submitPenaltyDispute(booking.id, disputeReason);
+      setBooking({ ...booking, disputeStatus: 'pending', disputeReason: disputeReason.trim() });
+      setDisputeVisible(false);
+      setDisputeReason('');
+      Alert.alert(t('order_dispute_submitted_title'), t('order_dispute_submitted_body'));
+    } catch (error) {
+      Alert.alert(
+        t('order_dispute_failed_title'),
+        error instanceof Error ? error.message : t('order_dispute_failed_body'),
+      );
+    } finally {
+      setDisputeBusy(false);
     }
   }
 
@@ -243,6 +272,38 @@ export default function OrderDetailsScreen() {
           </View>
         ) : null}
 
+        {booking.status === 'no_show' && (booking.penaltyFee ?? 0) > 0 ? (
+          <View style={[styles.penaltyCard, { borderColor: theme.danger, backgroundColor: theme.dangerSoft }]}>
+            <Text style={[styles.penaltyTitle, { color: theme.danger }]}>
+              {t('order_no_show_penalty_badge').replace(
+                '{amount}',
+                formatEgp(booking.penaltyFee ?? 0, locale),
+              )}
+            </Text>
+            {booking.disputeStatus === 'pending' ? (
+              <Text style={[styles.penaltyBody, { color: theme.textMuted }]}>
+                {t('order_dispute_pending')}
+              </Text>
+            ) : booking.disputeStatus === 'waived' ? (
+              <Text style={[styles.penaltyBody, { color: theme.green }]}>
+                {t('order_dispute_waived')}
+              </Text>
+            ) : booking.disputeStatus === 'rejected' ? (
+              <Text style={[styles.penaltyBody, { color: theme.danger }]}>
+                {t('order_dispute_rejected')}
+              </Text>
+            ) : !booking.penaltyPaid ? (
+              <Pressable
+                onPress={() => setDisputeVisible(true)}
+                style={[styles.disputeBtn, { borderColor: theme.accent }]}>
+                <Text style={[styles.disputeBtnText, { color: theme.accent }]}>
+                  {t('order_dispute_fee')}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
         {canCancel ? (
           <Pressable
             onPress={() => setCancelVisible(true)}
@@ -297,6 +358,46 @@ export default function OrderDetailsScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={disputeVisible} transparent animationType="fade" onRequestClose={() => setDisputeVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('order_dispute_title')}</Text>
+            <Text style={[styles.modalBody, { color: theme.textMuted }]}>{t('order_dispute_body')}</Text>
+            <TextInput
+              value={disputeReason}
+              onChangeText={setDisputeReason}
+              multiline
+              maxLength={1000}
+              placeholder={t('order_dispute_reason_placeholder')}
+              placeholderTextColor={theme.textDim}
+              style={[
+                styles.disputeInput,
+                { color: theme.text, backgroundColor: theme.inputBg, borderColor: theme.border },
+              ]}
+            />
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setDisputeVisible(false)}
+                style={[styles.modalBtnSecondary, { borderColor: theme.border }]}>
+                <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('alert_cancel')}</Text>
+              </Pressable>
+              <Pressable
+                onPress={onSubmitDispute}
+                disabled={disputeBusy || disputeReason.trim().length < 10}
+                style={[
+                  styles.modalBtnPrimary,
+                  {
+                    backgroundColor: theme.accent,
+                    opacity: disputeBusy || disputeReason.trim().length < 10 ? 0.55 : 1,
+                  },
+                ]}>
+                <Text style={styles.modalBtnPrimaryText}>{t('order_dispute_submit')}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -308,7 +409,7 @@ const styles = StyleSheet.create({
   empty: { textAlign: 'center', marginTop: 48, fontSize: 16, fontWeight: '700' },
   summaryCard: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 12,
     padding: 16,
     gap: 14,
   },
@@ -324,16 +425,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   summaryMeta: { flex: 1, gap: 4 },
-  summaryShop: { fontSize: 20, fontWeight: '900', lineHeight: 26 },
+  summaryShop: { fontSize: 20, fontWeight: '700', lineHeight: 26 },
   summaryId: { fontSize: 15, fontWeight: '600' },
   sectionCard: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 12,
     padding: 16,
     gap: 10,
   },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  sectionTitle: { fontSize: 20, fontWeight: '900' },
+  sectionTitle: { fontSize: 20, fontWeight: '700' },
   sectionPrimary: { fontSize: 17, fontWeight: '800', lineHeight: 24 },
   sectionBody: { fontSize: 16, lineHeight: 24, fontWeight: '600' },
   inlineLinkWrap: { alignSelf: 'flex-start' },
@@ -364,9 +465,25 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 20, fontWeight: '900' },
   totalValue: { fontSize: 22, fontWeight: '900' },
+  penaltyCard: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 16,
+    gap: 10,
+  },
+  penaltyTitle: { fontSize: 16, fontWeight: '700' },
+  penaltyBody: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  disputeBtn: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  disputeBtnText: { fontSize: 14, fontWeight: '900' },
   cancelBtn: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 9,
     paddingVertical: 14,
     alignItems: 'center',
   },
@@ -382,14 +499,14 @@ const styles = StyleSheet.create({
   },
   helpBtn: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 9,
     paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
-  helpBtnText: { fontSize: 17, fontWeight: '900' },
+  helpBtnText: { fontSize: 17, fontWeight: '600', letterSpacing: 0.5 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -401,23 +518,33 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 20,
   },
-  modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 10 },
+  modalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 10 },
   modalBody: { fontSize: 16, lineHeight: 24, fontWeight: '600' },
+  disputeInput: {
+    minHeight: 110,
+    borderWidth: 1,
+    borderRadius: 9,
+    padding: 12,
+    marginTop: 14,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlignVertical: 'top',
+  },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
   modalBtnSecondary: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 9,
     paddingVertical: 12,
     alignItems: 'center',
   },
   modalBtnSecondaryText: { fontSize: 15, fontWeight: '800' },
   modalBtnPrimary: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 9,
     paddingVertical: 12,
     alignItems: 'center',
   },

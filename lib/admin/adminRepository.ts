@@ -38,7 +38,24 @@ export type MerchantLedgerRow = {
   completedBookings: number;
   grossRevenueEgp: number;
   outstandingFeeEgp: number;
+  outstandingPenaltyCollectionsEgp: number;
+  totalOutstandingEgp: number;
   lastSettledAt: string;
+};
+
+export type PendingPenaltyDispute = {
+  bookingId: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  shopId: string;
+  shopName: string;
+  branchName: string;
+  serviceName: string;
+  scheduledAt: string;
+  penaltyFee: number;
+  disputeReason: string;
+  disputeCreatedAt: string;
 };
 
 export type ModerationItemKind = 'post' | 'comment' | 'review';
@@ -157,7 +174,11 @@ export async function fetchMerchantLedger(): Promise<MerchantLedgerRow[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
 
-  const [{ data: shops, error: shopsError }, { data: bookings, error: bookingsError }] = await Promise.all([
+  const [
+    { data: shops, error: shopsError },
+    { data: bookings, error: bookingsError },
+    { data: penaltyCollections, error: collectionsError },
+  ] = await Promise.all([
     supabase
       .from('shops')
       .select('id, name, type, owner_email, is_premium, platform_fee_last_settled_at')
@@ -167,6 +188,10 @@ export async function fetchMerchantLedger(): Promise<MerchantLedgerRow[]> {
       .from('bookings')
       .select('shop_id, status, service_price_egp, platform_fee_egp, scheduled_at')
       .eq('status', 'done'),
+    supabase
+      .from('penalty_collections')
+      .select('collecting_shop_id, amount, platform_settled_at')
+      .is('platform_settled_at', null),
   ]);
 
   if (shopsError || !shops?.length) return [];
@@ -187,6 +212,11 @@ export async function fetchMerchantLedger(): Promise<MerchantLedgerRow[]> {
       (sum, row) => sum + bookingPlatformFee(Number(row.service_price_egp ?? 0), Number(row.platform_fee_egp ?? 0)),
       0,
     );
+    const outstandingPenaltyCollectionsEgp = (collectionsError ? [] : penaltyCollections ?? [])
+      .filter((row) => row.collecting_shop_id === shop.id)
+      .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const roundedPlatformFee = Math.round(outstandingFeeEgp * 100) / 100;
+    const roundedPenaltyCollections = Math.round(outstandingPenaltyCollectionsEgp * 100) / 100;
 
     return {
       shopId: shop.id,
@@ -196,10 +226,46 @@ export async function fetchMerchantLedger(): Promise<MerchantLedgerRow[]> {
       isPremium: shop.is_premium === true,
       completedBookings: shopDone.length,
       grossRevenueEgp: Math.round(grossRevenueEgp * 100) / 100,
-      outstandingFeeEgp: Math.round(outstandingFeeEgp * 100) / 100,
+      outstandingFeeEgp: roundedPlatformFee,
+      outstandingPenaltyCollectionsEgp: roundedPenaltyCollections,
+      totalOutstandingEgp: Math.round((roundedPlatformFee + roundedPenaltyCollections) * 100) / 100,
       lastSettledAt: settledAt,
     };
   });
+}
+
+export async function listPendingPenaltyDisputes(): Promise<PendingPenaltyDispute[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('list_pending_penalty_disputes');
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    bookingId: String(row.booking_id),
+    customerId: String(row.customer_id),
+    customerName: String(row.customer_name ?? ''),
+    customerPhone: String(row.customer_phone ?? ''),
+    shopId: String(row.shop_id),
+    shopName: String(row.shop_name ?? ''),
+    branchName: String(row.branch_name ?? ''),
+    serviceName: String(row.service_name ?? ''),
+    scheduledAt: String(row.scheduled_at),
+    penaltyFee: Number(row.penalty_fee ?? 0),
+    disputeReason: String(row.dispute_reason ?? ''),
+    disputeCreatedAt: String(row.dispute_created_at),
+  }));
+}
+
+export async function resolvePenaltyDispute(
+  bookingId: string,
+  action: 'waive' | 'reject',
+): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase.rpc('resolve_penalty_dispute', {
+    p_booking_id: bookingId,
+    p_action: action,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function listModerationQueue(): Promise<ModerationQueueItem[]> {

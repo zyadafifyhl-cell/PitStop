@@ -1,5 +1,4 @@
 import { router, useFocusEffect, type Href } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -99,18 +98,7 @@ export default function AssistantScreen() {
   const listHeader = useMemo(
     () => (
       <View style={styles.headerBlock}>
-        <LinearGradient
-          colors={[
-            'rgba(32, 85, 196, 0.34)',
-            'rgba(32, 85, 196, 0.12)',
-            'rgba(74, 127, 224, 0.16)',
-            'rgba(11, 17, 32, 0)',
-          ]}
-          locations={[0, 0.32, 0.68, 1]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerWash}
-        />
+        <View style={[styles.headerWash, { backgroundColor: 'rgba(30, 90, 230, 0.08)' }]} />
         <Text style={[styles.screenTitle, { color: theme.text }]}>{t('driver_network_title')}</Text>
         <Text style={[styles.screenLead, { color: theme.textMuted }]}>{t('feed_subtitle')}</Text>
         <FeedFilterChips value={sortMode} onChange={setSortMode} />

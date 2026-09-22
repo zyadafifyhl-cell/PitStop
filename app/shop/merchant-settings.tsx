@@ -213,8 +213,8 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginBottom: 16 },
-  primaryBtn: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  primaryBtn: { borderRadius: 9, paddingHorizontal: 20, paddingVertical: 12 },
+  primaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   profileName: { fontSize: 20, fontWeight: '900', marginBottom: 4 },
   profileEmail: { fontSize: 14, lineHeight: 20 },
   roleBadge: {
@@ -230,10 +230,10 @@ const styles = StyleSheet.create({
   textRtl: { textAlign: 'right' },
   signOutBtn: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 4,
   },
-  signOutText: { fontSize: 16, fontWeight: '800' },
+  signOutText: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
 });

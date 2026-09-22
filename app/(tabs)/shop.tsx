@@ -42,6 +42,7 @@ import {
   resolveOwnerNotification,
 } from '@/lib/booking/commerceEvents';
 import { formatEgp } from '@/lib/booking/reporting';
+import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { preventAuthFormRefresh } from '@/lib/auth/classifySignInError';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useShopSubscription } from '@/lib/shop/useShopSubscription';
@@ -70,7 +71,12 @@ import {
   shopHasSavedSchedule,
 } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
-import { listBookingsForShop, sortBookingsByScheduledAtDesc, updateBookingStatus } from '@/lib/booking/storage';
+import {
+  listBookingsForShop,
+  markBookingNoShow,
+  sortBookingsByScheduledAtDesc,
+  updateBookingStatus,
+} from '@/lib/booking/storage';
 import { registerOwnerPushToken } from '@/lib/push/shopPush';
 import { getOwnerNavTabs, type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
 import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
@@ -111,6 +117,7 @@ export default function ShopScreen() {
   const [storeOrderFilter, setStoreOrderFilter] = useState<StoreOrderListFilter>('all');
   const [storeInventoryFilter, setStoreInventoryFilter] = useState<StoreInventoryListFilter>('all');
   const [focusStoreOrderId, setFocusStoreOrderId] = useState<string | null>(null);
+  const [focusBookingId, setFocusBookingId] = useState<string | null>(null);
   const [dashboardPendingOrders, setDashboardPendingOrders] = useState(0);
   const [capturingGps, setCapturingGps] = useState(false);
   const [storeStatusBusy, setStoreStatusBusy] = useState(false);
@@ -236,6 +243,9 @@ export default function ShopScreen() {
       sortBookingsByScheduledAtDesc(bookings.filter((booking) => booking.status === 'pending')),
     [bookings],
   );
+  const focusedBooking = focusBookingId
+    ? bookings.find((booking) => booking.id === focusBookingId) ?? null
+    : null;
 
   const serviceRevenueMetric = useMemo(
     () => {
@@ -340,6 +350,31 @@ export default function ShopScreen() {
               onPress={() => openBookingCardDecision(item, 'declined')}
               style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
               <Text style={styles.actionText}>{t('shop_action_decline')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {showActions && (item.status === 'confirmed' || item.status === 'in_progress') ? (
+          <View style={styles.actions}>
+            <Pressable
+              onPress={() => void updateBookingStatus(item.id, 'done', item).then(() => refreshBookings())}
+              style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+              <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_complete')}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                promptMerchantNoShowOverride({
+                  title: t('merchant_noshow_override_title'),
+                  message: t('merchant_noshow_override_body'),
+                  confirmLabel: t('owner_history_noshow_action'),
+                  cancelLabel: t('alert_cancel'),
+                  onConfirm: async () => {
+                    await markBookingNoShow(item.id, item);
+                    await refreshBookings();
+                  },
+                })
+              }
+              style={[styles.chipBtn, { backgroundColor: theme.bgElevated, borderColor: theme.danger }]}>
+              <Text style={[styles.chipBtnText, { color: theme.danger }]}>{t('owner_history_noshow_action')}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -1122,8 +1157,8 @@ export default function ShopScreen() {
         }}
         onSelectBooking={(booking) => {
           setPanelTab('workspace');
+          setFocusBookingId(booking.id);
           setStoreAdminTab('management');
-          void booking;
         }}
       />
 
@@ -1381,6 +1416,14 @@ export default function ShopScreen() {
 
         {storeAdminTab === 'management' ? (
           <>
+            {focusedBooking ? (
+              <OwnerSectionCard
+                theme={theme}
+                title={t('merchant_notif_booking_title')}
+                subtitle={t('shop_active_requests_lead')}>
+                {renderBookingCard(focusedBooking, true)}
+              </OwnerSectionCard>
+            ) : null}
             {shopOperatingStatusCard}
             <OwnerSectionCard theme={theme} title={t('shop_active_requests_title')} subtitle={t('shop_active_requests_lead')}>
               {loadingBookings ? (
@@ -1591,11 +1634,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
   },
   bottomTabItem: {
     alignItems: 'center',

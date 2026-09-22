@@ -1,5 +1,4 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -108,11 +107,7 @@ export function ShopListCard({
 
   return (
     <View style={styles.wrap}>
-      <LinearGradient
-        colors={[theme.bgElevated, theme.card]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.card, { borderColor: theme.border }]}>
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.topRow}>
           <View style={styles.topLeft}>
             <View style={[styles.badge, { backgroundColor: theme.brandSoft }]}>
@@ -265,7 +260,7 @@ export function ShopListCard({
             </Pressable>
           ) : null}
         </View>
-      </LinearGradient>
+      </View>
     </View>
   );
 }
@@ -273,7 +268,7 @@ export function ShopListCard({
 const styles = StyleSheet.create({
   wrap: { marginBottom: 14 },
   card: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 18,
   },
@@ -297,7 +292,7 @@ const styles = StyleSheet.create({
   iconBtn: { padding: 4 },
   identityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 56, height: 56, borderRadius: 28 },
-  name: { fontSize: 20, fontWeight: '800', marginBottom: 6 },
+  name: { fontSize: 20, fontWeight: '700', marginBottom: 6 },
   offerBadge: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -323,14 +318,14 @@ const styles = StyleSheet.create({
   coverFrame: {
     width: '100%',
     marginTop: 12,
-    borderRadius: 18,
+    borderRadius: 10,
     borderWidth: 1,
     overflow: 'hidden',
   },
   coverImage: {
     width: '100%',
     height: 190,
-    borderRadius: 18,
+    borderRadius: 10,
   },
   phoneRow: {
     flexDirection: 'row',
@@ -353,9 +348,9 @@ const styles = StyleSheet.create({
   bookBtn: {
     flex: 1,
     minHeight: 48,
-    borderRadius: 14,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  book: { fontSize: 15, fontWeight: '600' },
+  book: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
 });

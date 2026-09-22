@@ -1,19 +1,19 @@
-const tintColorLight = '#2055C4';
-const tintColorDark = '#2055C4';
+const electricCobalt = '#1E5AE6';
+const obsidian = '#0A0E17';
 
 export default {
   light: {
-    text: '#0B1120',
-    background: '#F4F7FC',
-    tint: tintColorLight,
-    tabIconDefault: '#94A3B8',
-    tabIconSelected: tintColorLight,
+    text: '#F8FAFC',
+    background: obsidian,
+    tint: electricCobalt,
+    tabIconDefault: '#64748B',
+    tabIconSelected: electricCobalt,
   },
   dark: {
-    text: '#FFFFFF',
-    background: '#0B1120',
-    tint: tintColorDark,
-    tabIconDefault: '#94A3B8',
-    tabIconSelected: tintColorDark,
+    text: '#F8FAFC',
+    background: obsidian,
+    tint: electricCobalt,
+    tabIconDefault: '#64748B',
+    tabIconSelected: electricCobalt,
   },
 };

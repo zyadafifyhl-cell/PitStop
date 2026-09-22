@@ -67,11 +67,6 @@ const styles = StyleSheet.create({
     minHeight: 72,
     flexDirection: 'row',
     borderTopWidth: 1,
-    elevation: 2,
-    shadowColor: '#0B1120',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
   },
   item: {
     flex: 1,

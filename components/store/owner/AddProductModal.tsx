@@ -373,7 +373,7 @@ const styles = StyleSheet.create({
   moneyInput: { flex: 1, height: 42, minWidth: 0, paddingHorizontal: 11, fontSize: 14, fontWeight: '700' },
   currency: { paddingRight: 10, fontSize: 11, fontWeight: '900' },
   modalActions: { flexDirection: 'row', gap: 10, padding: 18, borderTopWidth: 1 },
-  modalButton: { flex: 1, minHeight: 48, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  modalButton: { flex: 1, minHeight: 48, borderWidth: 1, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   addingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  actionText: { fontSize: 12, fontWeight: '900' },
+  actionText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
 });

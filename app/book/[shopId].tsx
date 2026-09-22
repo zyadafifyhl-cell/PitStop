@@ -56,7 +56,13 @@ import {
   type SlotAvailability,
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
-import { createBooking, getSavedCustomerPhone, listBookingsForShop, saveCustomerPhone } from '@/lib/booking/storage';
+import {
+  createBooking,
+  getMyPenaltyBalance,
+  getSavedCustomerPhone,
+  listBookingsForShop,
+  saveCustomerPhone,
+} from '@/lib/booking/storage';
 import { resolveDefaultBranchIdForShop } from '@/lib/booking/wash/branchRepository';
 import {
   getMerchantLoyaltyCheckoutState,
@@ -153,6 +159,7 @@ export default function BookShopScreen() {
   const [loyaltyValidation, setLoyaltyValidation] = useState<PointsRedemptionValidation | null>(null);
   const [validatingPoints, setValidatingPoints] = useState(false);
   const [doneBookingCount, setDoneBookingCount] = useState(0);
+  const [collectiblePenaltyBalance, setCollectiblePenaltyBalance] = useState(0);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(offerIdParam ?? null);
   const [offerPickerOpen, setOfferPickerOpen] = useState(false);
   const [bookingBranchId, setBookingBranchId] = useState<string | undefined>(branchIdParam);
@@ -162,6 +169,24 @@ export default function BookShopScreen() {
   const CHECKOUT_CARD = theme.card;
 
   const activeServices = useMemo(() => getActiveServices(shopExtras), [shopExtras]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!customer?.id || isGuest) {
+      setCollectiblePenaltyBalance(0);
+      return;
+    }
+    void getMyPenaltyBalance()
+      .then((balance) => {
+        if (!cancelled) setCollectiblePenaltyBalance(balance.collectibleBalance);
+      })
+      .catch(() => {
+        if (!cancelled) setCollectiblePenaltyBalance(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customer?.id, isGuest]);
 
   useEffect(() => {
     if (!shop?.id || bookingBranchId) return;
@@ -429,6 +454,7 @@ export default function BookShopScreen() {
     0,
     Math.round((checkoutOriginalPriceEgp - appliedDiscountEgp) * 100) / 100,
   );
+  const checkoutTotalDueEgp = checkoutFinalAmountEgp + collectiblePenaltyBalance;
   const checkoutPlatformFee = computePlatformFee(checkoutFinalAmountEgp);
 
   const hasOwnerSchedule = shopHasCustomerSchedule(shopExtras) || shopHasSavedSchedule(shopExtras);
@@ -588,7 +614,7 @@ export default function BookShopScreen() {
       setReceiptSummary({
         shopName,
         serviceLabels,
-        totalPrice: loyaltyCheckout.finalAmountPaidEgp,
+        totalPrice: loyaltyCheckout.finalAmountPaidEgp + collectiblePenaltyBalance,
         totalMinutes,
         scheduledAt,
         timeSlot,
@@ -1162,6 +1188,17 @@ export default function BookShopScreen() {
                 </View>
               ) : null}
 
+              {collectiblePenaltyBalance > 0 ? (
+                <View style={[styles.invoiceRow, styles.penaltyRow, { borderColor: '#EF4444' }]}>
+                  <Text style={[styles.invoiceLabel, { color: theme.danger }]}>
+                    {t('book_no_show_penalty_previous')}
+                  </Text>
+                  <Text style={[styles.invoiceValue, { color: theme.danger }]}>
+                    +{formatEgp(collectiblePenaltyBalance, locale)}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={[styles.invoiceDivider, { backgroundColor: theme.border }]} />
 
               <View style={styles.invoiceRow}>
@@ -1169,7 +1206,7 @@ export default function BookShopScreen() {
                   {t('book_invoice_total_payment')}
                 </Text>
                 <Text style={[styles.invoiceTotalValue, { color: CHECKOUT_ACCENT }]}>
-                  {formatEgp(checkoutFinalAmountEgp, locale)}
+                  {formatEgp(checkoutTotalDueEgp, locale)}
                 </Text>
               </View>
 
@@ -1334,8 +1371,8 @@ function inputStyle(theme: AppThemeTokens) {
     styles.input,
     {
       color: theme.text,
-      borderColor: theme.border,
-      backgroundColor: theme.card,
+      borderColor: theme.inputBorder,
+      backgroundColor: theme.inputBg,
     },
   ];
 }
@@ -1343,23 +1380,23 @@ function inputStyle(theme: AppThemeTokens) {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   content: { padding: 20, paddingBottom: 40 },
-  shopName: { fontSize: 24, fontWeight: '900', marginBottom: 4, letterSpacing: -0.3 },
+  shopName: { fontSize: 24, fontWeight: '700', marginBottom: 4, letterSpacing: -0.3 },
   meta: { fontSize: 14, marginBottom: 12 },
-  offerBanner: { borderWidth: 1, borderRadius: 20, padding: 14, marginBottom: 0 },
+  offerBanner: { borderWidth: 1, borderRadius: 10, padding: 14, marginBottom: 0 },
   offerSection: { marginBottom: 14, gap: 8 },
   offerBannerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   offerBannerTitle: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   offerBannerBody: { fontSize: 15, fontWeight: '800' },
   offerBannerMeta: { fontSize: 13, fontWeight: '800', marginTop: 6 },
   offerPickerHint: { fontSize: 12, fontWeight: '600', marginTop: 8 },
-  offerPickerList: { borderWidth: 1, borderRadius: 16, overflow: 'hidden', gap: 8, padding: 8 },
+  offerPickerList: { borderWidth: 1, borderRadius: 10, overflow: 'hidden', gap: 8, padding: 8 },
   offerPickerRow: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 4 },
   offerPickerBadge: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   offerPickerTitle: { fontSize: 14, fontWeight: '700' },
   offerActionBtn: {
     marginTop: 12,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingVertical: 10,
     paddingHorizontal: 14,
     alignSelf: 'flex-start',
@@ -1367,14 +1404,14 @@ const styles = StyleSheet.create({
   offerActionBtnText: { fontSize: 14, fontWeight: '800' },
   checkoutCard: {
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 12,
     padding: 18,
     marginTop: 16,
     gap: 8,
   },
   checkoutSectionTitle: {
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '700',
     marginBottom: 4,
     textTransform: 'uppercase',
     letterSpacing: 0.4,
@@ -1391,7 +1428,7 @@ const styles = StyleSheet.create({
   loyaltyPointsInput: { flex: 1, marginTop: 0, minHeight: 52 },
   redeemMaxBtn: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingHorizontal: 14,
     paddingVertical: 14,
     minHeight: 52,
@@ -1404,6 +1441,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
     paddingVertical: 6,
+  },
+  penaltyRow: {
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
   },
   invoiceLabel: { fontSize: 16, fontWeight: '700' },
   invoiceValue: { fontSize: 16, fontWeight: '800' },
@@ -1439,7 +1483,7 @@ const styles = StyleSheet.create({
   scheduleHint: { fontSize: 13, lineHeight: 19, marginBottom: 4, marginTop: 4 },
   savedCarCard: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -1450,7 +1494,7 @@ const styles = StyleSheet.create({
   savedCarText: { fontSize: 16, fontWeight: '800' },
   manageVehiclesLink: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingVertical: 10,
     alignItems: 'center',
     marginTop: 4,
@@ -1458,7 +1502,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 9,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
@@ -1468,23 +1512,23 @@ const styles = StyleSheet.create({
   slotsRtl: { flexDirection: 'row-reverse' },
   slot: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingHorizontal: 14,
     paddingVertical: 10,
     alignItems: 'center',
     minWidth: 72,
   },
-  summaryCard: { borderWidth: 1, borderRadius: 22, padding: 16, marginTop: 18 },
+  summaryCard: { borderWidth: 1, borderRadius: 12, padding: 16, marginTop: 18 },
   summaryTitle: { fontSize: 15, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   summaryLine: { fontSize: 14, lineHeight: 21, marginBottom: 4 },
   policyText: { fontSize: 12, lineHeight: 18, marginTop: 18 },
   primaryBtn: {
     marginTop: 18,
-    borderRadius: 28,
+    borderRadius: 9,
     paddingVertical: 16,
     alignItems: 'center',
   },
-  primaryBtnText: { fontWeight: '800', fontSize: 16 },
+  primaryBtnText: { fontWeight: '600', fontSize: 16, letterSpacing: 0.5 },
   successBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -1496,7 +1540,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 24,
     alignItems: 'center',
   },
@@ -1513,7 +1557,7 @@ const styles = StyleSheet.create({
   receiptCard: {
     width: '100%',
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 10,
     padding: 14,
     marginBottom: 18,
     gap: 12,
@@ -1526,9 +1570,9 @@ const styles = StyleSheet.create({
   receiptMeta: { fontSize: 13, lineHeight: 18 },
   successBtn: {
     width: '100%',
-    borderRadius: 28,
+    borderRadius: 9,
     paddingVertical: 15,
     alignItems: 'center',
   },
-  successBtnText: { fontWeight: '800', fontSize: 16 },
+  successBtnText: { fontWeight: '600', fontSize: 16, letterSpacing: 0.5 },
 });

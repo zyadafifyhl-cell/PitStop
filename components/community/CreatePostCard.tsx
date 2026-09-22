@@ -127,8 +127,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   bodyInput: { minHeight: 88, textAlignVertical: 'top' },
-  submitBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-  submitText: { fontSize: 14, fontWeight: '800' },
+  submitBtn: { borderRadius: 9, paddingVertical: 12, alignItems: 'center' },
+  submitText: { fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
   guestBox: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 },
   guestText: { fontSize: 13, lineHeight: 20, textAlign: 'center' },
 });

@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, lineHeight: 18, marginTop: 10 },
   recoveryRow: { marginTop: 10, gap: 6 },
   recoveryLink: { fontSize: 13, fontWeight: '800' },
-  primaryBtn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 16 },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  primaryBtn: { borderRadius: 9, paddingVertical: 13, alignItems: 'center', marginTop: 16 },
+  primaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   textRtl: { textAlign: 'right' },
 });

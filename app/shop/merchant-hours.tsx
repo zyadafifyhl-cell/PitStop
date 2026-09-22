@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   },
   actions: { flexDirection: 'row', gap: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-  primaryBtn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  primaryBtn: { borderRadius: 9, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
+  primaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   textRtl: { textAlign: 'right' },
 });

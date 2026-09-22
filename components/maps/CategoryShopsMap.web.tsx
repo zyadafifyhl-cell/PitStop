@@ -26,11 +26,11 @@ const SHOP_MARKER_THEME: Record<
   ShopType,
   { bg: string; border: string; glow: string; label: string }
 > = {
-  wash: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Wash' },
-  maintenance: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Service' },
-  parts: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Parts' },
-  accessories: { bg: '#FFFFFF', border: '#0F172A', glow: 'rgba(15, 23, 42, 0.14)', label: 'Store' },
-  winch: { bg: '#FFFFFF', border: '#64748B', glow: 'rgba(15, 23, 42, 0.12)', label: 'Winch' },
+  wash: { bg: '#111827', border: '#1E5AE6', glow: 'transparent', label: 'Wash' },
+  maintenance: { bg: '#111827', border: '#1E5AE6', glow: 'transparent', label: 'Service' },
+  parts: { bg: '#111827', border: '#1E5AE6', glow: 'transparent', label: 'Parts' },
+  accessories: { bg: '#111827', border: '#1E5AE6', glow: 'transparent', label: 'Store' },
+  winch: { bg: '#111827', border: '#60A5FA', glow: 'transparent', label: 'Winch' },
 };
 
 function shopMarkerSvg(type: ShopType): string {
@@ -94,7 +94,7 @@ export function buildShopDivIcon(L: LeafletStatic, shopType: ShopType) {
     className: 'pitstop-leaflet-icon pitstop-leaflet-icon--shop',
     html: `
       <div class="pitstop-shop-pin pitstop-shop-pin--${shopType}" role="img" aria-label="${theme.label}">
-        <div class="pitstop-shop-pin__head" style="background:${theme.bg};border-color:${theme.border};box-shadow:0 0 0 4px ${theme.glow};">
+        <div class="pitstop-shop-pin__head" style="background:${theme.bg};border-color:${theme.border};">
           <span class="pitstop-shop-pin__glyph" style="color:${theme.border};">
             ${shopMarkerSvg(shopType)}
           </span>
@@ -134,16 +134,16 @@ function ensureMarkerStyles(): void {
       height: 36px;
       margin-left: -18px;
       border-radius: 999px;
-      background: rgba(15, 23, 42, 0.14);
+      background: rgba(30, 90, 230, 0.16);
       animation: pitstop-user-pulse 1.8s ease-out infinite;
     }
     .pitstop-user-pin__core {
       width: 32px;
       height: 32px;
       border-radius: 999px;
-      background: #0F172A;
+      background: #1E5AE6;
       border: 2px solid #ffffff;
-      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.24);
+      box-shadow: none;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -154,14 +154,14 @@ function ensureMarkerStyles(): void {
       margin-top: 4px;
       padding: 2px 8px;
       border-radius: 999px;
-      background: rgba(15, 23, 42, 0.92);
+      background: rgba(17, 24, 39, 0.96);
       color: #ffffff;
       font-size: 10px;
       font-weight: 800;
       letter-spacing: 0.04em;
       text-transform: uppercase;
       line-height: 1.2;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+      box-shadow: none;
     }
     .pitstop-shop-pin {
       width: 40px;
@@ -322,7 +322,7 @@ export function CategoryShopsMap({
           <div style="min-width:180px;line-height:1.45;">
             <strong>${escapeHtml(shop.label)}</strong><br/>
             <span style="opacity:0.85;">${escapeHtml(shop.address)}</span><br/>
-            <a href="${shop.profilePath}" style="display:inline-block;margin-top:8px;font-weight:700;color:#0F172A;">
+            <a href="${shop.profilePath}" style="display:inline-block;margin-top:8px;font-weight:700;color:#1E5AE6;">
               ${locale === 'ar' ? 'عرض الملف' : 'View profile'}
             </a>
           </div>`;

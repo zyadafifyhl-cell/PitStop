@@ -1,5 +1,4 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -28,18 +27,7 @@ export function StoreSearchHeader({
 
   return (
     <View style={styles.wrap}>
-      <LinearGradient
-        colors={[
-          'rgba(32, 85, 196, 0.32)',
-          'rgba(32, 85, 196, 0.1)',
-          'rgba(74, 127, 224, 0.14)',
-          'rgba(11, 17, 32, 0)',
-        ]}
-        locations={[0, 0.35, 0.7, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerWash}
-      />
+      <View style={[styles.headerWash, { backgroundColor: 'rgba(30, 90, 230, 0.08)' }]} />
       <Text style={[styles.title, { color: theme.text }, isRTL && styles.rtl]}>
         {title ?? t('store_title')}
       </Text>
@@ -89,7 +77,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
   },
-  title: { fontSize: 28, fontWeight: '900', letterSpacing: -0.5 },
+  title: { fontSize: 28, fontWeight: '700', letterSpacing: -0.3 },
   subtitle: { fontSize: 14, lineHeight: 20 },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   searchRowRtl: { flexDirection: 'row-reverse' },
@@ -99,7 +87,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
@@ -107,7 +95,7 @@ const styles = StyleSheet.create({
   cartBtn: {
     width: 48,
     height: 48,
-    borderRadius: 999,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

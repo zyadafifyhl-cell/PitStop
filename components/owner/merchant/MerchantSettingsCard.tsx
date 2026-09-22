@@ -23,15 +23,10 @@ export function MerchantSettingsCard({ theme, title, subtitle, children }: Props
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 18,
     marginBottom: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
   },
-  title: { fontSize: 17, fontWeight: '800', marginBottom: 4 },
+  title: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
   subtitle: { fontSize: 13, lineHeight: 19, marginBottom: 12 },
 });

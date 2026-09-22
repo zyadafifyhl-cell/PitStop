@@ -398,6 +398,6 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
   summaryTotal: { marginTop: 4, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(0,0,0,0.08)' },
   totalLabel: { fontSize: 16, fontWeight: '900' },
-  checkoutBtn: { borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-  checkoutText: { fontSize: 16, fontWeight: '900', textAlign: 'center' },
+  checkoutBtn: { borderRadius: 9, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
+  checkoutText: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5, textAlign: 'center' },
 });

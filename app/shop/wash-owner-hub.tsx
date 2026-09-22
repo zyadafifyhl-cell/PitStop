@@ -26,7 +26,7 @@ import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format'
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { formatEgp } from '@/lib/booking/reporting';
 import { listShopReviews, setReviewOwnerReply, computeShopRatingSummary, formatReviewStarRow } from '@/lib/booking/reviewsStorage';
-import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
+import { listBookingsForShop, markBookingNoShow, updateBookingStatus } from '@/lib/booking/storage';
 import type { Booking, BookingStatus, ShopReview } from '@/lib/booking/types';
 import { filterWashNotificationsForStaff } from '@/lib/booking/wash/bookingDispatch';
 import {
@@ -260,7 +260,11 @@ export default function WashOwnerHubScreen() {
 
   async function onBookingStatusChange(booking: Booking, status: BookingStatus, note?: string) {
     if (!shop) return;
-    await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
+    if (status === 'no_show') {
+      await markBookingNoShow(booking.id, booking);
+    } else {
+      await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
+    }
     orderNotifier.patchBookingLocally(booking.id, status);
     orderNotifier.removePendingLocally(booking.id);
     setAuditOrderBookings((prev) =>
@@ -722,23 +726,23 @@ const styles = StyleSheet.create({
   actionBtn: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 9,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   actionBtnPrimary: {},
   actionBtnDangerSoft: {},
-  actionBtnText: { fontSize: 14, fontWeight: '800' },
+  actionBtnText: { fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
   cardTitle: { fontSize: 16, fontWeight: '800', marginBottom: 6, paddingRight: 18 },
   when: { fontSize: 16, fontWeight: '800', marginBottom: 6 },
   meta: { fontSize: 14, lineHeight: 20, marginTop: 2 },
   status: { fontSize: 14, fontWeight: '800', marginTop: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  chipBtn: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  chipText: { fontSize: 13, fontWeight: '800', color: '#fff' },
-  primaryBtn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
-  primaryBtnText: { fontWeight: '800', fontSize: 15 },
+  chipBtn: { borderWidth: 1, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
+  chipText: { fontSize: 13, fontWeight: '600', letterSpacing: 0.5, color: '#fff' },
+  primaryBtn: { borderRadius: 9, paddingVertical: 13, alignItems: 'center' },
+  primaryBtnText: { fontWeight: '600', fontSize: 15, letterSpacing: 0.5 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',

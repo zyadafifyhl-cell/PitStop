@@ -339,14 +339,18 @@ export async function deployShopCampaign(input: {
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase.from('offers').insert(payload).select('*').single();
-    if (!error && data) {
-      const offer = mapDbOfferRow(data as DbOfferRow);
-      const existing = await listActiveOffersForShop(input.shopId);
-      await writeShopOffersCache(input.shopId, [offer, ...existing.filter((row) => row.id !== offer.id)]);
-      return offer;
+    if (error) {
+      throw new Error(`Offer could not be saved to Supabase: ${error.message}`);
     }
+    if (!data) throw new Error('Offer could not be saved to Supabase.');
+
+    const offer = mapDbOfferRow(data as DbOfferRow);
+    const existing = await listActiveOffersForShop(input.shopId);
+    await writeShopOffersCache(input.shopId, [offer, ...existing.filter((row) => row.id !== offer.id)]);
+    return offer;
   }
 
+  // Local-only mode is reserved for development builds without Supabase configured.
   const offer: ShopOffer = {
     id: localOfferId(),
     shopId: input.shopId,
@@ -394,10 +398,15 @@ export async function createShopOffer(input: {
 export async function deactivateShopOffer(shopId: string, offerId: string): Promise<void> {
   const supabase = getSupabase();
   if (supabase && /^[0-9a-f-]{36}$/i.test(offerId)) {
-    await supabase
+    const { data, error } = await supabase
       .from('offers')
       .update({ is_active: false, updated_at: nowIso() })
-      .eq('id', offerId);
+      .eq('id', offerId)
+      .eq('shop_id', shopId)
+      .select('id')
+      .maybeSingle();
+    if (error) throw new Error(`Offer could not be updated in Supabase: ${error.message}`);
+    if (!data) throw new Error('Offer was not found or you cannot manage this shop.');
   }
 
   const map = await readCache();

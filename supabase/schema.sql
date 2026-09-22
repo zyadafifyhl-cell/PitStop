@@ -103,6 +103,8 @@ create table if not exists public.users (
   is_active boolean not null default true,
   pending_penalty_fee_egp numeric not null default 0
     check (pending_penalty_fee_egp >= 0),
+  outstanding_penalty_balance numeric(10, 2) not null default 0
+    check (outstanding_penalty_balance >= 0),
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -272,6 +274,15 @@ create table if not exists public.bookings (
   cancellation_penalty_applied_egp numeric not null default 0
     check (cancellation_penalty_applied_egp >= 0),
   late_cancelled_at timestamptz,
+  penalty_fee numeric(10, 2) not null default 0
+    check (penalty_fee >= 0),
+  penalty_paid boolean not null default false,
+  dispute_status text not null default 'none'
+    check (dispute_status in ('none', 'pending', 'waived', 'rejected')),
+  dispute_reason text,
+  dispute_resolved_at timestamptz,
+  dispute_resolved_by uuid references auth.users(id) on delete set null,
+  no_show_marked_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   is_hidden_by_merchant boolean not null default false
@@ -285,6 +296,31 @@ create index if not exists bookings_branch_id_idx on public.bookings (branch_id)
 create index if not exists bookings_customer_phone_idx on public.bookings (customer_phone);
 create index if not exists bookings_booking_type_idx on public.bookings (booking_type);
 create index if not exists bookings_offer_id_idx on public.bookings (offer_id);
+create index if not exists bookings_pending_penalty_disputes_idx
+  on public.bookings (dispute_status, created_at desc)
+  where dispute_status = 'pending';
+create index if not exists bookings_customer_unpaid_penalties_idx
+  on public.bookings (customer_id, penalty_paid, created_at)
+  where penalty_fee > 0;
+create index if not exists bookings_dispute_resolved_by_idx
+  on public.bookings (dispute_resolved_by)
+  where dispute_resolved_by is not null;
+
+create table if not exists public.penalty_collections (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid not null references auth.users(id) on delete cascade,
+  collection_booking_id uuid not null unique references public.bookings(id) on delete restrict,
+  collecting_shop_id text not null references public.shops(id) on delete restrict,
+  amount numeric(10, 2) not null check (amount > 0),
+  collected_at timestamptz not null default now(),
+  platform_settled_at timestamptz
+);
+
+create index if not exists penalty_collections_shop_unsettled_idx
+  on public.penalty_collections (collecting_shop_id, collected_at)
+  where platform_settled_at is null;
+create index if not exists penalty_collections_customer_idx
+  on public.penalty_collections (customer_id, collected_at desc);
 
 create table if not exists public.offers (
   id uuid primary key default gen_random_uuid(),
@@ -569,6 +605,31 @@ $$;
 -- Row level security
 -- ---------------------------------------------------------------------------
 
+create or replace function public.protect_penalty_balance_columns()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if current_user in ('anon', 'authenticated')
+     and (
+       new.outstanding_penalty_balance is distinct from old.outstanding_penalty_balance
+       or new.pending_penalty_fee_egp is distinct from old.pending_penalty_fee_egp
+     ) then
+    raise exception 'Penalty balances can only be changed through approved RPCs';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_penalty_balance_columns_trigger on public.users;
+create trigger protect_penalty_balance_columns_trigger
+before update of outstanding_penalty_balance, pending_penalty_fee_egp
+on public.users
+for each row execute function public.protect_penalty_balance_columns();
+
+revoke execute on function public.protect_penalty_balance_columns() from public, anon, authenticated;
+
 alter table public.areas enable row level security;
 alter table public.shops enable row level security;
 alter table public.users enable row level security;
@@ -578,6 +639,7 @@ alter table public.branch_services enable row level security;
 alter table public.garage_snapshots enable row level security;
 alter table public.user_vehicles enable row level security;
 alter table public.bookings enable row level security;
+alter table public.penalty_collections enable row level security;
 alter table public.offers enable row level security;
 alter table public.shop_reviews enable row level security;
 alter table public.store enable row level security;
@@ -708,6 +770,21 @@ create policy "Customers can cancel own bookings" on public.bookings
 drop policy if exists "Customers can delete own bookings" on public.bookings;
 create policy "Customers can delete own bookings" on public.bookings
   for delete using (customer_id = auth.uid());
+
+drop policy if exists "Customers read own penalty collections" on public.penalty_collections;
+create policy "Customers read own penalty collections"
+  on public.penalty_collections for select
+  using (customer_id = auth.uid());
+
+drop policy if exists "Shop staff read collected penalties" on public.penalty_collections;
+create policy "Shop staff read collected penalties"
+  on public.penalty_collections for select
+  using (public.can_manage_shop(collecting_shop_id));
+
+drop policy if exists "Platform admins read penalty collections" on public.penalty_collections;
+create policy "Platform admins read penalty collections"
+  on public.penalty_collections for select
+  using (public.is_platform_admin());
 
 drop policy if exists "Anyone can read live offers" on public.offers;
 create policy "Anyone can read live offers" on public.offers

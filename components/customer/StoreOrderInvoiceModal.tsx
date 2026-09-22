@@ -319,11 +319,11 @@ const styles = StyleSheet.create({
   secondaryBtn: {
     marginTop: 12,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 9,
     paddingVertical: 12,
     alignItems: 'center',
   },
-  secondaryBtnText: { fontSize: 15, fontWeight: '800' },
-  primaryBtn: { marginTop: 8, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  secondaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
+  primaryBtn: { marginTop: 8, borderRadius: 9, paddingVertical: 13, alignItems: 'center' },
+  primaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
 });

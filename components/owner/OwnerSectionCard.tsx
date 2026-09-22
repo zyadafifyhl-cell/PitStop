@@ -39,15 +39,10 @@ export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, styl
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     overflow: 'hidden',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 1,
   },
   topAccent: {
     position: 'absolute',
@@ -57,6 +52,6 @@ const styles = StyleSheet.create({
     height: 1,
   },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  title: { flex: 1, fontSize: 17, fontWeight: '900' },
+  title: { flex: 1, fontSize: 17, fontWeight: '700' },
   subtitle: { fontSize: 13, lineHeight: 19, marginBottom: 12 },
 });

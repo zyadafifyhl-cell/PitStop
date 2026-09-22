@@ -5,10 +5,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { ActiveVehiclePicker } from '@/components/customer/ActiveVehiclePicker';
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
-import { HomeHeroCarAnimation } from '@/components/home/HomeHeroCarAnimation';
 import { AppTheme, type AppThemeTokens } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -19,22 +17,34 @@ import { getAreaById } from '@/lib/booking/areas';
 import { bookingStatusLabel, formatBookingDateTime, shopTypeLabel } from '@/lib/booking/format';
 import {
   fetchNextUpcomingBookingForPhone,
+  getMyPenaltyBalance,
   isHomeNextUpcomingBooking,
   applyVirtualBookingLifecycle,
+  type PenaltyBalance,
 } from '@/lib/booking/storage';
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
 import { listAllActiveOffers, subscribeOffersRealtime } from '@/lib/booking/offerRepository';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { listCustomerVehicles } from '@/lib/booking/vehicleStorage';
 import { formatOfferBadge, isOfferLive, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
+import { formatEgp } from '@/lib/booking/reporting';
+
+const EMPTY_PENALTY_BALANCE: PenaltyBalance = {
+  outstandingBalance: 0,
+  pendingDisputes: 0,
+  collectibleBalance: 0,
+};
 
 function bookingStatusTone(status: Booking['status'], theme: AppThemeTokens) {
-  if (status === 'confirmed' || status === 'in_progress') {
-    return { bg: theme.accentSoft, color: theme.text };
+  if (status === 'confirmed') {
+    return { bg: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: 'rgba(16, 185, 129, 0.30)' };
   }
-  if (status === 'done') return { bg: theme.accent, color: theme.onAccent };
-  if (status === 'no_show') return { bg: theme.cardHover, color: theme.textDim };
-  return { bg: theme.cardHover, color: theme.textMuted };
+  if (status === 'in_progress') {
+    return { bg: theme.accentSoft, color: theme.warm, border: theme.chipBorder };
+  }
+  if (status === 'done') return { bg: theme.successSoft, color: theme.success, border: theme.success };
+  if (status === 'no_show') return { bg: theme.dangerSoft, color: theme.danger, border: theme.danger };
+  return { bg: theme.cardHover, color: theme.textMuted, border: theme.border };
 }
 
 function CurvyCard({
@@ -47,9 +57,14 @@ function CurvyCard({
   style?: object;
 }) {
   return (
-    <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }, style]}>
+    <LinearGradient
+      colors={['rgba(30, 90, 230, 0.08)', '#0E1726', '#0E1726']}
+      locations={[0, 0.6, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.sectionCard, { borderColor: 'rgba(30, 90, 230, 0.25)' }, style]}>
       {children}
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -66,6 +81,7 @@ export default function HomeScreen() {
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceSearchFocused, setServiceSearchFocused] = useState(false);
   const [vehicleRefreshKey, setVehicleRefreshKey] = useState(0);
+  const [penaltyBalance, setPenaltyBalance] = useState<PenaltyBalance>(EMPTY_PENALTY_BALANCE);
 
   const offerBadgeMessages = useMemo(
     () => buildOfferBadgeMessages(t),
@@ -138,11 +154,16 @@ export default function HomeScreen() {
   const refreshHomeData = useCallback(async () => {
     if (!customer?.phone) {
       setNextBookingSnapshot(null);
+      setPenaltyBalance(EMPTY_PENALTY_BALANCE);
       return;
     }
 
-    const upcoming = await fetchNextUpcomingBookingForPhone(customer.phone);
+    const [upcoming, balance] = await Promise.all([
+      fetchNextUpcomingBookingForPhone(customer.phone),
+      getMyPenaltyBalance().catch(() => EMPTY_PENALTY_BALANCE),
+    ]);
     setNextBookingSnapshot(upcoming);
+    setPenaltyBalance(balance);
     setNowMs(Date.now());
   }, [customer?.phone]);
 
@@ -200,22 +221,9 @@ export default function HomeScreen() {
   const nextStatusTone = nextBooking ? bookingStatusTone(nextBooking.status, theme) : null;
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
-      <AutomotiveBackground theme={theme} />
+    <View style={[styles.screen, { backgroundColor: '#0B1120' }]}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.heroHeaderBlock}>
-          <LinearGradient
-            colors={[
-              'rgba(32, 85, 196, 0.36)',
-              'rgba(32, 85, 196, 0.14)',
-              'rgba(74, 127, 224, 0.18)',
-              'rgba(11, 17, 32, 0)',
-            ]}
-            locations={[0, 0.35, 0.7, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.heroWash}
-          />
           <View style={styles.topHeaderRow}>
             <View style={styles.greetingBlock}>
               <Text style={[styles.greetingEyebrow, { color: theme.textMuted }]}>{t('home_greeting')}</Text>
@@ -230,34 +238,51 @@ export default function HomeScreen() {
             ) : null}
           </View>
 
-          <View style={styles.heroHeadlineRow}>
-            {customer && !isGuest ? (
-              <View style={styles.heroCarCol}>
-                <HomeHeroCarAnimation />
-              </View>
+        </View>
+
+      {penaltyBalance.outstandingBalance > 0 ? (
+        <Pressable
+          onPress={() => router.push('/bookings')}
+          style={({ pressed }) => [styles.penaltyBanner, pressed && styles.actionPressed]}>
+          <View style={styles.penaltyIcon}>
+            <FontAwesome name="exclamation" size={16} color={theme.danger} />
+          </View>
+          <View style={styles.penaltyCopy}>
+            <Text style={styles.penaltyTitle}>{t('home_penalty_balance_title')}</Text>
+            <Text style={styles.penaltyBody}>
+              {tp('home_penalty_balance_body', {
+                amount: formatEgp(penaltyBalance.outstandingBalance, locale),
+              })}
+            </Text>
+            {penaltyBalance.pendingDisputes > 0 ? (
+              <Text style={styles.penaltyPending}>{t('home_penalty_dispute_pending')}</Text>
             ) : null}
           </View>
-        </View>
+          <FontAwesome name="chevron-right" size={13} color={theme.danger} />
+        </Pressable>
+      ) : null}
 
       <CurvyCard theme={theme}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('screen_vehicle')}</Text>
         <Text style={[styles.sectionSub, { color: theme.textMuted }]}>{t('settings_vehicles_manage_hint')}</Text>
         {customer && !isGuest ? (
-          <View style={[styles.vehicleSlot, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+          <View style={[styles.vehicleSlot, { borderColor: 'rgba(30, 90, 230, 0.18)', backgroundColor: '#131F35' }]}>
             <Text style={[styles.vehicleSlotTitle, { color: theme.text }]}>{t('home_active_vehicle_title')}</Text>
             <ActiveVehiclePicker key={vehicleRefreshKey} customerId={customer.id} embedded />
           </View>
         ) : (
-          <View style={[styles.vehicleSlot, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+          <View style={[styles.vehicleSlot, { borderColor: 'rgba(30, 90, 230, 0.18)', backgroundColor: '#131F35' }]}>
             <Text style={[styles.vehicleSlotTitle, { color: theme.text }]}>{t('home_active_vehicle_title')}</Text>
             <Text style={[styles.vehicleSlotSub, { color: theme.textMuted }]}>{t('shop_review_sign_in_hint')}</Text>
           </View>
         )}
-        <Pressable onPress={() => router.push('/settings/vehicles')} style={styles.manageVehicleWrap}>
+        <Pressable
+          onPress={() => router.push('/settings/vehicles')}
+          style={({ pressed }) => [styles.manageVehicleWrap, pressed && styles.actionPressed]}>
           <LinearGradient
-            colors={[theme.accent, theme.accent]}
-            start={{ x: 0, y: 0.2 }}
-            end={{ x: 1, y: 0.8 }}
+            colors={['#2563EB', '#1D4ED8']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.manageVehicleBtn}>
             <Text style={styles.manageVehicleText}>+ {t('home_manage_vehicles')}</Text>
           </LinearGradient>
@@ -265,30 +290,59 @@ export default function HomeScreen() {
       </CurvyCard>
 
       {nextBooking ? (
-        <View style={[styles.nextBookingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <LinearGradient
+          colors={['rgba(30, 90, 230, 0.08)', '#0E1726', '#0E1726']}
+          locations={[0, 0.6, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.nextBookingCard, { borderColor: 'rgba(30, 90, 230, 0.25)' }]}>
           <View style={styles.nextBookingTopRow}>
-            <Text style={[styles.sectionEyebrow, { color: theme.warm }]}>{t('home_next_booking_title')}</Text>
+            <View style={styles.bookingIdentity}>
+              <View style={styles.bookingIconBadge}>
+                <FontAwesome
+                  name={nextBooking.shopType === 'wash' ? 'tint' : 'wrench'}
+                  size={18}
+                  color="#3B82F6"
+                />
+              </View>
+              <View style={styles.bookingTitleBlock}>
+                <Text style={[styles.sectionEyebrow, { color: theme.warm }]}>{t('home_next_booking_title')}</Text>
+                <Text style={[styles.cardTitle, { color: '#FFFFFF' }]}>{nextBookingShopName}</Text>
+              </View>
+            </View>
             {nextStatusTone ? (
-              <View style={[styles.statusBadge, { backgroundColor: nextStatusTone.bg }]}>
-                <Text style={[styles.statusBadgeText, { color: nextStatusTone.color }]}>
+              <View
+                style={[
+                  styles.confirmedBadge,
+                  { backgroundColor: nextStatusTone.bg, borderColor: nextStatusTone.border },
+                ]}>
+                <View style={[styles.confirmedDot, { backgroundColor: nextStatusTone.color }]} />
+                <Text style={[styles.confirmedBadgeText, { color: nextStatusTone.color }]}>
                   {bookingStatusLabel(nextBooking.status, locale)}
                 </Text>
               </View>
             ) : null}
           </View>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>{nextBookingShopName}</Text>
-          <Text style={[styles.cardMeta, { color: theme.textMuted }]}>{formatBookingDateTime(nextBooking.scheduledAt, locale)}</Text>
-          <Text style={[styles.cardMeta, { color: theme.textMuted }]}>{shopTypeLabel(nextBooking.shopType, locale)}</Text>
-          <Pressable onPress={() => router.push('/bookings')} style={styles.primaryActionWrap}>
+          <View style={styles.bookingMetaRow}>
+            <FontAwesome name="calendar" size={12} color="#64748B" />
+            <FontAwesome name="clock-o" size={13} color="#64748B" />
+            <Text style={[styles.cardMeta, { color: '#94A3B8' }]}>
+              {formatBookingDateTime(nextBooking.scheduledAt, locale)}
+            </Text>
+          </View>
+          <Text style={[styles.cardMeta, { color: '#94A3B8' }]}>{shopTypeLabel(nextBooking.shopType, locale)}</Text>
+          <Pressable
+            onPress={() => router.push('/bookings')}
+            style={({ pressed }) => [styles.primaryActionWrap, pressed && styles.actionPressed]}>
             <LinearGradient
-              colors={[theme.accent, theme.warm]}
-              start={{ x: 0, y: 0.2 }}
-              end={{ x: 1, y: 0.8 }}
+              colors={['#2563EB', '#1D4ED8']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               style={styles.primaryActionBtn}>
               <Text style={styles.primaryActionText}>{t('book_success_view_bookings')}</Text>
             </LinearGradient>
           </Pressable>
-        </View>
+        </LinearGradient>
       ) : null}
 
       <CurvyCard theme={theme}>
@@ -386,21 +440,11 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 52 },
   heroHeaderBlock: {
-    gap: 8,
-    marginBottom: 12,
+    marginBottom: 14,
     marginHorizontal: -20,
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 16,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  heroWash: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+    paddingBottom: 10,
   },
   topHeaderRow: {
     flexDirection: 'row',
@@ -424,7 +468,7 @@ const styles = StyleSheet.create({
   },
   greetingName: {
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: -0.3,
     lineHeight: 22,
     marginBottom: 0,
@@ -432,73 +476,122 @@ const styles = StyleSheet.create({
   headerBellSlot: {
     flexShrink: 0,
   },
-  heroHeadlineRow: {
+  penaltyBanner: {
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.38)',
+    backgroundColor: 'rgba(239, 68, 68, 0.09)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 0,
-    marginBottom: 0,
-    paddingTop: 0,
+    gap: 12,
   },
-  heroHeadlineCol: {
-    flex: 1,
-    paddingTop: 0,
+  penaltyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  heroCarCol: {
-    flexShrink: 0,
-    width: '30%',
-    maxWidth: 168,
-    minWidth: 120,
-    marginTop: 0,
-  },
-  title: { fontSize: 28, fontWeight: '900', marginTop: 0, marginBottom: 4, letterSpacing: -0.5, lineHeight: 32 },
+  penaltyCopy: { flex: 1, gap: 3 },
+  penaltyTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  penaltyBody: { color: '#CBD5E1', fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  penaltyPending: { color: '#FCA5A5', fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  title: { fontSize: 28, fontWeight: '700', marginTop: 0, marginBottom: 4, letterSpacing: -0.3, lineHeight: 32 },
   lead: { fontSize: 16, lineHeight: 21, marginTop: 0, marginBottom: 0 },
   sectionCard: {
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 14,
     overflow: 'hidden',
   },
   vehicleSlot: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 10,
     padding: 14,
     gap: 8,
   },
-  vehicleSlotTitle: { fontSize: 15, fontWeight: '900', marginBottom: 4 },
+  vehicleSlotTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
   vehicleSlotSub: { fontSize: 14, lineHeight: 20 },
-  manageVehicleWrap: { marginTop: 12, borderRadius: 999, overflow: 'hidden' },
-  manageVehicleBtn: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  manageVehicleText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  manageVehicleWrap: { marginTop: 12, borderRadius: 9, overflow: 'hidden' },
+  manageVehicleBtn: {
+    minHeight: 48,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#1E5AE6',
+    borderTopColor: 'rgba(255, 255, 255, 0.20)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionPressed: { transform: [{ scale: 0.98 }] },
+  manageVehicleText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5, color: '#FFFFFF' },
   sectionEyebrow: {
     color: AppTheme.accent,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0.6,
-    marginBottom: 8,
+    marginBottom: 3,
     textTransform: 'uppercase',
   },
   nextBookingCard: {
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 14,
   },
-  nextBookingTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 2 },
-  statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  statusBadgeText: { fontSize: 12, fontWeight: '900' },
-  cardTitle: { color: AppTheme.text, fontSize: 20, fontWeight: '900', marginBottom: 6 },
+  nextBookingTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 12,
+  },
+  bookingIdentity: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bookingTitleBlock: { flex: 1 },
+  bookingIconBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 9,
+    backgroundColor: 'rgba(30, 90, 230, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(30, 90, 230, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmedBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  confirmedDot: { width: 5, height: 5, borderRadius: 999 },
+  confirmedBadgeText: { fontSize: 11, fontWeight: '700' },
+  bookingMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  cardTitle: { color: AppTheme.text, fontSize: 20, fontWeight: '700' },
   cardMeta: { color: AppTheme.textMuted, fontSize: 15, lineHeight: 22 },
-  sectionTitle: { color: AppTheme.text, fontSize: 22, fontWeight: '900', marginBottom: 6 },
+  sectionTitle: { color: AppTheme.text, fontSize: 22, fontWeight: '700', marginBottom: 6 },
   sectionSub: { color: AppTheme.textMuted, fontSize: 15, lineHeight: 22, marginBottom: 12 },
-  primaryActionWrap: { marginTop: 12, borderRadius: 999, overflow: 'hidden' },
-  primaryActionBtn: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 14 },
-  primaryActionText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  primaryActionWrap: { marginTop: 12, borderRadius: 9, overflow: 'hidden' },
+  primaryActionBtn: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#1E5AE6',
+    borderTopColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  primaryActionText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5, color: '#FFFFFF' },
   searchInput: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 9,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
@@ -506,7 +599,7 @@ const styles = StyleSheet.create({
   },
   serviceRow: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 10,
     paddingVertical: 18,
     paddingHorizontal: 16,
     marginBottom: 12,
@@ -518,7 +611,7 @@ const styles = StyleSheet.create({
   serviceIcon: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

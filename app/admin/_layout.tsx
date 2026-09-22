@@ -9,6 +9,7 @@ export default function AdminLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" options={{ title: t('admin_panel_title') }} />
       <Stack.Screen name="store-products" options={{ title: t('store_admin_title') }} />
+      <Stack.Screen name="penalty-disputes" options={{ title: t('admin_disputes_title') }} />
     </Stack>
   );
 }

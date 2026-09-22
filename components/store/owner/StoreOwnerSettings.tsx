@@ -180,15 +180,15 @@ export function StoreOwnerSettings({
 const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '800', marginTop: 10, marginBottom: 6 },
   meta: { fontSize: 13, lineHeight: 19, marginBottom: 8 },
-  primaryBtn: { marginTop: 14, borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
-  primaryBtnText: { fontWeight: '800', fontSize: 15 },
+  primaryBtn: { marginTop: 14, borderRadius: 9, paddingVertical: 13, alignItems: 'center' },
+  primaryBtnText: { fontWeight: '600', fontSize: 15, letterSpacing: 0.5 },
   signOutBtn: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 4,
     marginBottom: 8,
   },
-  signOutText: { fontSize: 16, fontWeight: '800' },
+  signOutText: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
 });

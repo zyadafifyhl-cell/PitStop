@@ -66,7 +66,7 @@ import {
 import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
 import { listShopReviews } from '@/lib/booking/reviewsStorage';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
-import { listBookingsForShop, updateBookingStatus } from '@/lib/booking/storage';
+import { listBookingsForShop, markBookingNoShow, updateBookingStatus } from '@/lib/booking/storage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { openPhone } from '@/lib/linking/contact';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
@@ -351,6 +351,7 @@ export function WashOwnerPanel({ shop }: Props) {
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
   const [storeOrderFilter, setStoreOrderFilter] = useState<StoreOrderListFilter>('all');
   const [focusStoreOrderId, setFocusStoreOrderId] = useState<string | null>(null);
+  const [focusBookingId, setFocusBookingId] = useState<string | null>(null);
 
   const orderNotifier = useMerchantOrderNotifier({
     shopId: shop.id,
@@ -358,6 +359,11 @@ export function WashOwnerPanel({ shop }: Props) {
     activeBranchId: activeBranch?.id,
     locale,
   });
+  const focusedBooking =
+    (focusBookingId
+      ? bookings.find((booking) => booking.id === focusBookingId) ??
+        orderNotifier.pendingBookings.find((booking) => booking.id === focusBookingId)
+      : null) ?? null;
 
   const openNotificationsModal = useCallback(() => {
     void orderNotifier.refreshStoreOrders();
@@ -1388,7 +1394,11 @@ export function WashOwnerPanel({ shop }: Props) {
   }
 
   async function onBookingStatusChange(booking: Booking, status: BookingStatus, note?: string) {
-    await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
+    if (status === 'no_show') {
+      await markBookingNoShow(booking.id, booking);
+    } else {
+      await updateBookingStatus(booking.id, status, booking, note ? { ownerRejectionNote: note } : undefined);
+    }
     orderNotifier.patchBookingLocally(booking.id, status);
     orderNotifier.removePendingLocally(booking.id);
     setBookings((prev) =>
@@ -2160,6 +2170,14 @@ export function WashOwnerPanel({ shop }: Props) {
 
         {adminTab === 'management' && (
           <>
+            {focusedBooking ? (
+              <OwnerSectionCard
+                theme={theme}
+                title={t('merchant_notif_booking_title')}
+                subtitle={t('shop_active_requests_lead')}>
+                {renderBookingCard(focusedBooking, true)}
+              </OwnerSectionCard>
+            ) : null}
             {shopStatusCard}
             {weeklyHoursCard}
             <StoreOrdersPanel
@@ -2355,9 +2373,10 @@ export function WashOwnerPanel({ shop }: Props) {
           setFocusStoreOrderId(order.id);
           setAdminTab('management');
         }}
-        onSelectBooking={() => {
+        onSelectBooking={(booking) => {
           setPanelTab('workspace');
-          setAdminTab('dashboard');
+          setFocusBookingId(booking.id);
+          setAdminTab('management');
         }}
       />
 
@@ -2973,11 +2992,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
   },
   bottomTabItem: {
     alignItems: 'center',

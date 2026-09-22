@@ -5,9 +5,6 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
-const VACATION_AMBER = '#0F172A';
-const VACATION_AMBER_SOFT = '#F1F5F9';
-
 export type WashCustomerStatus = 'busy' | 'closed' | 'vacation';
 
 type Props = {
@@ -90,15 +87,15 @@ export function WashStatusBadge({ status, compact, vacationReturnDate }: Props) 
       style={[
         styles.wrap,
         compact && styles.wrapCompact,
-        { backgroundColor: VACATION_AMBER_SOFT, borderColor: VACATION_AMBER },
+        { backgroundColor: theme.accentSoft, borderColor: theme.chipBorder },
       ]}>
-      <FontAwesome name="plane" size={compact ? 12 : 14} color={VACATION_AMBER} />
+      <FontAwesome name="plane" size={compact ? 12 : 14} color={theme.warm} />
       <View style={styles.vacationTextWrap}>
-        <Text style={[styles.text, compact && styles.textCompact, { color: VACATION_AMBER }]}>
+        <Text style={[styles.text, compact && styles.textCompact, { color: theme.warm }]}>
           {t('wash_vacation_customer_notice')}
         </Text>
         {returnLabel ? (
-          <Text style={[styles.vacationSub, compact && styles.vacationSubCompact, { color: VACATION_AMBER }]}>
+          <Text style={[styles.vacationSub, compact && styles.vacationSubCompact, { color: theme.warm }]}>
             {t('wash_vacation_customer_return').replace('{date}', returnLabel)}
           </Text>
         ) : null}

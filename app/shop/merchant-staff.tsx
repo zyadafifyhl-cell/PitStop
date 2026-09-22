@@ -373,7 +373,9 @@ export default function MerchantStaffScreen() {
                   <Pressable
                     onPress={() => void onRemoveEmployee(employee.id)}
                     style={[styles.removeBtn, { borderColor: theme.danger }]}>
-                    <Text style={{ color: theme.danger, fontWeight: '800', fontSize: 12 }}>{t('wash_employee_remove')}</Text>
+                    <Text style={{ color: theme.danger, fontWeight: '600', fontSize: 12, letterSpacing: 0.5 }}>
+                      {t('wash_employee_remove')}
+                    </Text>
                   </Pressable>
                 </View>
               ))
@@ -392,10 +394,10 @@ const styles = StyleSheet.create({
   branchRow: { gap: 8, paddingVertical: 4 },
   branchChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginTop: 8 },
-  primaryBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
-  secondaryBtn: { borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 8 },
-  secondaryBtnText: { fontSize: 14, fontWeight: '700' },
+  primaryBtn: { borderRadius: 9, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
+  primaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
+  secondaryBtn: { borderWidth: 1, borderRadius: 9, paddingVertical: 12, alignItems: 'center', marginTop: 8 },
+  secondaryBtnText: { fontSize: 14, fontWeight: '600', letterSpacing: 0.5 },
   rowCard: {
     borderWidth: 1,
     borderRadius: 12,
@@ -407,6 +409,6 @@ const styles = StyleSheet.create({
   },
   rowTitle: { fontSize: 15, fontWeight: '800' },
   rowMeta: { fontSize: 13, lineHeight: 18, marginTop: 2 },
-  removeBtn: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  removeBtn: { borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8 },
   textRtl: { textAlign: 'right' },
 });

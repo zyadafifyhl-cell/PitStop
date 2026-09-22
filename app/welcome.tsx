@@ -1,6 +1,5 @@
 import { tabAuthStorage } from '@/lib/storage/webTabAuthStorage';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -51,7 +50,7 @@ type PasswordInputProps = {
   invalid?: boolean;
 };
 
-const AUTH_ERROR_BORDER = '#0F172A';
+const AUTH_ERROR_BORDER = '#EF4444';
 
 function PasswordInput({
   placeholder,
@@ -451,13 +450,9 @@ export default function WelcomeScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <AutomotiveBackground theme={theme} variant="welcome" />
-      <LinearGradient
+      <View
         pointerEvents="none"
-        colors={['rgba(32, 85, 196, 0.28)', 'rgba(74, 127, 224, 0.14)', 'rgba(11, 17, 32, 0)']}
-        locations={[0, 0.45, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(30, 90, 230, 0.05)' }]}
       />
       <KeyboardAvoidingView
         style={styles.flex}
@@ -466,7 +461,7 @@ export default function WelcomeScreen() {
           <View style={styles.hero}>
             <PitStopEgWordmark size="hero" style={styles.logoWrap} />
             <Text style={[styles.heroHeadline, { color: theme.text }]}>{t('welcome_hero_title')}</Text>
-            <Text style={[styles.tagline, { color: '#94A3B8' }]}>{t('welcome_tagline')}</Text>
+            <Text style={[styles.tagline, { color: theme.textMuted }]}>{t('welcome_tagline')}</Text>
           </View>
 
           <View style={styles.modeRow}>
@@ -615,19 +610,16 @@ export default function WelcomeScreen() {
                   accessibilityRole="button"
                   {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}
                   style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
-                  <LinearGradient
+                  <View
                     pointerEvents="none"
-                    colors={[theme.accent, theme.warm]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.submitGradient}>
+                    style={[styles.submitGradient, { backgroundColor: theme.accent }]}>
                     <Text pointerEvents="none" style={[styles.submitText, { color: theme.onAccent }]}>
                       {submitButtonLabel(
                         t('customer_login_btn'),
                         t('customer_register_btn'),
                       )}
                     </Text>
-                  </LinearGradient>
+                  </View>
                 </Pressable>
                 {formMessage ? (
                   <Text style={[styles.formMessage, { color: passwordInvalid ? AUTH_ERROR_BORDER : theme.warm }]}>{formMessage}</Text>
@@ -786,16 +778,13 @@ export default function WelcomeScreen() {
                   accessibilityRole="button"
                   {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}
                   style={[styles.submitBtn, formBusy && { opacity: 0.6 }]}>
-                  <LinearGradient
+                  <View
                     pointerEvents="none"
-                    colors={[ownerAccent, theme.warm]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.submitGradient}>
+                    style={[styles.submitGradient, { backgroundColor: ownerAccent }]}>
                     <Text pointerEvents="none" style={[styles.submitText, { color: theme.onAccent }]}>
                       {submitButtonLabel(t('shop_login_btn'), t('owner_register_btn'))}
                     </Text>
-                  </LinearGradient>
+                  </View>
                 </Pressable>
                 {formMessage ? (
                   <Text style={[styles.formMessage, { color: passwordInvalid ? AUTH_ERROR_BORDER : theme.warm }]}>{formMessage}</Text>
@@ -915,7 +904,7 @@ const styles = StyleSheet.create({
   modeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   guestBtn: {
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 9,
     alignItems: 'center',
     paddingVertical: 13,
     marginBottom: 12,
@@ -928,26 +917,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 14,
-    borderRadius: 20,
+    borderRadius: 9,
     borderWidth: 1,
   },
   modeBtnActive: {
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+    transform: [{ scale: 0.99 }],
   },
   modeText: { fontSize: 15, fontWeight: '700' },
   formBox: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 22,
   },
   formLead: { fontSize: 15, lineHeight: 22, fontWeight: '600', marginBottom: 14 },
   input: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
@@ -957,7 +942,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 9,
     marginBottom: 12,
   },
   passwordRowRtl: { flexDirection: 'row-reverse' },
@@ -972,14 +957,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   submitBtn: {
-    borderRadius: 14,
+    borderRadius: 9,
     overflow: 'hidden',
     marginTop: 8,
     shadowColor: 'transparent',
     elevation: 0,
   },
-  submitGradient: { minHeight: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 14 },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  submitGradient: { minHeight: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 9 },
+  submitText: { color: '#fff', fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
   switchLink: { marginTop: 14, alignItems: 'center' },
   switchText: { fontSize: 15, fontWeight: '700' },
   resetText: { fontSize: 14, fontWeight: '700' },
@@ -1048,7 +1033,7 @@ const styles = StyleSheet.create({
   },
   termsModalCard: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 12,
     maxHeight: '82%',
     overflow: 'hidden',
   },
@@ -1056,7 +1041,7 @@ const styles = StyleSheet.create({
   termsModalCloseBtn: {
     margin: 16,
     marginTop: 8,
-    borderRadius: 14,
+    borderRadius: 9,
     paddingVertical: 14,
     alignItems: 'center',
   },
@@ -1072,7 +1057,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 12,
     paddingHorizontal: 22,
     paddingTop: 28,
     paddingBottom: 20,
@@ -1103,7 +1088,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
     minHeight: 48,
     width: '100%',
-    borderRadius: 14,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 18,

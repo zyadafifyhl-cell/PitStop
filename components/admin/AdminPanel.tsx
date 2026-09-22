@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -360,6 +360,11 @@ export function AdminPanel() {
                   style={[styles.storeLinkBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
                   <Text style={[styles.storeLinkText, { color: theme.onAccent }]}>{t('store_admin_open')}</Text>
                 </Pressable>
+                <Pressable
+                  onPress={() => router.push('/admin/penalty-disputes' as Href)}
+                  style={[styles.storeLinkBtn, { backgroundColor: theme.danger, marginTop: 10 }]}>
+                  <Text style={[styles.storeLinkText, { color: theme.onAccent }]}>{t('admin_disputes_open')}</Text>
+                </Pressable>
               </OwnerSectionCard>
 
               <OwnerSectionCard theme={theme} title={t('admin_ledger_title')} subtitle={t('admin_ledger_lead')}>
@@ -396,19 +401,23 @@ export function AdminPanel() {
                             {t('admin_ledger_col_settled')}:{' '}
                             {new Date(row.lastSettledAt).toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG')}
                           </Text>
+                          <Text style={{ color: theme.danger, marginTop: 2, fontWeight: '700' }}>
+                            {t('admin_ledger_penalties_collected')}:{' '}
+                            {formatEgp(row.outstandingPenaltyCollectionsEgp, locale)}
+                          </Text>
                         </View>
                         <View style={styles.ledgerActionsCol}>
                           <Text style={[styles.ledgerFee, { color: theme.accent }]}>
-                            {formatEgp(row.outstandingFeeEgp, locale)}
+                            {formatEgp(row.totalOutstandingEgp, locale)}
                           </Text>
                           <Pressable
                             onPress={() => onSettleLedger(row)}
-                            disabled={busyId === row.shopId || row.outstandingFeeEgp <= 0}
+                            disabled={busyId === row.shopId || row.totalOutstandingEgp <= 0}
                             style={[
                               styles.settleBtn,
                               {
                                 borderColor: theme.accent,
-                                opacity: busyId === row.shopId || row.outstandingFeeEgp <= 0 ? 0.5 : 1,
+                                opacity: busyId === row.shopId || row.totalOutstandingEgp <= 0 ? 0.5 : 1,
                               },
                             ]}>
                             <Text style={{ color: theme.accent, fontWeight: '800', fontSize: 12 }}>
@@ -743,7 +752,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { borderBottomWidth: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { fontSize: 22, fontWeight: '900' },
+  headerTitle: { fontSize: 22, fontWeight: '700' },
   headerSub: { fontSize: 12, marginTop: 4, marginBottom: 10 },
   logout: { fontWeight: '700', fontSize: 14 },
   tabsRow: { gap: 8, paddingBottom: 4 },
@@ -770,23 +779,23 @@ const styles = StyleSheet.create({
     minWidth: 148,
     maxWidth: '100%',
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
     minHeight: 88,
   },
-  dashboardStatValue: { fontSize: 22, fontWeight: '900', lineHeight: 28 },
+  dashboardStatValue: { fontSize: 22, fontWeight: '700', lineHeight: 28 },
   dashboardStatLabel: { fontSize: 12, fontWeight: '700', marginTop: 6, lineHeight: 17 },
   skeletonBlock: { opacity: 0.45 },
   feeNote: { fontSize: 11, marginTop: 12, lineHeight: 16 },
-  storeLinkBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  storeLinkBtn: { borderRadius: 9, paddingVertical: 12, alignItems: 'center' },
   storeLinkText: { fontSize: 14, fontWeight: '800' },
   textRtl: { writingDirection: 'rtl', textAlign: 'right' },
   rowCard: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 10 },
   rowTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   pendingCard: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 14,
@@ -805,7 +814,7 @@ const styles = StyleSheet.create({
   },
   pendingCardFooterRtl: { flexDirection: 'row-reverse' },
   pendingAcceptBtn: {
-    borderRadius: 999,
+    borderRadius: 9,
     paddingHorizontal: 18,
     paddingVertical: 9,
     minWidth: 92,
@@ -814,7 +823,7 @@ const styles = StyleSheet.create({
   },
   pendingAcceptText: { fontSize: 13, fontWeight: '800' },
   pendingRejectBtn: {
-    borderRadius: 999,
+    borderRadius: 9,
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderWidth: 1,

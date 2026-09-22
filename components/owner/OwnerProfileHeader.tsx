@@ -75,11 +75,22 @@ export function OwnerProfileHeader({
         {onOpenNotifications ? (
           <Pressable
             onPress={onOpenNotifications}
-            style={[styles.notifBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+            style={({ pressed }) => [
+              styles.notifBtn,
+              {
+                backgroundColor: notificationCount > 0 ? 'rgba(30, 90, 230, 0.20)' : theme.card,
+                borderColor: notificationCount > 0 ? 'rgba(96, 165, 250, 0.55)' : theme.border,
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+              },
+            ]}
             accessibilityLabel={notificationsLabel}>
-            <FontAwesome name="bell" size={16} color={theme.text} />
+            <FontAwesome
+              name={notificationCount > 0 ? 'bell' : 'bell-o'}
+              size={17}
+              color={notificationCount > 0 ? '#60A5FA' : theme.textMuted}
+            />
             {notificationCount > 0 ? (
-              <View style={[styles.notifBadge, { backgroundColor: theme.danger }]}>
+              <View style={styles.notifBadge}>
                 <Text style={styles.notifBadgeText}>
                   {notificationCount > 99 ? '99+' : String(notificationCount)}
                 </Text>
@@ -143,13 +154,9 @@ export function OwnerProfileHeader({
 const styles = StyleSheet.create({
   heroCard: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 12,
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
   },
   coverWrap: { position: 'relative' },
   coverImage: { width: '100%', height: COVER_HEIGHT },
@@ -159,7 +166,7 @@ const styles = StyleSheet.create({
     top: 12,
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -167,16 +174,20 @@ const styles = StyleSheet.create({
   settingsBtn: { right: 62 },
   notifBadge: {
     position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    top: -7,
+    right: -7,
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#0E1726',
+    backgroundColor: '#1E5AE6',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
+    zIndex: 4,
   },
-  notifBadgeText: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  notifBadgeText: { color: '#FFFFFF', fontSize: 11, lineHeight: 13, fontWeight: '800' },
   coverEditBtn: {
     position: 'absolute',
     right: 12,

@@ -7,6 +7,7 @@ export type StoreOperatingStatus = 'open' | 'closed' | 'maintenance';
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'done' | 'in_progress' | 'no_show' | 'suspended_by_shop';
 
 export type BookingType = 'app' | 'walk_in';
+export type PenaltyDisputeStatus = 'none' | 'pending' | 'waived' | 'rejected';
 
 export type Shop = {
   id: string;
@@ -61,6 +62,14 @@ export type Booking = {
   discountAppliedEgp?: number;
   /** Net amount paid after discounts — basis for earn rule. */
   finalAmountPaidEgp?: number;
+  /** No-show fee attached to this booking. */
+  penaltyFee?: number;
+  penaltyPaid?: boolean;
+  disputeStatus?: PenaltyDisputeStatus;
+  disputeReason?: string;
+  disputeResolvedAt?: string;
+  disputeResolvedBy?: string;
+  noShowMarkedAt?: string;
   scheduledAt: string;
   status: BookingStatus;
   createdAt: string;

@@ -310,6 +310,6 @@ const styles = StyleSheet.create({
   imageBtn: { borderWidth: 1, borderRadius: 12, minHeight: 120, alignItems: 'center', justifyContent: 'center' },
   preview: { width: '100%', height: 160, borderRadius: 12 },
   modelBlock: { gap: 4 },
-  saveBtn: { marginTop: 16, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-  saveText: { fontSize: 16, fontWeight: '900' },
+  saveBtn: { marginTop: 16, borderRadius: 9, paddingVertical: 14, alignItems: 'center' },
+  saveText: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
 });

@@ -45,10 +45,10 @@ type Props = {
 
 const STATUS_COLORS: Record<StoreOrderStatus, string> = {
   pending: '#64748B',
-  preparing: '#0F172A',
-  ready: '#111827',
-  completed: '#0B0F17',
-  cancelled: '#64748B',
+  preparing: '#1E5AE6',
+  ready: '#60A5FA',
+  completed: '#22C55E',
+  cancelled: '#EF4444',
 };
 
 const STATUS_ICONS: Record<StoreOrderStatus, React.ComponentProps<typeof FontAwesome>['name']> = {

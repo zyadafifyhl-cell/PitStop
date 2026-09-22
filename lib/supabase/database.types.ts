@@ -21,6 +21,8 @@ export type DbUser = {
   shop_id?: string | null;
   branch_id?: string | null;
   preferred_locale?: 'en' | 'ar' | null;
+  pending_penalty_fee_egp?: number;
+  outstanding_penalty_balance?: number;
   is_active: boolean;
   created_by?: string | null;
   created_at: string;
@@ -148,6 +150,18 @@ export type DbStoreProductCategory = 'spare_parts' | 'accessories';
 export type DbStoreCompatibilityType = 'universal' | 'brand_specific' | 'model_specific';
 export type DbStoreFulfillmentMethod = 'cod' | 'pickup';
 export type DbStoreOrderStatus = 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+
+export type DbPenaltyDisputeStatus = 'none' | 'pending' | 'waived' | 'rejected';
+
+export type DbPenaltyCollection = {
+  id: string;
+  customer_id: string;
+  collection_booking_id: string;
+  collecting_shop_id: string;
+  amount: number;
+  collected_at: string;
+  platform_settled_at?: string | null;
+};
 
 export type DbProduct = {
   id: string;

@@ -18,6 +18,7 @@ import {
   serviceIconName,
 } from '@/lib/booking/customerOrderPresentation';
 import { getShopById } from '@/lib/booking/catalogRepository';
+import { formatEgp } from '@/lib/booking/reporting';
 import type { Booking } from '@/lib/booking/types';
 
 type Props = {
@@ -99,6 +100,18 @@ export function OrderListCard({
           </View>
         </View>
 
+        {displayStatus === 'no_show' && (booking.penaltyFee ?? 0) > 0 ? (
+          <View style={[styles.penaltyBadge, { borderColor: theme.danger, backgroundColor: theme.dangerSoft }]}>
+            <FontAwesome name="exclamation-circle" size={14} color={theme.danger} />
+            <Text style={[styles.penaltyBadgeText, { color: theme.danger }]}>
+              {t('order_no_show_penalty_badge').replace(
+                '{amount}',
+                formatEgp(booking.penaltyFee ?? 0, locale),
+              )}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={[styles.actionRow, !showBookAgain && styles.actionRowSingle]}>
           <View style={styles.priceBlock}>
             <Text style={[styles.totalPrice, { color: theme.text }]}>{orderTotalLabel(booking, locale)}</Text>
@@ -109,9 +122,9 @@ export function OrderListCard({
           {showBookAgain ? (
             <Pressable
               onPress={onBookAgain}
-              style={[styles.bookAgainBtn, { borderColor: theme.text }]}
+              style={[styles.bookAgainBtn, { borderColor: theme.chipBorder, backgroundColor: theme.accentSoft }]}
               accessibilityRole="button">
-              <Text style={[styles.bookAgainText, { color: theme.text }]}>{t('orders_book_again')}</Text>
+              <Text style={[styles.bookAgainText, { color: theme.warm }]}>{t('orders_book_again')}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -142,7 +155,7 @@ export function OrderListCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     marginBottom: 14,
     overflow: 'hidden',
   },
@@ -170,6 +183,17 @@ const styles = StyleSheet.create({
   },
   dateText: { fontSize: 15, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
   contentRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  penaltyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  penaltyBadgeText: { fontSize: 12, fontWeight: '700' },
   serviceIcon: {
     width: 52,
     height: 52,
@@ -195,13 +219,13 @@ const styles = StyleSheet.create({
   bookAgainBtn: {
     minWidth: 132,
     borderWidth: 1.5,
-    borderRadius: 999,
+    borderRadius: 9,
     paddingHorizontal: 18,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bookAgainText: { fontSize: 15, fontWeight: '900' },
+  bookAgainText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   rateFooter: {
     borderTopWidth: 1,
     paddingHorizontal: 16,

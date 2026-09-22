@@ -81,7 +81,7 @@ export function ActiveVehiclePicker({
       ) : null}
 
       {!activeVehicle ? (
-        <View style={styles.body}>
+        <View style={[styles.body, embedded && styles.embeddedBody]}>
           {vehicles.length > 0 ? (
             <>
               <Pressable
@@ -90,7 +90,10 @@ export function ActiveVehiclePicker({
                 onBlur={() => setPickerFocused(false)}
                 style={[
                   styles.pickerBtn,
-                  { borderColor: pickerFocused ? theme.text : theme.border, backgroundColor: theme.bgElevated },
+                  {
+                    borderColor: pickerFocused ? theme.accent : embedded ? 'transparent' : theme.inputBorder,
+                    backgroundColor: embedded ? '#131F35' : theme.inputBg,
+                  },
                 ]}>
                 <Text style={[styles.pickerBtnText, { color: theme.textMuted }, isRTL && styles.textRtl]}>
                   {t('book_vehicle_select_label')}
@@ -126,18 +129,32 @@ export function ActiveVehiclePicker({
           ) : null}
         </View>
       ) : (
-        <View style={styles.body}>
+        <View style={[styles.body, embedded && styles.embeddedBody]}>
           <Pressable
             onPress={() => setPickerOpen((open) => !open)}
             onFocus={() => setPickerFocused(true)}
             onBlur={() => setPickerFocused(false)}
             style={[
               styles.pickerBtn,
-              { borderColor: pickerFocused ? theme.text : theme.border, backgroundColor: theme.bgElevated },
+              {
+                borderColor: pickerFocused ? theme.accent : embedded ? 'transparent' : theme.inputBorder,
+                backgroundColor: embedded ? '#131F35' : theme.inputBg,
+              },
             ]}>
+            {embedded ? (
+              <View style={styles.embeddedCarBadge}>
+                <FontAwesome name="car" size={14} color="#3B82F6" />
+              </View>
+            ) : null}
             <Text style={[styles.pickerBtnText, { color: theme.text }, isRTL && styles.textRtl]}>
               {formatVehicleDisplay(activeVehicle)}
             </Text>
+            {embedded ? (
+              <View style={styles.activeBadge}>
+                <View style={styles.activeDot} />
+                <Text style={styles.activeBadgeText}>{isRTL ? 'نشطة' : 'Active'}</Text>
+              </View>
+            ) : null}
             <FontAwesome name={pickerOpen ? 'chevron-up' : 'chevron-down'} size={12} color={theme.textDim} />
           </Pressable>
           {pickerOpen ? (
@@ -201,10 +218,11 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: '900', flex: 1 },
   body: { paddingHorizontal: 16, paddingBottom: 14, paddingTop: 10, gap: 8 },
+  embeddedBody: { paddingHorizontal: 0, paddingBottom: 0, paddingTop: 4 },
   emptyHint: { fontSize: 13, lineHeight: 19 },
   pickerBtn: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 9,
     paddingHorizontal: 12,
     paddingVertical: 11,
     flexDirection: 'row',
@@ -213,6 +231,27 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pickerBtnText: { fontSize: 14, fontWeight: '700', flex: 1 },
+  embeddedCarBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(30, 90, 230, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeBadge: {
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.35)',
+    backgroundColor: 'rgba(30, 90, 230, 0.15)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  activeDot: { width: 5, height: 5, borderRadius: 999, backgroundColor: '#3B82F6' },
+  activeBadgeText: { color: '#60A5FA', fontSize: 10, fontWeight: '700' },
   dropdown: {
     borderWidth: 1,
     borderRadius: 12,

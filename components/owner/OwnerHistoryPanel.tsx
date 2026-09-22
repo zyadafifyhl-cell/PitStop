@@ -22,7 +22,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listArchivedBookingsForStaff, sortArchivedBookingsForDisplay } from '@/lib/booking/bookingHistoryRepository';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { clearAllShopHistory, hideMerchantHistoryItem } from '@/lib/booking/merchantHistoryRepository';
-import { isAutoCompletedBooking, updateBookingStatus } from '@/lib/booking/storage';
+import { isAutoCompletedBooking, markBookingNoShow } from '@/lib/booking/storage';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { userAlert } from '@/lib/ui/userAlert';
 import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format';
@@ -266,11 +266,16 @@ export function OwnerHistoryPanel({
       confirmLabel: t('owner_history_noshow_action'),
       cancelLabel: t('alert_cancel'),
       onConfirm: async () => {
-        await updateBookingStatus(booking.id, 'no_show', booking);
+        const updated = await markBookingNoShow(booking.id, booking);
         setRows((prev) =>
           prev.map((row) =>
             row.id === booking.id
-              ? { ...row, status: 'no_show', lifecycleAutoCompleted: undefined }
+              ? {
+                  ...row,
+                  ...updated,
+                  status: 'no_show',
+                  lifecycleAutoCompleted: undefined,
+                }
               : row,
           ),
         );
@@ -834,12 +839,12 @@ const styles = StyleSheet.create({
   field: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
   summary: { fontSize: 13, lineHeight: 19 },
   moneyLine: { fontSize: 14, fontWeight: '700' },
-  primaryBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  primaryBtn: { borderRadius: 9, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
+  primaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   generateRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   generateBtnHalf: { flex: 1, marginTop: 0 },
-  secondaryBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' },
-  secondaryBtnText: { fontSize: 13, fontWeight: '700' },
+  secondaryBtn: { borderWidth: 1, borderRadius: 9, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' },
+  secondaryBtnText: { fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
   branchSelectBtn: {
     marginTop: 4,
     borderWidth: 1,
@@ -877,10 +882,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 9,
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  clearHistoryBtnText: { fontSize: 13, fontWeight: '800' },
+  clearHistoryBtnText: { fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
   empty: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 24 },
 });

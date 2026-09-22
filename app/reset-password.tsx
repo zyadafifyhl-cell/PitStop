@@ -83,6 +83,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   hint: { fontSize: 12, lineHeight: 18, marginTop: 8 },
-  btn: { marginTop: 18, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  btnText: { fontSize: 16, fontWeight: '800' },
+  btn: { marginTop: 18, borderRadius: 9, paddingVertical: 14, alignItems: 'center' },
+  btnText: { fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
 });

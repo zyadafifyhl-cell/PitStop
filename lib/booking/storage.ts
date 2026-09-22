@@ -184,6 +184,13 @@ type BookingRow = {
   points_redeemed?: number | null;
   discount_applied_egp?: number | string | null;
   final_amount_paid_egp?: number | string | null;
+  penalty_fee?: number | string | null;
+  penalty_paid?: boolean | null;
+  dispute_status?: Booking['disputeStatus'] | null;
+  dispute_reason?: string | null;
+  dispute_resolved_at?: string | null;
+  dispute_resolved_by?: string | null;
+  no_show_marked_at?: string | null;
   offer_id?: string | null;
   customer_notes?: string | null;
   owner_rejection_note?: string | null;
@@ -254,6 +261,13 @@ function mapBookingRow(row: BookingRow): Booking {
       row.discount_applied_egp != null ? Number(row.discount_applied_egp) : undefined,
     finalAmountPaidEgp:
       row.final_amount_paid_egp != null ? Number(row.final_amount_paid_egp) : undefined,
+    penaltyFee: Number(row.penalty_fee ?? 0),
+    penaltyPaid: Boolean(row.penalty_paid),
+    disputeStatus: row.dispute_status ?? 'none',
+    disputeReason: row.dispute_reason ?? undefined,
+    disputeResolvedAt: row.dispute_resolved_at ?? undefined,
+    disputeResolvedBy: row.dispute_resolved_by ?? undefined,
+    noShowMarkedAt: row.no_show_marked_at ?? undefined,
     offerId: row.offer_id ?? undefined,
     customerNotes: row.customer_notes ?? undefined,
     ownerRejectionNote: row.owner_rejection_note ?? undefined,
@@ -603,6 +617,13 @@ export async function updateBookingStatus(
     } catch (error) {
       console.warn('Merchant loyalty points sync failed (non-blocking):', error);
     }
+    if (updated.customerId) {
+      try {
+        await applyPenaltyPayment(updated.customerId, 0, updated.id);
+      } catch (error) {
+        console.warn('Penalty cash settlement failed (non-blocking):', error);
+      }
+    }
   }
 
   return updated;
@@ -610,6 +631,78 @@ export async function updateBookingStatus(
 
 export const LATE_CANCEL_WINDOW_HOURS = 4;
 export const LATE_CANCEL_PENALTY_EGP = 20;
+export const NO_SHOW_PENALTY_EGP = 20;
+
+export type PenaltyBalance = {
+  outstandingBalance: number;
+  pendingDisputes: number;
+  collectibleBalance: number;
+};
+
+export async function getMyPenaltyBalance(): Promise<PenaltyBalance> {
+  const supabase = getSupabase();
+  if (!supabase) return { outstandingBalance: 0, pendingDisputes: 0, collectibleBalance: 0 };
+  const { data, error } = await supabase.rpc('get_my_penalty_balance');
+  if (error) throw new Error(error.message);
+  const payload = (data ?? {}) as Record<string, number | string | null>;
+  return {
+    outstandingBalance: Number(payload.outstanding_balance ?? 0),
+    pendingDisputes: Number(payload.pending_disputes ?? 0),
+    collectibleBalance: Number(payload.collectible_balance ?? 0),
+  };
+}
+
+export async function markBookingNoShow(
+  bookingId: string,
+  fallback?: Booking,
+): Promise<Booking | null> {
+  const supabase = getSupabase();
+  if (!supabase || !isUuid(bookingId)) return null;
+  const { error } = await supabase.rpc('mark_booking_no_show', {
+    p_booking_id: bookingId,
+    p_penalty_amount: NO_SHOW_PENALTY_EGP,
+  });
+  if (error) throw new Error(error.message);
+  const { data, error: fetchError } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('id', bookingId)
+    .maybeSingle();
+  if (fetchError) throw new Error(fetchError.message);
+  return data ? mapBookingRow(data as BookingRow) : fallback ? {
+    ...fallback,
+    status: 'no_show',
+    penaltyFee: NO_SHOW_PENALTY_EGP,
+    penaltyPaid: false,
+    disputeStatus: 'none',
+  } : null;
+}
+
+export async function submitPenaltyDispute(bookingId: string, reason: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase || !isUuid(bookingId)) throw new Error('Invalid booking');
+  const { error } = await supabase.rpc('submit_penalty_dispute', {
+    p_booking_id: bookingId,
+    p_reason: reason.trim(),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function applyPenaltyPayment(
+  userId: string,
+  paidAmount: number,
+  collectionBookingId: string,
+): Promise<number> {
+  const supabase = getSupabase();
+  if (!supabase || !isUuid(userId) || !isUuid(collectionBookingId)) return 0;
+  const { data, error } = await supabase.rpc('apply_penalty_payment', {
+    p_user_id: userId,
+    p_paid_amount: paidAmount,
+    p_collection_booking_id: collectionBookingId,
+  });
+  if (error) throw new Error(error.message);
+  return Number((data as { paid_amount?: number | string } | null)?.paid_amount ?? 0);
+}
 
 /** Preview whether cancel_customer_service_booking would charge the 20 EGP fee. */
 export function wouldApplyLateCancelPenalty(booking: Booking, nowMs = Date.now()): boolean {

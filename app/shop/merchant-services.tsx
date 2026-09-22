@@ -191,8 +191,8 @@ const styles = StyleSheet.create({
   fieldWrap: { flex: 1 },
   fieldLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9, fontSize: 15 },
-  primaryBtn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8 },
-  primaryBtnText: { fontSize: 15, fontWeight: '800' },
+  primaryBtn: { borderRadius: 9, paddingVertical: 13, alignItems: 'center', marginTop: 8 },
+  primaryBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   empty: { fontSize: 14, lineHeight: 20, marginBottom: 8 },
   textRtl: { textAlign: 'right' },
 });

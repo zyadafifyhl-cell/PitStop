@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 6 },
   statusTitle: { fontSize: 15, fontWeight: '900' },
   statusHint: { marginTop: 4, fontSize: 12, fontWeight: '600' },
-  reportsBtn: { marginTop: 14, borderWidth: 1, borderRadius: 14, padding: 14 },
+  reportsBtn: { marginTop: 14, borderWidth: 1, borderRadius: 12, padding: 14 },
   reportsTitle: { fontSize: 14, fontWeight: '900' },
   reportsHint: { marginTop: 4, fontSize: 12, fontWeight: '600' },
 });
