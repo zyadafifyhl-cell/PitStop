@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -435,16 +436,39 @@ export default function ShopProfileScreen() {
     return (
       <Modal visible={viewerOpen} transparent animationType="fade" onRequestClose={closeImageViewer}>
         <View style={styles.viewerRoot}>
-          <Pressable style={styles.viewerBackdropPressable} onPress={closeImageViewer} accessibilityRole="button" />
-          {viewerUri ? (
-            <View style={styles.viewerImageWrap} pointerEvents="box-none">
-              <ShopMediaImage
-                uri={viewerUri}
-                style={[styles.viewerImage, { width: viewerWidth, height: viewerHeight }]}
-                contentFit="contain"
-              />
-            </View>
-          ) : null}
+          {/* Full-screen dim layer — tap anywhere here closes the viewer */}
+          <Pressable
+            style={styles.viewerBackdrop}
+            onPress={closeImageViewer}
+            accessibilityRole="button"
+            accessibilityLabel={locale === 'ar' ? 'إغلاق الصورة' : 'Close image'}
+          />
+
+          {/* Empty space must pass taps to the backdrop (web needs `none`, not `box-none`). */}
+          <View
+            style={styles.viewerCenter}
+            pointerEvents={Platform.OS === 'web' ? 'none' : 'box-none'}>
+            {viewerUri ? (
+              <View
+                pointerEvents="auto"
+                style={[styles.viewerImageFrame, { width: viewerWidth, height: viewerHeight }]}>
+                <ShopMediaImage
+                  uri={viewerUri}
+                  style={styles.viewerImage}
+                  contentFit="contain"
+                />
+              </View>
+            ) : null}
+          </View>
+
+          <Pressable
+            onPress={closeImageViewer}
+            accessibilityRole="button"
+            accessibilityLabel={locale === 'ar' ? 'إغلاق' : 'Close'}
+            hitSlop={12}
+            style={styles.viewerCloseBtn}>
+            <Ionicons name="close" size={26} color="#FFFFFF" />
+          </Pressable>
         </View>
       </Modal>
     );
@@ -461,15 +485,19 @@ export default function ShopProfileScreen() {
           <ShopMediaImage uri={coverImage} style={styles.coverImage} fallbackIcon="photo" fallbackIconSize={28} />
         </Pressable>
         <View style={styles.profileRow}>
-          <Pressable onPress={() => openViewer(profileImage || coverImage)} disabled={!profileImage && !coverImage}>
+          <Pressable
+            onPress={() => openViewer(profileImage || coverImage)}
+            disabled={!profileImage && !coverImage}
+            style={[styles.profileImageFrame, { borderColor: theme.card, backgroundColor: theme.bgElevated }]}>
             <ShopMediaImage
               uri={profileImage}
-              style={[styles.profileImage, { borderColor: theme.card }]}
+              style={styles.profileImage}
+              contentFit="cover"
               fallbackIcon="building"
               fallbackIconSize={26}
             />
           </Pressable>
-          <View style={{ flex: 1 }}>
+          <View style={styles.profileTextCol}>
             <Text style={[styles.title, { color: theme.text }]}>{shopName}</Text>
             <Text style={[styles.meta, { color: theme.textMuted }]}>
               {shopTypeLabel(shop.type, locale)} · {address}
@@ -665,8 +693,29 @@ const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingBottom: 32, gap: 12 },
   heroCard: { borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
   coverImage: { width: '100%', height: 170 },
-  profileRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingBottom: 12, alignItems: 'center', marginTop: -36 },
-  profileImage: { width: 90, height: 90, borderRadius: 45, borderWidth: 3 },
+  profileRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    alignItems: 'center',
+  },
+  profileImageFrame: {
+    width: 84,
+    height: 84,
+    borderRadius: 9999,
+    borderWidth: 3,
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  profileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 9999,
+    overflow: 'hidden',
+  },
+  profileTextCol: { flex: 1, minWidth: 0 },
   title: { fontSize: 22, fontWeight: '800' },
   meta: { marginTop: 4, fontSize: 13, lineHeight: 18 },
   promoCarouselWrap: {
@@ -739,31 +788,40 @@ const styles = StyleSheet.create({
   strikePrice: { textDecorationLine: 'line-through' },
   viewerRoot: {
     flex: 1,
-    position: 'relative',
-  },
-  viewerBackdropPressable: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
     backgroundColor: 'rgba(0,0,0,0.86)',
-    zIndex: 1,
   },
-  viewerImageWrap: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+  viewerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as const) : null),
+  },
+  viewerCenter: {
+    ...StyleSheet.absoluteFillObject,
     zIndex: 2,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 24,
   },
-  viewerImage: {
+  viewerImageFrame: {
     maxWidth: '100%',
+  },
+  viewerImage: {
+    width: '100%',
+    height: '100%',
     ...(Platform.OS === 'web' ? ({ objectFit: 'contain' } as Record<string, string>) : null),
+  },
+  viewerCloseBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'web' ? 24 : 48,
+    right: 24,
+    zIndex: 30,
+    elevation: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 9999,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

@@ -731,6 +731,9 @@ export const EN = {
 
   shops_screen_title: 'Shops near you',
   shops_in_area_lead: 'Tap a shop to book your appointment.',
+  shops_in_area_search_placeholder: 'Search by shop name…',
+  shops_in_area_search_empty: 'No shops found matching your search.',
+  shops_in_area_favorites_empty: 'No favorite shops saved yet.',
   shop_card_view_details: 'View details →',
   shop_card_price_from: 'Starting from',
   shop_card_available_offers: 'Available offers',
@@ -2689,6 +2692,9 @@ export const AR: Record<TranslationKey, string> = {
 
   shops_screen_title: 'محلات قريبة',
   shops_in_area_lead: 'اضغط على المحل عشان تحجز موعدك.',
+  shops_in_area_search_placeholder: 'ابحث باسم المحل…',
+  shops_in_area_search_empty: 'مفيش محلات مطابقة للبحث.',
+  shops_in_area_favorites_empty: 'مفيش محلات مفضلة محفوظة لسه.',
   shop_card_view_details: 'عرض التفاصيل ←',
   shop_card_price_from: 'السعر يبدأ من',
   shop_card_available_offers: 'عروض متاحة',

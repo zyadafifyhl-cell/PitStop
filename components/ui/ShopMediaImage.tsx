@@ -38,14 +38,14 @@ export function ShopMediaImage({
 
   if (!clean || failed) {
     return (
-      <View style={[style, styles.fallback, { backgroundColor: theme.bgElevated }]}>
+      <View style={[styles.frame, style, styles.fallback, { backgroundColor: theme.bgElevated }]}>
         <FontAwesome name={fallbackIcon} size={fallbackIconSize} color={theme.textDim} />
       </View>
     );
   }
 
   return (
-    <View style={style}>
+    <View style={[styles.frame, style]}>
       {showSkeleton && !loaded ? (
         <View
           style={[
@@ -70,6 +70,9 @@ export function ShopMediaImage({
 }
 
 const styles = StyleSheet.create({
+  frame: {
+    overflow: 'hidden',
+  },
   fallback: {
     alignItems: 'center',
     justifyContent: 'center',

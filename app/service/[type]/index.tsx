@@ -1,7 +1,18 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { AreaCard } from '@/components/ui/AreaCard';
 import { CategoryShopsMap } from '@/components/maps/CategoryShopsMap';
@@ -28,6 +39,7 @@ export default function PickAreaScreen() {
   const theme = useAppTheme();
   const type = parseShopType(rawType);
   const [areaSearch, setAreaSearch] = useState('');
+  const [areaDropdownOpen, setAreaDropdownOpen] = useState(false);
   const [viewMode, setViewMode] = useState<LocationViewMode>('list');
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [mapShops, setMapShops] = useState<ShopMapPin[]>([]);
@@ -70,29 +82,30 @@ export default function PickAreaScreen() {
     }, [loadRecent, viewMode, type, catalogReady, loadMapShops]),
   );
 
-  const areas = useMemo(() => {
+  const allAreasForType = useMemo(() => {
     if (!catalogReady || !type) return [];
     const withShops = new Set(listAreasWithShops(type));
+    return listAreas().filter((a) => withShops.has(a.id));
+  }, [catalogReady, catalogVersion, type]);
+
+  const areas = useMemo(() => {
     const q = areaSearch.trim().toLowerCase();
-    return listAreas()
-      .filter((a) => withShops.has(a.id))
-      .filter((a) => {
-        if (!q) return true;
-        const name = locale === 'ar' ? a.nameAr : a.name;
-        const city = locale === 'ar' ? a.cityAr : a.city;
-        return name.toLowerCase().includes(q) || city.toLowerCase().includes(q);
-      });
-  }, [catalogReady, catalogVersion, type, areaSearch, locale]);
+    if (!q) return allAreasForType;
+    return allAreasForType.filter((a) => {
+      const name = locale === 'ar' ? a.nameAr : a.name;
+      const city = locale === 'ar' ? a.cityAr : a.city;
+      return name.toLowerCase().includes(q) || city.toLowerCase().includes(q);
+    });
+  }, [allAreasForType, areaSearch, locale]);
 
   const popularAreas = useMemo(() => {
-    if (!catalogReady || !type) return [];
-    return listAreas()
-      .filter((a) => listAreasWithShops(type).includes(a.id))
+    if (!type) return [];
+    return allAreasForType
       .map((area) => ({ area, count: countShopsByTypeAndArea(type, area.id) }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5)
       .map((row) => row.area);
-  }, [catalogReady, catalogVersion, type]);
+  }, [allAreasForType, type]);
 
   const recentAreas = useMemo(() => {
     return recentIds
@@ -128,6 +141,44 @@ export default function PickAreaScreen() {
     });
   }
 
+  function selectAreaFromDropdown(area: (typeof allAreasForType)[number]) {
+    const title = locale === 'ar' ? area.nameAr : area.name;
+    setAreaSearch(title);
+    setAreaDropdownOpen(false);
+    goToArea(area.id);
+  }
+
+  function renderAreaDropdownList() {
+    if (allAreasForType.length === 0) {
+      return (
+        <Text style={[styles.areaDropdownEmpty, { color: theme.textMuted }]}>{t('area_no_shops')}</Text>
+      );
+    }
+    return allAreasForType.map((area) => {
+      const title = locale === 'ar' ? area.nameAr : area.name;
+      const subtitle = locale === 'ar' ? area.cityAr : area.city;
+      const count = countShopsByTypeAndArea(type!, area.id);
+      return (
+        <Pressable
+          key={area.id}
+          onPress={() => selectAreaFromDropdown(area)}
+          style={({ pressed }) => [
+            styles.areaDropdownItem,
+            { borderBottomColor: theme.border },
+            pressed && { backgroundColor: theme.accentSoft },
+          ]}>
+          <View style={styles.areaDropdownItemText}>
+            <Text style={[styles.areaDropdownTitle, { color: theme.text }]}>{title}</Text>
+            <Text style={[styles.areaDropdownSubtitle, { color: theme.textMuted }]}>
+              {subtitle} · {count} {t('area_shop_count')}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={theme.textDim} />
+        </Pressable>
+      );
+    });
+  }
+
   function renderAreaCard(area: (typeof areas)[number]) {
     const count = countShopsByTypeAndArea(type!, area.id);
     const title = locale === 'ar' ? area.nameAr : area.name;
@@ -158,13 +209,89 @@ export default function PickAreaScreen() {
       <Text style={[styles.title, { color: theme.text }]}>{t('area_pick_title')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>{t('area_pick_lead')}</Text>
 
-      <TextInput
-        value={areaSearch}
-        onChangeText={setAreaSearch}
-        placeholder={t('location_search_area')}
-        placeholderTextColor={theme.textDim}
-        style={[styles.searchInput, { backgroundColor: theme.bgElevated, borderColor: theme.border, color: theme.text }]}
-      />
+      <View style={[styles.searchWrap, { zIndex: areaDropdownOpen ? 40 : 1 }]}>
+        <View
+          style={[
+            styles.searchInputRow,
+            { backgroundColor: theme.bgElevated, borderColor: theme.border },
+          ]}>
+          <TextInput
+            value={areaSearch}
+            onChangeText={(text) => {
+              setAreaSearch(text);
+              if (areaDropdownOpen) setAreaDropdownOpen(false);
+            }}
+            placeholder={t('location_search_area')}
+            placeholderTextColor={theme.textDim}
+            style={[styles.searchInput, { color: theme.text }]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={locale === 'ar' ? 'قائمة المناطق' : 'Browse areas'}
+            onPress={() => setAreaDropdownOpen((open) => !open)}
+            hitSlop={8}
+            style={styles.searchChevronBtn}>
+            <Ionicons
+              name={areaDropdownOpen ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={theme.accent}
+            />
+          </Pressable>
+        </View>
+
+        {areaDropdownOpen && Platform.OS === 'web' ? (
+          <>
+            <Pressable style={styles.areaDropdownWebDismiss} onPress={() => setAreaDropdownOpen(false)} />
+            <View
+              style={[
+                styles.areaDropdown,
+                {
+                  backgroundColor: theme.bgElevated,
+                  borderColor: theme.border,
+                  shadowColor: theme.text,
+                },
+              ]}>
+              <ScrollView
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                style={styles.areaDropdownScroll}>
+                {renderAreaDropdownList()}
+              </ScrollView>
+            </View>
+          </>
+        ) : null}
+      </View>
+
+      <Modal
+        visible={areaDropdownOpen && Platform.OS !== 'web'}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAreaDropdownOpen(false)}>
+        <View style={styles.areaDropdownBackdrop}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setAreaDropdownOpen(false)} />
+          <View
+            style={[
+              styles.areaDropdownModalCard,
+              {
+                backgroundColor: theme.bgElevated,
+                borderColor: theme.border,
+                shadowColor: theme.text,
+              },
+            ]}>
+            <View style={[styles.areaDropdownModalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.areaDropdownModalTitle, { color: theme.text }]}>
+                {locale === 'ar' ? 'اختر المنطقة' : 'Select area'}
+              </Text>
+              <Pressable onPress={() => setAreaDropdownOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={theme.textMuted} />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.areaDropdownScroll}>
+              {renderAreaDropdownList()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.actionRow}>
         {type === 'wash' ? (
@@ -274,14 +401,99 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 26, fontWeight: '900', marginBottom: 8 },
   lead: { fontSize: 15, lineHeight: 22, marginBottom: 14 },
-  searchInput: {
+  searchWrap: {
+    marginBottom: 12,
+    position: 'relative',
+    zIndex: 1,
+    ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as const) : null),
+  },
+  searchInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 15,
-    marginBottom: 12,
+    paddingLeft: 14,
+    paddingRight: 6,
+    minHeight: 46,
   },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 11,
+    paddingRight: 8,
+    fontSize: 15,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as const) : null),
+  },
+  searchChevronBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  areaDropdownWebDismiss: {
+    ...(Platform.OS === 'web'
+      ? ({ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 } as const)
+      : { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }),
+  },
+  areaDropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 6,
+    borderWidth: 1,
+    borderRadius: 14,
+    maxHeight: 280,
+    zIndex: 50,
+    elevation: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    overflow: 'hidden',
+  },
+  areaDropdownBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  areaDropdownModalCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    maxHeight: '70%',
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  areaDropdownModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  areaDropdownModalTitle: { fontSize: 16, fontWeight: '800' },
+  areaDropdownScroll: { maxHeight: 280 },
+  areaDropdownEmpty: {
+    textAlign: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 14,
+    fontSize: 14,
+  },
+  areaDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
+  areaDropdownItemText: { flex: 1, minWidth: 0 },
+  areaDropdownTitle: { fontSize: 15, fontWeight: '800' },
+  areaDropdownSubtitle: { fontSize: 12, marginTop: 2, fontWeight: '600' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   actionChip: {
     borderWidth: 1,

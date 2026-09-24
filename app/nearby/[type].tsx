@@ -1,9 +1,12 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,18 +34,11 @@ import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { getShopOpenStatus } from '@/lib/booking/shopSchedule';
 import { parseShopType } from '@/lib/booking/serviceType';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
-import type { ShopExtras } from '@/lib/booking/types';
+import { NEARBY_DEFAULT_RADIUS_KM } from '@/lib/booking/washBranchNearby';
 import { openPhone } from '@/lib/linking/contact';
 import type { TranslationKey } from '@/lib/i18n/strings';
 
-type NearbyFilter = 'all' | 'top_rated' | 'price' | 'distance' | 'open_now' | 'favorites';
-
-const RADIUS_OPTIONS_KM = [5, 10, 25, 50] as const;
-const DEFAULT_RADIUS_KM = 25;
-
-function formatRadiusLabel(km: number, locale: 'en' | 'ar'): string {
-  return locale === 'ar' ? `${km} كم` : `${km} km`;
-}
+type NearbyFilter = 'all' | 'top_rated' | 'price' | 'distance' | 'favorites';
 
 export default function NearbyScreen() {
   const { type: rawType } = useLocalSearchParams<{ type: string }>();
@@ -55,11 +51,12 @@ export default function NearbyScreen() {
   const [locationDenied, setLocationDenied] = useState(false);
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLng, setUserLng] = useState<number | null>(null);
-  const [selectedRadius, setSelectedRadius] = useState<number>(DEFAULT_RADIUS_KM);
   const [shops, setShops] = useState<DiscoverableListing[]>([]);
   const [ratingsMap, setRatingsMap] = useState<Record<string, ShopRatingSummary>>({});
+  const [openNowByShopId, setOpenNowByShopId] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<NearbyFilter>('top_rated');
+  const [filter, setFilter] = useState<NearbyFilter>('all');
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [offerFlags, setOfferFlags] = useState<Record<string, { hasActiveOffer: boolean; maxDiscount: number }>>({});
 
@@ -86,7 +83,7 @@ export default function NearbyScreen() {
     setLoading(true);
 
     const rows = await listDiscoverableSortedByDistance(type, userLat, userLng, {
-      radiusKm: selectedRadius,
+      radiusKm: NEARBY_DEFAULT_RADIUS_KM,
     });
     setShops(rows);
 
@@ -94,13 +91,22 @@ export default function NearbyScreen() {
     setRatingsMap(await getShopAverageRatings(shopIds));
     setOfferFlags(await listActiveOfferFlagsByShopIds(shopIds));
 
+    const openMap: Record<string, boolean> = {};
+    await Promise.all(
+      shopIds.map(async (shopId) => {
+        const extras = await getShopExtras(shopId);
+        openMap[shopId] = getShopOpenStatus(extras).isOpen;
+      }),
+    );
+    setOpenNowByShopId(openMap);
+
     if (customer?.id) {
       setFavoriteIds(await listFavoriteShopIds(customer.id));
     } else {
       setFavoriteIds([]);
     }
     setLoading(false);
-  }, [type, catalogReady, catalogVersion, customer?.id, userLat, userLng, selectedRadius]);
+  }, [type, catalogReady, catalogVersion, customer?.id, userLat, userLng]);
 
   useFocusEffect(
     useCallback(() => {
@@ -134,21 +140,57 @@ export default function NearbyScreen() {
       rows = rows.slice().sort((a, b) => a.name.localeCompare(b.name));
     } else if (filter === 'distance') {
       rows = rows.slice().sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
-    } else if (filter === 'open_now') {
-      /* handled per-card via NearbyShopCard */
     } else if (filter === 'favorites') {
       rows = rows.filter((shop) => favoriteIds.includes(shop.id));
     }
-    return rows;
-  }, [shops, search, filter, favoriteIds, ratingsMap]);
 
-  const filterChips: Array<{ id: NearbyFilter; label: string }> = [
+    // Always show open places first; closed places sink to the end.
+    rows = rows.slice().sort((a, b) => {
+      const aOpen = openNowByShopId[a.id] === true ? 0 : 1;
+      const bOpen = openNowByShopId[b.id] === true ? 0 : 1;
+      return aOpen - bOpen;
+    });
+
+    return rows;
+  }, [shops, search, filter, favoriteIds, ratingsMap, openNowByShopId]);
+
+  const filterOptions: Array<{ id: NearbyFilter; label: string }> = [
+    { id: 'all', label: t('home_filter_all') },
     { id: 'top_rated', label: t('filter_top_rated') },
     { id: 'price', label: t('filter_price') },
     { id: 'distance', label: t('filter_distance') },
-    { id: 'open_now', label: t('filter_open_now') },
     { id: 'favorites', label: t('filter_favorites') },
   ];
+
+  const activeFilterLabel =
+    filterOptions.find((option) => option.id === filter)?.label ?? t('home_filter_all');
+
+  function selectFilter(next: NearbyFilter) {
+    setFilter(next);
+    setFilterMenuOpen(false);
+  }
+
+  function renderFilterMenuItems() {
+    return filterOptions.map((option) => {
+      const active = filter === option.id;
+      return (
+        <Pressable
+          key={option.id}
+          onPress={() => selectFilter(option.id)}
+          style={({ pressed }) => [
+            styles.filterMenuItem,
+            { borderBottomColor: theme.border },
+            active && { backgroundColor: theme.accentSoft },
+            pressed && { backgroundColor: theme.accentSoft },
+          ]}>
+          <Text style={[styles.filterMenuItemText, { color: active ? theme.accent : theme.text }]}>
+            {option.label}
+          </Text>
+          {active ? <Ionicons name="checkmark" size={18} color={theme.accent} /> : null}
+        </Pressable>
+      );
+    });
+  }
 
   if (!type || !isDiscoverableShopType(type)) {
     return (
@@ -166,60 +208,88 @@ export default function NearbyScreen() {
       </Text>
       <Text style={[styles.badge, { color: theme.accent }]}>{shopTypeLabel(type, locale)}</Text>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.radiusRow}>
-        {RADIUS_OPTIONS_KM.map((km) => {
-          const active = selectedRadius === km;
-          return (
-            <Pressable
-              key={km}
-              onPress={() => setSelectedRadius(km)}
+      <View style={[styles.searchFilterRow, { zIndex: filterMenuOpen ? 40 : 1 }]}>
+        <TextInput
+          value={search}
+          onChangeText={(text) => {
+            setSearch(text);
+            if (filterMenuOpen) setFilterMenuOpen(false);
+          }}
+          placeholder={t('nearby_search_placeholder')}
+          placeholderTextColor={theme.textDim}
+          style={[
+            styles.search,
+            { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated },
+          ]}
+        />
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={locale === 'ar' ? 'فلتر النتائج' : 'Filter results'}
+          onPress={() => setFilterMenuOpen((open) => !open)}
+          style={[
+            styles.filterBtn,
+            {
+              backgroundColor: filter !== 'all' ? theme.accent : theme.bgElevated,
+              borderColor: filter !== 'all' ? theme.accent : theme.border,
+            },
+          ]}>
+          <Ionicons
+            name="options-outline"
+            size={20}
+            color={filter !== 'all' ? theme.onAccent : theme.accent}
+          />
+        </Pressable>
+
+        {filterMenuOpen && Platform.OS === 'web' ? (
+          <>
+            <Pressable style={styles.filterMenuDismiss} onPress={() => setFilterMenuOpen(false)} />
+            <View
               style={[
-                styles.radiusPill,
+                styles.filterMenu,
                 {
-                  borderColor: active ? theme.accent : theme.border,
-                  backgroundColor: active ? theme.accent : theme.card,
+                  backgroundColor: theme.bgElevated,
+                  borderColor: theme.border,
+                  shadowColor: theme.text,
                 },
               ]}>
-              <Text style={[styles.radiusPillText, { color: active ? theme.onAccent : theme.text }]}>
-                {formatRadiusLabel(km, locale)}
+              <Text style={[styles.filterMenuHeader, { color: theme.textMuted }]}>
+                {locale === 'ar' ? `الفلتر: ${activeFilterLabel}` : `Filter: ${activeFilterLabel}`}
               </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+              {renderFilterMenuItems()}
+            </View>
+          </>
+        ) : null}
+      </View>
 
-      <TextInput
-        value={search}
-        onChangeText={setSearch}
-        placeholder={t('nearby_search_placeholder')}
-        placeholderTextColor={theme.textDim}
-        style={[
-          styles.search,
-          { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated },
-        ]}
-      />
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
-        {filterChips.map((chip) => {
-          const active = filter === chip.id;
-          return (
-            <Pressable
-              key={chip.id}
-              onPress={() => setFilter(active ? 'all' : chip.id)}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: active ? theme.accent : theme.bgElevated,
-                  borderColor: active ? theme.accent : theme.border,
-                },
-              ]}>
-              <Text style={{ color: active ? theme.onAccent : theme.text, fontWeight: '700', fontSize: 12 }}>
-                {chip.label}
+      <Modal
+        visible={filterMenuOpen && Platform.OS !== 'web'}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFilterMenuOpen(false)}>
+        <View style={styles.filterModalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setFilterMenuOpen(false)} />
+          <View
+            style={[
+              styles.filterModalCard,
+              {
+                backgroundColor: theme.bgElevated,
+                borderColor: theme.border,
+                shadowColor: theme.text,
+              },
+            ]}>
+            <View style={[styles.filterModalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.filterModalTitle, { color: theme.text }]}>
+                {locale === 'ar' ? 'فلتر النتائج' : 'Filter results'}
               </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+              <Pressable onPress={() => setFilterMenuOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color={theme.textMuted} />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled">{renderFilterMenuItems()}</ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {loading ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
@@ -234,7 +304,6 @@ export default function NearbyScreen() {
             locale={locale}
             theme={theme}
             t={t}
-            filter={filter}
             ratingSummary={ratingsMap[shop.id]}
             offerFlag={offerFlags[shop.id]}
           />
@@ -250,7 +319,6 @@ function NearbyShopCard({
   locale,
   theme,
   t,
-  filter,
   ratingSummary,
   offerFlag,
 }: {
@@ -259,33 +327,9 @@ function NearbyShopCard({
   locale: 'en' | 'ar';
   theme: ReturnType<typeof useAppTheme>;
   t: (key: TranslationKey) => string;
-  filter: NearbyFilter;
   ratingSummary?: ShopRatingSummary;
   offerFlag?: { hasActiveOffer: boolean; maxDiscount: number };
 }) {
-  const [openNow, setOpenNow] = useState<boolean | null>(null);
-  const [washShopStatus, setWashShopStatus] = useState<ShopExtras['washShopStatus']>();
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const extras = await getShopExtras(shop.id);
-      const status = getShopOpenStatus(extras);
-      if (!cancelled) {
-        setOpenNow(status.isOpen);
-        setWashShopStatus(extras.washShopStatus);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [shop.id]);
-
-  const keepVisibleDespiteOpenFilter =
-    shop.type === 'wash' && (washShopStatus === 'closed' || washShopStatus === 'vacation');
-
-  if (filter === 'open_now' && openNow === false && !keepVisibleDespiteOpenFilter) return null;
-
   const distanceLabel =
     shop.distanceKm != null ? formatDistanceAway(shop.distanceKm, locale) : undefined;
 
@@ -325,34 +369,107 @@ function NearbyShopCard({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
+  content: {
+    width: '100%',
+    maxWidth: 1024,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 48,
+    ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as const) : null),
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   muted: { textAlign: 'center' },
   title: { fontSize: 24, fontWeight: '900', marginBottom: 8 },
   lead: { fontSize: 15, lineHeight: 22, marginBottom: 10 },
   badge: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', marginBottom: 12 },
-  radiusRow: { gap: 8, paddingBottom: 14 },
-  radiusPill: {
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+  searchFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    position: 'relative',
+    zIndex: 1,
+    ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as const) : null),
   },
-  radiusPillText: { fontSize: 13, fontWeight: '500' },
   search: {
+    flex: 1,
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    marginBottom: 12,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as const) : null),
   },
-  filtersRow: { gap: 8, paddingBottom: 12 },
-  filterChip: {
+  filterBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  filterMenuDismiss: {
+    ...(Platform.OS === 'web'
+      ? ({ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 } as const)
+      : { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }),
+  },
+  filterMenu: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 6,
+    minWidth: 200,
+    borderWidth: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    zIndex: 50,
+    elevation: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+  },
+  filterMenuHeader: {
+    fontSize: 12,
+    fontWeight: '700',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 6,
+  },
+  filterMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
+  filterMenuItemText: { fontSize: 14, fontWeight: '700' },
+  filterModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  filterModalCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    maxHeight: '70%',
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  filterModalTitle: { fontSize: 16, fontWeight: '800' },
   empty: { textAlign: 'center', marginTop: 12 },
 });
