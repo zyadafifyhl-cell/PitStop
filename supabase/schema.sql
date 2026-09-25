@@ -287,11 +287,14 @@ create table if not exists public.bookings (
   no_show_marked_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  is_hidden_by_merchant boolean not null default false
+  is_hidden_by_merchant boolean not null default false,
+  is_hidden_by_customer boolean not null default false
 );
 
 alter table public.bookings
   add column if not exists is_hidden_by_merchant boolean not null default false;
+alter table public.bookings
+  add column if not exists is_hidden_by_customer boolean not null default false;
 
 create index if not exists bookings_shop_id_idx on public.bookings (shop_id);
 create index if not exists bookings_branch_id_idx on public.bookings (branch_id);

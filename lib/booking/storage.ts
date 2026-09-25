@@ -67,6 +67,48 @@ async function fetchBookingsForPhoneRemote(phone: string): Promise<Booking[] | n
 }
 
 const CUSTOMER_PHONE_KEY = '@pitstop/bookings/customer-phone';
+const CUSTOMER_HIDDEN_HISTORY_PREFIX = '@pitstop/customer-hidden-bookings/';
+
+function customerHiddenHistoryKeys(phone: string, customerId?: string): string[] {
+  const keys = phoneLookupVariants(phone).map((value) => `${CUSTOMER_HIDDEN_HISTORY_PREFIX}${value}`);
+  if (customerId?.trim()) keys.push(`${CUSTOMER_HIDDEN_HISTORY_PREFIX}${customerId.trim()}`);
+  return [...new Set(keys)];
+}
+
+async function loadHiddenCustomerBookingIds(phone: string, customerId?: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  await Promise.all(
+    customerHiddenHistoryKeys(phone, customerId).map(async (key) => {
+      try {
+        const raw = await AsyncStorage.getItem(key);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) {
+            if (typeof id === 'string' && id) ids.add(id);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }),
+  );
+  return ids;
+}
+
+async function persistHiddenCustomerBookingIds(
+  phone: string,
+  customerId: string | undefined,
+  ids: string[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  const existing = await loadHiddenCustomerBookingIds(phone, customerId);
+  for (const id of ids) existing.add(id);
+  const payload = JSON.stringify([...existing]);
+  await Promise.all(
+    customerHiddenHistoryKeys(phone, customerId).map((key) => AsyncStorage.setItem(key, payload)),
+  );
+}
 
 /** Grace period after scheduled_at before a confirmed booking is treated as done. */
 export const AUTO_DONE_AFTER_MS = 60 * 60 * 1000;
@@ -200,6 +242,7 @@ type BookingRow = {
   status: BookingStatus;
   created_at: string;
   is_hidden_by_merchant?: boolean | null;
+  is_hidden_by_customer?: boolean | null;
 };
 
 export type CreateBookingOptions = {
@@ -278,6 +321,7 @@ function mapBookingRow(row: BookingRow): Booking {
     status: row.status,
     createdAt: row.created_at,
     isHiddenByMerchant: Boolean(row.is_hidden_by_merchant),
+    isHiddenByCustomer: Boolean(row.is_hidden_by_customer),
   };
 }
 
@@ -362,9 +406,12 @@ export async function listBookingsForShop(shopId: string): Promise<Booking[]> {
   );
 }
 
-export async function listBookingsForPhone(phone: string): Promise<Booking[]> {
+export async function listBookingsForPhone(phone: string, customerId?: string): Promise<Booking[]> {
   const remoteRows = await fetchBookingsForPhoneRemote(phone);
-  return sortBookingsByScheduledAtDesc(remoteRows ?? []);
+  const hiddenIds = await loadHiddenCustomerBookingIds(phone, customerId);
+  return sortBookingsByScheduledAtDesc(
+    (remoteRows ?? []).filter((row) => !row.isHiddenByCustomer && !hiddenIds.has(row.id)),
+  );
 }
 
 const HOME_NEXT_BOOKING_STATUSES = new Set<BookingStatus>(['pending', 'confirmed']);
@@ -416,8 +463,17 @@ export async function fetchNextUpcomingBookingForPhone(phone: string, now = Date
 }
 
 export async function getBookingForCustomer(bookingId: string, phone: string): Promise<Booking | null> {
-  const rows = await listBookingsForPhone(phone);
-  return rows.find((row) => row.id === bookingId) ?? null;
+  const supabase = getSupabase();
+  if (supabase && isUuid(bookingId)) {
+    const { data, error } = await supabase.from('bookings').select('*').eq('id', bookingId).maybeSingle();
+    if (!error && data) {
+      const booking = applyVirtualBookingLifecycle(mapBookingRow(data as BookingRow));
+      const phoneMatches = phoneLookupVariants(phone).includes(booking.customerPhone);
+      if (phoneMatches || !booking.customerPhone) return booking;
+    }
+  }
+  const rows = await fetchBookingsForPhoneRemote(phone);
+  return (rows ?? []).find((row) => row.id === bookingId) ?? null;
 }
 
 export async function createBooking(
@@ -872,11 +928,39 @@ export async function clearCustomerBookingHistory(input: {
   phone: string;
   customerId?: string;
 }): Promise<void> {
+  const rows = ((await fetchBookingsForPhoneRemote(input.phone)) ?? []).map((row) =>
+    applyVirtualBookingLifecycle(row),
+  );
+  const historyCutoff = Date.now() - 60 * 60 * 1000;
+  const historyIds = rows
+    .filter((row) => {
+      if (isFinalizedHistoryBooking(row) || row.status === 'suspended_by_shop') return true;
+      if (row.status === 'pending' || row.status === 'confirmed' || row.status === 'in_progress') {
+        return new Date(row.scheduledAt).getTime() < historyCutoff;
+      }
+      return false;
+    })
+    .map((row) => row.id);
+
+  await persistHiddenCustomerBookingIds(input.phone, input.customerId, historyIds);
+
   const supabase = getSupabase();
   if (!supabase) return;
-  const query = input.customerId && isUuid(input.customerId)
-    ? supabase.from('bookings').delete().eq('customer_id', input.customerId)
-    : supabase.from('bookings').delete().in('customer_phone', phoneLookupVariants(input.phone));
-  const { error } = await query;
-  if (error) console.warn('Failed to delete remote bookings:', error.message);
+
+  const phones = phoneLookupVariants(input.phone);
+  const { error } = await supabase.rpc('clear_customer_booking_history', { p_phones: phones });
+  if (!error) return;
+
+  console.warn('clear_customer_booking_history rpc:', error.message);
+
+  if (input.customerId && isUuid(input.customerId)) {
+    const { error: updateError } = await supabase
+      .from('bookings')
+      .update({ is_hidden_by_customer: true })
+      .eq('customer_id', input.customerId)
+      .in('status', ['done', 'cancelled', 'no_show', 'suspended_by_shop']);
+    if (updateError) {
+      console.warn('Failed to hide customer bookings:', updateError.message);
+    }
+  }
 }

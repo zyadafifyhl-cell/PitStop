@@ -272,6 +272,8 @@ type OrderRow = {
   notes?: string | null;
   created_at: string;
   updated_at: string;
+  is_hidden_by_merchant?: boolean | null;
+  is_hidden_by_customer?: boolean | null;
   shops?: {
     name?: string | null;
     name_ar?: string | null;
@@ -311,6 +313,8 @@ function mapOrder(row: OrderRow): StoreOrder {
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isHiddenByMerchant: Boolean(row.is_hidden_by_merchant),
+    isHiddenByCustomer: Boolean(row.is_hidden_by_customer),
   };
 }
 
@@ -423,7 +427,9 @@ export async function listStoreOrdersForUser(userId: string): Promise<CustomerSt
     .order('created_at', { ascending: false });
 
   if (!withShopJoin.error && withShopJoin.data) {
-    return (withShopJoin.data as OrderRow[]).map(mapCustomerOrder);
+    return (withShopJoin.data as OrderRow[])
+      .map(mapCustomerOrder)
+      .filter((order) => !order.isHiddenByCustomer);
   }
 
   const fallback = await supabase
@@ -444,7 +450,9 @@ export async function listStoreOrdersForUser(userId: string): Promise<CustomerSt
     console.warn('listStoreOrdersForUser:', withShopJoin.error?.message ?? fallback.error?.message);
     return [];
   }
-  return (fallback.data as OrderRow[]).map(mapCustomerOrder);
+  return (fallback.data as OrderRow[])
+    .map(mapCustomerOrder)
+    .filter((order) => !order.isHiddenByCustomer);
 }
 
 export async function cancelOwnStoreOrder(orderId: string): Promise<boolean> {

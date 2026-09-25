@@ -2,6 +2,7 @@ import 'leaflet/dist/leaflet.css';
 import React, { useEffect, useMemo, useRef } from 'react';
 
 import { isMapAlive, safeRemoveMap } from '@/components/maps/leafletMapLifecycle';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 type Props = {
   initialLatitude: number;
@@ -13,6 +14,8 @@ type Props = {
 const DEFAULT_HEIGHT = 320;
 
 export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange, height = DEFAULT_HEIGHT }: Props) {
+  const appTheme = useAppTheme();
+  const darkMap = appTheme.bg === '#000000';
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any | null>(null);
   const markerRef = useRef<any | null>(null);
@@ -44,10 +47,17 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange,
       localMap = map;
       mapRef.current = map;
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors',
-      }).addTo(map);
+      L.tileLayer(
+        darkMap
+          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+          : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+          maxZoom: 19,
+          attribution: darkMap
+            ? '&copy; OpenStreetMap contributors &copy; CARTO'
+            : '&copy; OpenStreetMap contributors',
+        },
+      ).addTo(map);
 
       const marker = L.circleMarker([initialCenter.lat, initialCenter.lng], {
         radius: 8,
@@ -81,7 +91,7 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange,
       mapRef.current = null;
       markerRef.current = null;
     };
-  }, []);
+  }, [darkMap]);
 
   useEffect(() => {
     const map = mapRef.current;

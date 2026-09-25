@@ -16,13 +16,14 @@ import { MerchantNavRow } from '@/components/owner/merchant/MerchantNavRow';
 import { MerchantSettingsCard } from '@/components/owner/merchant/MerchantSettingsCard';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
-import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { getActiveWashBranch, getWashBranchState, type WashBranchContext } from '@/lib/booking/wash/washBranchStorage';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 
 export default function MerchantSettingsScreen() {
   const theme = useAppTheme();
+  const { preference, setPreference } = useThemePreference();
   const { t, isRTL, locale, setLocale } = useI18n();
   const { ready, shop, shopStaff, staff } = useShopAuth();
   const { signOut, busy: signingOut } = useAppSignOut();
@@ -171,8 +172,30 @@ export default function MerchantSettingsScreen() {
           label={t('merchant_settings_language_row')}
           subtitle={locale === 'ar' ? t('merchant_settings_language_current_ar') : t('merchant_settings_language_current_en')}
           onPress={onToggleLanguage}
-          showDivider={false}
         />
+        <View style={styles.themeBlock}>
+          <Text style={[styles.themeLabel, { color: theme.text }, isRTL && styles.textRtl]}>
+            {preference === 'dark' ? t('settings_theme_dark') : t('settings_theme_light')}
+          </Text>
+          <View style={styles.themeOptions}>
+            {(['light', 'dark'] as const).map((option) => (
+              <Pressable
+                key={option}
+                onPress={() => setPreference(option)}
+                style={[
+                  styles.themeOption,
+                  {
+                    borderColor: theme.border,
+                    backgroundColor: preference === option ? theme.accentSoft : theme.bg,
+                  },
+                ]}>
+                <Text style={[styles.themeOptionText, { color: preference === option ? theme.accent : theme.text }]}>
+                  {option === 'light' ? t('settings_theme_light') : t('settings_theme_dark')}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </MerchantSettingsCard>
 
       <MerchantSettingsCard theme={theme} title={t('merchant_settings_support_legal_title')}>
@@ -227,6 +250,17 @@ const styles = StyleSheet.create({
   roleBadgeText: { fontSize: 12, fontWeight: '800' },
   branchHint: { fontSize: 12, marginTop: 10 },
   textRtl: { textAlign: 'right' },
+  themeBlock: { paddingTop: 4, paddingBottom: 8 },
+  themeLabel: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
+  themeOptions: { flexDirection: 'row', gap: 8 },
+  themeOption: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  themeOptionText: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
   signOutBtn: {
     borderWidth: 1,
     borderRadius: 9,

@@ -1,19 +1,18 @@
 const electricBlue = '#0066FF';
-const canvas = '#F8FAFC';
 
 export default {
   light: {
     text: '#0F172A',
-    background: canvas,
+    background: '#F8FAFC',
     tint: electricBlue,
     tabIconDefault: '#64748B',
     tabIconSelected: electricBlue,
   },
   dark: {
-    text: '#0F172A',
-    background: canvas,
+    text: '#F8FAFC',
+    background: '#000000',
     tint: electricBlue,
-    tabIconDefault: '#64748B',
+    tabIconDefault: '#94A3B8',
     tabIconSelected: electricBlue,
   },
 };

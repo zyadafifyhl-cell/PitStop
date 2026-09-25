@@ -79,6 +79,8 @@ export type Booking = {
   lifecycleAutoCompleted?: boolean;
   /** Merchant-only soft-delete; customers and revenue queries still see the row. */
   isHiddenByMerchant?: boolean;
+  /** Customer-only soft-delete; shops and revenue queries still see the row. */
+  isHiddenByCustomer?: boolean;
 };
 
 export type Area = {

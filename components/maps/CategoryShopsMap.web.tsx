@@ -2,6 +2,7 @@ import 'leaflet/dist/leaflet.css';
 import React, { useEffect, useMemo, useRef } from 'react';
 
 import { isMapAlive, safeRemoveMap } from '@/components/maps/leafletMapLifecycle';
+import { useAppTheme } from '@/context/ThemePreferenceContext';
 import type { ShopMapPin } from '@/lib/booking/shopMapDiscovery';
 import type { ShopType } from '@/lib/booking/types';
 
@@ -241,8 +242,11 @@ export function CategoryShopsMap({
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any | null>(null);
   const layerGroupRef = useRef<any | null>(null);
+  const tileLayerRef = useRef<any | null>(null);
   const onShopPressRef = useRef(onShopPress);
   onShopPressRef.current = onShopPress;
+  const appTheme = useAppTheme();
+  const darkMap = appTheme.bg === '#000000';
 
   const markerData = useMemo(
     () =>
@@ -280,12 +284,39 @@ export function CategoryShopsMap({
         });
         mapRef.current = map;
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '&copy; OpenStreetMap contributors',
-        }).addTo(map);
+        const tiles = L.tileLayer(
+          darkMap
+            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+            : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          {
+            maxZoom: 19,
+            attribution: darkMap
+              ? '&copy; OpenStreetMap contributors &copy; CARTO'
+              : '&copy; OpenStreetMap contributors',
+          },
+        ).addTo(map);
+        tileLayerRef.current = tiles;
 
         layerGroupRef.current = L.layerGroup().addTo(map);
+      } else if (mapRef.current) {
+        if (tileLayerRef.current) {
+          try {
+            mapRef.current.removeLayer(tileLayerRef.current);
+          } catch {
+            // Ignore tile swap races.
+          }
+        }
+        tileLayerRef.current = L.tileLayer(
+          darkMap
+            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+            : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          {
+            maxZoom: 19,
+            attribution: darkMap
+              ? '&copy; OpenStreetMap contributors &copy; CARTO'
+              : '&copy; OpenStreetMap contributors',
+          },
+        ).addTo(mapRef.current);
       }
 
       const map = mapRef.current;
@@ -362,7 +393,7 @@ export function CategoryShopsMap({
         window.clearTimeout(timeoutId);
       }
     };
-  }, [markerData, locale, height, shopType]);
+  }, [markerData, locale, height, shopType, darkMap]);
 
   useEffect(() => {
     return () => {

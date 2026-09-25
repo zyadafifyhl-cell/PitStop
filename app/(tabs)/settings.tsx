@@ -30,12 +30,7 @@ export default function SettingsScreen() {
   const [languageOpen, setLanguageOpen] = React.useState(false);
   const [termsVisible, setTermsVisible] = React.useState(false);
 
-  const themeLabel =
-    preference === 'system'
-      ? t('settings_theme_system')
-      : preference === 'dark'
-        ? t('settings_theme_dark')
-        : t('settings_theme_light');
+  const themeLabel = preference === 'dark' ? t('settings_theme_dark') : t('settings_theme_light');
 
   async function safeOpen(fn: () => Promise<void>) {
     try {
@@ -169,7 +164,7 @@ export default function SettingsScreen() {
           </View>
         </View>
         <View style={styles.themeOptions}>
-          {(['light', 'dark', 'system'] as const).map((option) => (
+          {(['light', 'dark'] as const).map((option) => (
             <Pressable
               key={option}
               onPress={() => setPreference(option)}
@@ -178,11 +173,7 @@ export default function SettingsScreen() {
                 { borderColor: theme.border, backgroundColor: preference === option ? theme.accentSoft : theme.bgElevated },
               ]}>
               <Text style={[styles.themeOptionText, { color: preference === option ? theme.accent : theme.text }]}>
-                {option === 'light'
-                  ? t('settings_theme_light')
-                  : option === 'dark'
-                    ? t('settings_theme_dark')
-                    : t('settings_theme_system')}
+                {option === 'light' ? t('settings_theme_light') : t('settings_theme_dark')}
               </Text>
             </Pressable>
           ))}
@@ -190,11 +181,6 @@ export default function SettingsScreen() {
         <Text style={[styles.toggleNote, { color: theme.textDim }, isRTL && styles.toggleTextRtl]}>
           {t('settings_selected')}: {themeLabel}
         </Text>
-        {preference === 'system' ? (
-          <Text style={[styles.toggleNote, { color: theme.textMuted, marginTop: 6 }, isRTL && styles.toggleTextRtl]}>
-            {t('settings_theme_system_hint')}
-          </Text>
-        ) : null}
       </View>
 
       <Text style={[styles.section, { color: theme.text }]}>{t('settings_support_section')}</Text>

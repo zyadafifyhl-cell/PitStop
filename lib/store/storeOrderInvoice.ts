@@ -1,3 +1,4 @@
+import type { AppThemeTokens } from '@/constants/Theme';
 import { formatEgp } from '@/lib/booking/reporting';
 import type { Locale, TranslationKey } from '@/lib/i18n/strings';
 import { resolveStoreOrderCustomerNotes } from '@/lib/store/orderNotes';
@@ -21,6 +22,23 @@ export const CUSTOMER_STORE_STATUS_TONE: Record<
   completed: { backgroundColor: 'rgba(16, 185, 129, 0.12)', borderColor: 'rgba(16, 185, 129, 0.28)', color: '#047857' },
   cancelled: { backgroundColor: '#F1F5F9', borderColor: '#94A3B8', color: '#64748B' },
 };
+
+export function customerStoreStatusTone(
+  status: StoreOrderStatus,
+  theme: AppThemeTokens,
+): { backgroundColor: string; borderColor: string; color: string } {
+  if (theme.bg !== '#000000') return CUSTOMER_STORE_STATUS_TONE[status];
+  if (status === 'ready') {
+    return { backgroundColor: theme.warmSoft, borderColor: 'rgba(125, 211, 252, 0.35)', color: theme.warm };
+  }
+  if (status === 'completed') {
+    return { backgroundColor: theme.successSoft, borderColor: 'rgba(16, 185, 129, 0.28)', color: theme.success };
+  }
+  if (status === 'preparing') {
+    return { backgroundColor: theme.cardHover, borderColor: theme.inputBorder, color: theme.text };
+  }
+  return { backgroundColor: theme.cardHover, borderColor: theme.border, color: theme.textMuted };
+}
 
 export function formatStoreOrderShortId(orderId: string): string {
   return orderId.replace(/-/g, '').slice(0, 8).toUpperCase();

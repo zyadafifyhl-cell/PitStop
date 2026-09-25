@@ -10,7 +10,7 @@ import type { CustomerStoreOrder } from '@/lib/store/types';
 import { resolveStoreOrderCustomerNotes } from '@/lib/store/orderNotes';
 import {
   CUSTOMER_STORE_STATUS_LABEL,
-  CUSTOMER_STORE_STATUS_TONE,
+  customerStoreStatusTone,
   buildStoreOrderInvoiceHtml,
   formatStoreOrderFullTimestamp,
   formatStoreOrderShortId,
@@ -46,7 +46,7 @@ export function StoreOrderInvoiceModal({
 
   const shortId = order ? formatStoreOrderShortId(order.id) : '';
   const timestamp = order ? formatStoreOrderFullTimestamp(order.createdAt, locale) : '';
-  const statusTone = order ? CUSTOMER_STORE_STATUS_TONE[order.status] : CUSTOMER_STORE_STATUS_TONE.pending;
+  const statusTone = customerStoreStatusTone(order?.status ?? 'pending', theme);
   const statusLabel = order ? t(CUSTOMER_STORE_STATUS_LABEL[order.status]) : '';
   const isDelivery = order ? isStoreOrderDelivery(order.fulfillmentMethod) : false;
   const fulfillmentLabel = order

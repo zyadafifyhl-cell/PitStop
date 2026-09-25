@@ -19,6 +19,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { addShopReview, getCustomerShopReview } from '@/lib/booking/reviewsStorage';
 import { orderHistoryReviewBody } from '@/lib/booking/reviewConstants';
+import { clearCustomerInvoices } from '@/lib/booking/commerceEvents';
 import {
   clearCustomerBookingHistory,
   listBookingsForPhone,
@@ -57,7 +58,7 @@ export default function MyBookingsScreen() {
       setBusy(false);
       return;
     }
-    const rows = sortBookingsByScheduledAtDesc(await listBookingsForPhone(customer.phone));
+    const rows = sortBookingsByScheduledAtDesc(await listBookingsForPhone(customer.phone, customer.id));
     setBookings(rows);
     if (customer.id) {
       const shopIds = [...new Set(rows.map((row) => row.shopId))];
@@ -148,9 +149,13 @@ export default function MyBookingsScreen() {
     setErasing(true);
     try {
       await clearCustomerBookingHistory({ phone: customer.phone, customerId: customer.id });
+      await clearCustomerInvoices({ customerId: customer.id, customerPhone: customer.phone });
+      setBookings([]);
       setEraseConfirmVisible(false);
       await refreshBookings();
       setEraseSuccessVisible(true);
+    } catch {
+      Alert.alert(t('bookings_erase_history_title'), t('bookings_erase_history_fail'));
     } finally {
       setErasing(false);
     }

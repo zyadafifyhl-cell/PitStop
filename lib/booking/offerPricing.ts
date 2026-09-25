@@ -152,14 +152,35 @@ export function isBuyXGetYFreeNext(offer: ShopOffer, doneBookingCount: number): 
 
 export type OfferBadgeMessages = { pct: string; flat: string; buyX: string; bogo: string };
 
+const DEFAULT_OFFER_BADGE_MESSAGES: OfferBadgeMessages = {
+  pct: '🔥 {pct}% OFF TODAY',
+  flat: '🔥 {amount} EGP OFF',
+  buyX: '🎁 BUY {count} GET 1 FREE',
+  bogo: '🎁 BUY {buy} GET {free} FREE',
+};
+
+function safeOfferBadgeText(
+  t: ((key: 'offer_badge_pct' | 'offer_badge_flat' | 'offer_badge_buy_x' | 'offer_badge_bogo') => string) | undefined,
+  key: 'offer_badge_pct' | 'offer_badge_flat' | 'offer_badge_buy_x' | 'offer_badge_bogo',
+  fallback: string,
+): string {
+  try {
+    if (typeof t !== 'function') return fallback;
+    const value = t(key);
+    return typeof value === 'string' && value.trim() ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function buildOfferBadgeMessages(
-  t: (key: 'offer_badge_pct' | 'offer_badge_flat' | 'offer_badge_buy_x' | 'offer_badge_bogo') => string,
+  t?: (key: 'offer_badge_pct' | 'offer_badge_flat' | 'offer_badge_buy_x' | 'offer_badge_bogo') => string,
 ): OfferBadgeMessages {
   return {
-    pct: t('offer_badge_pct'),
-    flat: t('offer_badge_flat'),
-    buyX: t('offer_badge_buy_x'),
-    bogo: t('offer_badge_bogo'),
+    pct: safeOfferBadgeText(t, 'offer_badge_pct', DEFAULT_OFFER_BADGE_MESSAGES.pct),
+    flat: safeOfferBadgeText(t, 'offer_badge_flat', DEFAULT_OFFER_BADGE_MESSAGES.flat),
+    buyX: safeOfferBadgeText(t, 'offer_badge_buy_x', DEFAULT_OFFER_BADGE_MESSAGES.buyX),
+    bogo: safeOfferBadgeText(t, 'offer_badge_bogo', DEFAULT_OFFER_BADGE_MESSAGES.bogo),
   };
 }
 

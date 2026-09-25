@@ -28,13 +28,27 @@ export default function Root({ children }: { children: React.ReactNode }) {
 }
 
 const responsiveBackground = `
-body {
+html, body, #root, #__next {
   background-color: #F8FAFC;
 }
 @media (prefers-color-scheme: dark) {
-  body {
-    background-color: #F8FAFC;
+  html, body, #root, #__next {
+    background-color: #000000;
   }
+}
+html[data-theme="dark"],
+html[data-theme="dark"] body,
+html[data-theme="dark"] #root,
+html[data-theme="dark"] #__next {
+  background-color: #000000 !important;
+  color: #F8FAFC;
+}
+html[data-theme="light"],
+html[data-theme="light"] body,
+html[data-theme="light"] #root,
+html[data-theme="light"] #__next {
+  background-color: #F8FAFC !important;
+  color: #0F172A;
 }
 input::-ms-reveal,
 input::-ms-clear {

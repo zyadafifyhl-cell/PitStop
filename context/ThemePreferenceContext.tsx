@@ -1,10 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme, type ColorSchemeName } from 'react-native';
+import { Appearance, Platform } from 'react-native';
 
 import { APP_THEMES, type AppThemeTokens } from '@/constants/Theme';
 
-export type ThemePreference = 'light' | 'dark' | 'system';
+export type ThemePreference = 'light' | 'dark';
 
 const STORAGE_KEY = '@pitstop/theme-preference';
 
@@ -17,15 +17,12 @@ type ThemePreferenceContextValue = {
 
 const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>(null);
 
-function resolveEffective(preference: ThemePreference, systemScheme: ColorSchemeName): 'light' | 'dark' {
-  if (preference === 'system') {
-    return systemScheme === 'dark' ? 'dark' : 'light';
-  }
-  return preference;
+function resolvePreference(saved: string | null): ThemePreference {
+  if (saved === 'dark') return 'dark';
+  return 'light';
 }
 
 export function ThemePreferenceProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useColorScheme();
   const [preference, setPreferenceState] = useState<ThemePreference>('light');
 
   useEffect(() => {
@@ -33,8 +30,8 @@ export function ThemePreferenceProvider({ children }: { children: React.ReactNod
     (async () => {
       try {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!cancelled && (saved === 'light' || saved === 'dark' || saved === 'system')) {
-          setPreferenceState(saved);
+        if (!cancelled) {
+          setPreferenceState(resolvePreference(saved));
         }
       } catch {
         // ignore
@@ -50,16 +47,41 @@ export function ThemePreferenceProvider({ children }: { children: React.ReactNod
     await AsyncStorage.setItem(STORAGE_KEY, next);
   }, []);
 
-  const effectivePreference = resolveEffective(preference, systemScheme);
+  const effectivePreference = preference;
+  const theme = APP_THEMES[effectivePreference];
+
+  useEffect(() => {
+    try {
+      Appearance.setColorScheme(effectivePreference);
+    } catch {
+      // Older runtimes ignore explicit scheme.
+    }
+  }, [effectivePreference]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.style.backgroundColor = theme.bg;
+    root.style.colorScheme = effectivePreference;
+    document.body.style.backgroundColor = theme.bg;
+    document.body.style.color = theme.text;
+    root.setAttribute('data-theme', effectivePreference);
+    document.querySelectorAll('#root, #__next, [data-expo-root]').forEach((node) => {
+      if (node instanceof HTMLElement) {
+        node.style.backgroundColor = theme.bg;
+        node.style.color = theme.text;
+      }
+    });
+  }, [theme, effectivePreference]);
 
   const value = useMemo(
     () => ({
       preference,
       effectivePreference,
-      theme: APP_THEMES[effectivePreference],
+      theme,
       setPreference,
     }),
-    [preference, effectivePreference, setPreference],
+    [preference, effectivePreference, theme, setPreference],
   );
 
   return <ThemePreferenceContext.Provider value={value}>{children}</ThemePreferenceContext.Provider>;

@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 
-import { AppTheme, BOXED_OVERLAY } from '@/constants/Theme';
+import { BOXED_OVERLAY } from '@/constants/Theme';
 import { AutomotiveBackground } from '@/components/ui/AutomotiveBackground';
 import { MerchantTermsBody } from '@/components/legal/MerchantTermsBody';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -868,7 +868,7 @@ export default function WelcomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: AppTheme.bg },
+  screen: { flex: 1 },
   flex: { flex: 1 },
   content: {
     flexGrow: 1,
@@ -984,13 +984,10 @@ const styles = StyleSheet.create({
   },
   languageBtn: {
     borderWidth: 1,
-    borderColor: AppTheme.border,
-    backgroundColor: AppTheme.card,
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
-  languageBtnActive: { backgroundColor: AppTheme.accent, borderColor: AppTheme.accent },
   languageText: { fontSize: 13, fontWeight: '800' },
   languageTextActive: { color: '#fff' },
   demoHint: { fontSize: 12, lineHeight: 18, marginTop: 14, fontWeight: '600' },
