@@ -21,12 +21,14 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { MAX_STORE_PRODUCT_IMAGES, STORE_SUB_CATEGORIES } from '@/lib/store/constants';
 import { createStoreProduct } from '@/lib/store/productRepository';
 import type { StoreProduct, StoreProductCategory } from '@/lib/store/types';
+import type { InventoryKind } from '@/lib/store/types';
 import { materializePickerAsset, uploadImageToBucket } from '@/lib/supabase/storageUpload';
 
 type Props = {
   visible: boolean;
   shopId: string;
   category: StoreProductCategory | null;
+  inventoryKind?: InventoryKind;
   onClose: () => void;
   onCreated: (product: StoreProduct) => void;
 };
@@ -44,7 +46,7 @@ function newPreviewId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function AddProductModal({ visible, shopId, category, onClose, onCreated }: Props) {
+export function AddProductModal({ visible, shopId, category, inventoryKind = 'retail', onClose, onCreated }: Props) {
   const theme = useAppTheme();
   const { t } = useI18n();
   const [name, setName] = useState('');
@@ -168,6 +170,7 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
         price: parsedPrice,
         stockQuantity,
         compatibilityType: 'universal',
+        inventoryKind,
         compatibilityRows: [],
       });
       if (!created) {
@@ -185,7 +188,7 @@ export function AddProductModal({ visible, shopId, category, onClose, onCreated 
     } finally {
       setAdding(false);
     }
-  }, [category, name, onCreated, previewImages, price, reset, shopId, stock, t]);
+  }, [category, inventoryKind, name, onCreated, previewImages, price, reset, shopId, stock, t]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>

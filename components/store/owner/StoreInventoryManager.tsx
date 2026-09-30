@@ -16,6 +16,7 @@ import {
 
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { UpgradeProModal } from '@/components/owner/UpgradeProModal';
+import { LogExpenseModal } from '@/components/owner/pos/LogExpenseModal';
 import { AddProductModal } from '@/components/store/owner/AddProductModal';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -26,6 +27,7 @@ import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { STORE_LOW_STOCK_MAX, isStoreLowStock } from '@/lib/store/constants';
 import { primaryProductImageUrl } from '@/lib/store/productImages';
 import type { StoreInventoryListFilter } from '@/lib/store/ownerFilters';
+import type { InventoryKind } from '@/lib/store/types';
 import {
   deleteStoreProduct,
   listStoreProductsByShop,
@@ -78,6 +80,8 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [kindFilter, setKindFilter] = useState<InventoryKind | 'all'>('all');
   const [localStockFilter, setLocalStockFilter] = useState<StoreInventoryListFilter>(stockFilter ?? 'all');
 
   useEffect(() => {
@@ -208,11 +212,15 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
   }, [loadProducts, onRefresh]);
 
   const visibleProducts = useMemo(() => {
+    const byKind =
+      kindFilter === 'all'
+        ? products
+        : products.filter((product) => (product.inventoryKind ?? 'retail') === kindFilter);
     if (isPro && activeStockFilter === 'low_stock') {
-      return products.filter((product) => isStoreLowStock(product.stockQuantity));
+      return byKind.filter((product) => isStoreLowStock(product.stockQuantity));
     }
-    return products;
-  }, [activeStockFilter, isPro, products]);
+    return byKind;
+  }, [activeStockFilter, isPro, kindFilter, products]);
   const lowStockCount = useMemo(
     () => products.filter((product) => isStoreLowStock(product.stockQuantity)).length,
     [products],
@@ -263,6 +271,30 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
                 <Text style={{ color: theme.danger, fontSize: 11, fontWeight: '800' }}>{t('store_owner_low_stock')}</Text>
               </View>
             ) : null}
+          </View>
+
+          <View style={styles.kindToggleRow}>
+            {(['retail', 'supply'] as InventoryKind[]).map((kind) => {
+              const active = (product.inventoryKind ?? 'retail') === kind;
+              return (
+                <Pressable
+                  key={kind}
+                  disabled={!editing || busy}
+                  onPress={() => void updateStoreProductFields(product.id, { inventoryKind: kind }).then(() => loadProducts())}
+                  style={[
+                    styles.kindChip,
+                    {
+                      borderColor: active ? theme.accent : theme.border,
+                      backgroundColor: active ? theme.accentSoft : theme.bgElevated,
+                      opacity: !editing || busy ? 0.7 : 1,
+                    },
+                  ]}>
+                  <Text style={{ color: active ? theme.accent : theme.text, fontSize: 11, fontWeight: '800' }}>
+                    {kind === 'retail' ? t('inventory_kind_retail') : t('inventory_kind_supply')}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           <View style={styles.priceGrid}>
@@ -365,7 +397,7 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
         </View>
       );
     }),
-    [adjustStock, busyId, drafts, editingId, isPro, removeProduct, saveProduct, t, theme, toggleActive, updateDraft, visibleProducts],
+    [adjustStock, busyId, drafts, editingId, isPro, loadProducts, removeProduct, saveProduct, t, theme, toggleActive, updateDraft, visibleProducts],
   );
 
   return (
@@ -374,6 +406,41 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
         title={t('store_owner_inventory')}
         subtitle={isPro ? t('store_owner_inventory_lead') : t('premium_inventory_cap_hint')}
         icon="cubes">
+        <View style={styles.filterRow}>
+          {(
+            [
+              { id: 'all' as const, label: t('inventory_kind_all'), count: products.length },
+              {
+                id: 'retail' as const,
+                label: t('inventory_kind_retail'),
+                count: products.filter((product) => (product.inventoryKind ?? 'retail') === 'retail').length,
+              },
+              {
+                id: 'supply' as const,
+                label: t('inventory_kind_supply'),
+                count: products.filter((product) => product.inventoryKind === 'supply').length,
+              },
+            ]
+          ).map((pill) => {
+            const active = kindFilter === pill.id;
+            return (
+              <Pressable
+                key={pill.id}
+                onPress={() => setKindFilter(pill.id)}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: active ? theme.accent : theme.bgElevated,
+                    borderColor: active ? theme.accent : theme.border,
+                  },
+                ]}>
+                <Text style={[styles.filterPillText, { color: active ? theme.onAccent : theme.text }]}>
+                  {pill.label} ({pill.count})
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
         <View style={styles.filterRow}>
           {(
             [
@@ -417,14 +484,22 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
           <Text style={[styles.count, { color: theme.textMuted }]}>
             {visibleProducts.length} {t('store_owner_total_products')}
           </Text>
-          {category ? (
+          <View style={styles.toolbarActions}>
             <Pressable
-              onPress={requestAddProduct}
-              style={[styles.addButton, { backgroundColor: atFreeInventoryCap ? theme.premiumSoft : theme.accent, borderColor: atFreeInventoryCap ? theme.premium : theme.accent }]}>
-              {atFreeInventoryCap ? <FontAwesome name="lock" size={13} color={theme.premium} /> : <FontAwesome name="plus" size={13} color={theme.onAccent} />}
-              <Text style={[styles.addButtonText, { color: atFreeInventoryCap ? theme.premium : theme.onAccent }]}>{t('store_owner_add_product')}</Text>
+              onPress={() => setExpenseOpen(true)}
+              style={[styles.addButton, { backgroundColor: theme.bgElevated, borderColor: theme.accent }]}>
+              <FontAwesome name="plus" size={13} color={theme.accent} />
+              <Text style={[styles.addButtonText, { color: theme.accent }]}>{t('pos_expense_button')}</Text>
             </Pressable>
-          ) : null}
+            {category ? (
+              <Pressable
+                onPress={requestAddProduct}
+                style={[styles.addButton, { backgroundColor: atFreeInventoryCap ? theme.premiumSoft : theme.accent, borderColor: atFreeInventoryCap ? theme.premium : theme.accent }]}>
+                {atFreeInventoryCap ? <FontAwesome name="lock" size={13} color={theme.premium} /> : <FontAwesome name="plus" size={13} color={theme.onAccent} />}
+                <Text style={[styles.addButtonText, { color: atFreeInventoryCap ? theme.premium : theme.onAccent }]}>{t('store_owner_add_product')}</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
 
         {loading ? (
@@ -455,8 +530,14 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
         visible={addOpen}
         shopId={shop.id}
         category={category}
+        inventoryKind={kindFilter === 'supply' ? 'supply' : 'retail'}
         onClose={() => setAddOpen(false)}
         onCreated={() => void onProductCreated()}
+      />
+      <LogExpenseModal
+        visible={expenseOpen}
+        shopId={shop.id}
+        onClose={() => setExpenseOpen(false)}
       />
       <UpgradeProModal visible={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </View>
@@ -504,6 +585,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
     marginBottom: 16,
+  },
+  toolbarActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  kindToggleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  kindChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   filterRow: {
     flexDirection: 'row',

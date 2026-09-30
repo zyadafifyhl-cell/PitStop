@@ -1,5 +1,7 @@
 export type StoreProductCategory = 'spare_parts' | 'accessories';
 
+export type InventoryKind = 'retail' | 'supply';
+
 export type StoreCompatibilityType = 'universal' | 'brand_specific' | 'model_specific';
 
 export type StoreFulfillmentMethod = 'cod' | 'pickup' | 'card';
@@ -32,6 +34,7 @@ export type StoreProduct = {
   rating: number;
   ratingCount: number;
   isActive: boolean;
+  inventoryKind: InventoryKind;
   compatibility: StoreProductCompatibility[];
   createdAt: string;
   updatedAt: string;
@@ -109,6 +112,7 @@ export type StoreProductDraft = {
   imageUrl?: string;
   imageUrls?: string[];
   compatibilityType: StoreCompatibilityType;
+  inventoryKind?: InventoryKind;
   compatibilityRows: Array<{
     brand?: string;
     model?: string;

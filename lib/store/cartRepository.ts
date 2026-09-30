@@ -54,6 +54,7 @@ function mapJoinedProduct(row: ProductJoinRow): StoreProduct {
     rating: Number(row.rating),
     ratingCount: row.rating_count,
     isActive: row.is_active,
+    inventoryKind: 'retail',
     compatibility: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -29,6 +29,7 @@ type ProductRow = {
   rating: number | string;
   rating_count: number;
   is_active: boolean;
+  inventory_kind?: string | null;
   created_at: string;
   updated_at: string;
   product_compatibility?: CompatibilityRow[];
@@ -72,6 +73,7 @@ function mapProduct(row: ProductRow): StoreProduct {
     rating: Number(row.rating),
     ratingCount: row.rating_count,
     isActive: row.is_active,
+    inventoryKind: row.inventory_kind === 'supply' ? 'supply' : 'retail',
     compatibility: (row.product_compatibility ?? []).map(mapCompatibility),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -137,6 +139,7 @@ export async function createStoreProduct(draft: StoreProductDraft): Promise<Stor
       image_url: draft.imageUrl?.trim() || draft.imageUrls?.[0] || null,
       image_urls: draft.imageUrls?.length ? draft.imageUrls : undefined,
       compatibility_type: draft.compatibilityType,
+      inventory_kind: draft.inventoryKind ?? 'retail',
     })
     .select('*')
     .single();
@@ -221,6 +224,7 @@ export async function updateStoreProductFields(
     salePrice?: number | null;
     stockQuantity?: number;
     isActive?: boolean;
+    inventoryKind?: 'retail' | 'supply';
   },
 ): Promise<boolean> {
   const supabase = getSupabase();
@@ -231,6 +235,7 @@ export async function updateStoreProductFields(
   if (patch.salePrice !== undefined) payload.sale_price = patch.salePrice;
   if (patch.stockQuantity != null) payload.stock_quantity = patch.stockQuantity;
   if (patch.isActive != null) payload.is_active = patch.isActive;
+  if (patch.inventoryKind != null) payload.inventory_kind = patch.inventoryKind;
 
   const { error } = await supabase.from('products').update(payload).eq('id', productId);
   return !error;

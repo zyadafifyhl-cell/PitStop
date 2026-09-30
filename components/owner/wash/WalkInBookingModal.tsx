@@ -18,9 +18,15 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
 import { createWalkInBooking, resolveCustomerIdByPhoneRemote } from '@/lib/booking/storage';
+import { createWalkInPosOrder, lookupShopCustomer } from '@/lib/posRepository';
+import { POS_CAR_TYPES, type PosCarType, type ShopPosCustomer } from '@/lib/posTypes';
+import { listStoreProductsByShop } from '@/lib/store/productRepository';
+import type { StoreProduct } from '@/lib/store/types';
+import type { DbBranchEmployee } from '@/lib/supabase/database.types';
 import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { userAlert } from '@/lib/ui/userAlert';
 import type { Booking, Shop, ShopService } from '@/lib/booking/types';
+import type { TranslationKey } from '@/lib/i18n/strings';
 
 type Props = {
   visible: boolean;
@@ -29,6 +35,7 @@ type Props = {
   branchId: string;
   branchLabel: string;
   services: ShopService[];
+  employees?: DbBranchEmployee[];
   onCreated: (booking: Booking) => void;
 };
 
@@ -54,15 +61,22 @@ export function WalkInBookingModal({
   branchId,
   branchLabel,
   services,
+  employees = [],
   onCreated,
 }: Props) {
   const theme = useAppTheme();
   const { t, locale, isRTL } = useI18n();
   const [step, setStep] = useState<Step>('form');
-  const [carType, setCarType] = useState('');
+  const [carType, setCarType] = useState<PosCarType>('sedan');
+  const [fullName, setFullName] = useState('');
+  const [plate, setPlate] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [accessoryQty, setAccessoryQty] = useState<Record<string, number>>({});
+  const [retailProducts, setRetailProducts] = useState<StoreProduct[]>([]);
+  const [matchedCustomer, setMatchedCustomer] = useState<ShopPosCustomer | null>(null);
   const [busy, setBusy] = useState(false);
   const [resolvingCustomer, setResolvingCustomer] = useState(false);
   const [resolvedCustomerId, setResolvedCustomerId] = useState<string | undefined>();
@@ -86,18 +100,53 @@ export function WalkInBookingModal({
     [selectedServices],
   );
 
+  function isUuid(value: string | undefined): boolean {
+    return Boolean(
+      value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value),
+    );
+  }
+
+  const accessoryItems = useMemo(
+    () =>
+      retailProducts.flatMap((product) => {
+        const quantity = accessoryQty[product.id] ?? 0;
+        if (quantity <= 0) return [];
+        return [
+          {
+            productId: product.id,
+            quantity,
+            unitPrice: product.salePrice ?? product.price,
+          },
+        ];
+      }),
+    [accessoryQty, retailProducts],
+  );
+
+  const accessoryTotal = useMemo(
+    () => accessoryItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
+    [accessoryItems],
+  );
+
   useEffect(() => {
     if (!visible) return;
     setStep('form');
-    setCarType('');
+    setCarType('sedan');
+    setFullName('');
+    setPlate('');
     setPhone('');
     setNotes('');
     setSelectedServiceIds([]);
+    setSelectedEmployeeId(null);
+    setAccessoryQty({});
+    setMatchedCustomer(null);
     setCreatedBooking(null);
     setBusy(false);
     setResolvingCustomer(false);
     setResolvedCustomerId(undefined);
-  }, [visible, activeServices]);
+    void listStoreProductsByShop(shop.id).then((rows) => {
+      setRetailProducts(rows.filter((product) => product.isActive && product.inventoryKind !== 'supply'));
+    });
+  }, [visible, activeServices, shop.id]);
 
   useEffect(() => {
     if (!visible) return;
@@ -105,6 +154,7 @@ export function WalkInBookingModal({
     if (!trimmed) {
       setResolvingCustomer(false);
       setResolvedCustomerId(undefined);
+      setMatchedCustomer(null);
       return;
     }
 
@@ -113,12 +163,22 @@ export function WalkInBookingModal({
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const customerId = await resolveCustomerIdByPhoneRemote(trimmed);
+          const [customerId, shopCustomer] = await Promise.all([
+            resolveCustomerIdByPhoneRemote(trimmed),
+            lookupShopCustomer(shop.id, trimmed),
+          ]);
           if (cancelled) return;
           setResolvedCustomerId(customerId);
+          setMatchedCustomer(shopCustomer);
+          if (shopCustomer) {
+            setFullName((current) => current.trim() || shopCustomer.fullName);
+            setPlate((current) => current.trim() || shopCustomer.licensePlate || '');
+            setCarType(shopCustomer.carType);
+          }
         } catch {
           if (cancelled) return;
           setResolvedCustomerId(undefined);
+          setMatchedCustomer(null);
         } finally {
           if (!cancelled) setResolvingCustomer(false);
         }
@@ -129,7 +189,7 @@ export function WalkInBookingModal({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [phone, visible]);
+  }, [phone, visible, shop.id]);
 
   function toggleServiceSelection(serviceId: string) {
     setSelectedServiceIds((current) =>
@@ -149,10 +209,6 @@ export function WalkInBookingModal({
   ];
 
   async function onSubmitForm() {
-    if (!carType.trim()) {
-      Alert.alert(t('walk_in_missing_title'), t('walk_in_missing_vehicle'));
-      return;
-    }
     if (selectedServices.length === 0) {
       Alert.alert(t('walk_in_missing_title'), t('walk_in_missing_service'));
       return;
@@ -165,7 +221,7 @@ export function WalkInBookingModal({
       const booking = await createWalkInBooking({
         shopId: shop.id,
         branchId,
-        carType: carType.trim(),
+        carType,
         customerPhone: phone.trim() || undefined,
         customerId: resolvedCustomerId,
         skipPhoneLookup: true,
@@ -177,7 +233,33 @@ export function WalkInBookingModal({
         customerNotes: notes.trim() || undefined,
         initialStatus: 'done',
       });
-      userAlert(t('walk_in_submit_success_title'), t('walk_in_submit_success_body'));
+
+      let posSaved = false;
+      if (aggregated.serviceId && isUuid(aggregated.serviceId)) {
+        try {
+          await createWalkInPosOrder({
+            shopId: shop.id,
+            serviceId: aggregated.serviceId,
+            price: serviceTotals.totalPriceEgp,
+            carType,
+            phone: phone.trim() || undefined,
+            fullName: fullName.trim() || undefined,
+            licensePlate: plate.trim() || undefined,
+            employeeId: selectedEmployeeId && isUuid(selectedEmployeeId) ? selectedEmployeeId : undefined,
+            notes: notes.trim() || undefined,
+            items: accessoryItems,
+            bookingId: isUuid(booking.id) ? booking.id : undefined,
+          });
+          posSaved = true;
+        } catch (posError) {
+          console.warn('createWalkInPosOrder', posError);
+        }
+      }
+
+      userAlert(
+        t('walk_in_submit_success_title'),
+        posSaved ? t('walk_in_submit_success_body') : t('walk_in_pos_partial_fail'),
+      );
       setCreatedBooking(booking);
       setStep('invoice');
       onCreated(booking);
@@ -215,13 +297,6 @@ export function WalkInBookingModal({
           {step === 'form' ? (
             <ScrollView contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled">
               <TextInput
-                value={carType}
-                onChangeText={setCarType}
-                placeholder={t('walk_in_car_type_placeholder')}
-                placeholderTextColor={theme.textDim}
-                style={fieldStyle}
-              />
-              <TextInput
                 value={phone}
                 onChangeText={setPhone}
                 placeholder={t('walk_in_phone_placeholder')}
@@ -229,6 +304,45 @@ export function WalkInBookingModal({
                 keyboardType="phone-pad"
                 style={fieldStyle}
               />
+              <TextInput
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder={t('walk_in_name_placeholder')}
+                placeholderTextColor={theme.textDim}
+                style={fieldStyle}
+              />
+              <TextInput
+                value={plate}
+                onChangeText={setPlate}
+                placeholder={t('walk_in_plate_placeholder')}
+                placeholderTextColor={theme.textDim}
+                autoCapitalize="characters"
+                style={fieldStyle}
+              />
+              <Text style={[styles.sectionLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {t('walk_in_car_type_label')}
+              </Text>
+              <View style={styles.chipWrap}>
+                {POS_CAR_TYPES.map((type) => {
+                  const selected = carType === type;
+                  return (
+                    <Pressable
+                      key={type}
+                      onPress={() => setCarType(type)}
+                      style={[
+                        styles.chip,
+                        {
+                          borderColor: selected ? theme.accent : theme.border,
+                          backgroundColor: selected ? theme.accentSoft : theme.bgElevated,
+                        },
+                      ]}>
+                      <Text style={{ color: selected ? theme.accent : theme.text, fontWeight: '700', fontSize: 12 }}>
+                        {t(`pos_car_${type}` as TranslationKey)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
               <Text style={[styles.fieldHint, { color: theme.textDim }, isRTL && styles.textRtl]}>
                 {t('walk_in_phone_hint')}
               </Text>
@@ -239,6 +353,10 @@ export function WalkInBookingModal({
                     {t('walk_in_phone_lookup_pending')}
                   </Text>
                 </View>
+              ) : matchedCustomer ? (
+                <Text style={[styles.lookupText, { color: theme.accent }, isRTL && styles.textRtl]}>
+                  {t('walk_in_found_customer').replace('{visits}', String(matchedCustomer.totalVisits))}
+                </Text>
               ) : null}
 
               <View style={styles.serviceHeaderRow}>
@@ -287,6 +405,97 @@ export function WalkInBookingModal({
                 </View>
               )}
 
+              {employees.length > 0 ? (
+                <>
+                  <Text style={[styles.sectionLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                    {t('walk_in_employee_label')}
+                  </Text>
+                  <View style={styles.chipWrap}>
+                    <Pressable
+                      onPress={() => setSelectedEmployeeId(null)}
+                      style={[
+                        styles.chip,
+                        {
+                          borderColor: selectedEmployeeId == null ? theme.accent : theme.border,
+                          backgroundColor: selectedEmployeeId == null ? theme.accentSoft : theme.bgElevated,
+                        },
+                      ]}>
+                      <Text style={{ color: selectedEmployeeId == null ? theme.accent : theme.text, fontWeight: '700', fontSize: 12 }}>
+                        {t('walk_in_employee_none')}
+                      </Text>
+                    </Pressable>
+                    {employees.map((employee) => {
+                      const selected = selectedEmployeeId === employee.id;
+                      return (
+                        <Pressable
+                          key={employee.id}
+                          onPress={() => setSelectedEmployeeId(employee.id)}
+                          style={[
+                            styles.chip,
+                            {
+                              borderColor: selected ? theme.accent : theme.border,
+                              backgroundColor: selected ? theme.accentSoft : theme.bgElevated,
+                            },
+                          ]}>
+                          <Text style={{ color: selected ? theme.accent : theme.text, fontWeight: '700', fontSize: 12 }}>
+                            {employee.full_name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
+
+              {retailProducts.length > 0 ? (
+                <>
+                  <Text style={[styles.sectionLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                    {t('walk_in_accessories_label')}
+                  </Text>
+                  <View style={styles.serviceList}>
+                    {retailProducts.map((product) => {
+                      const qty = accessoryQty[product.id] ?? 0;
+                      return (
+                        <View
+                          key={product.id}
+                          style={[styles.accessoryRow, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.serviceChipTitle, { color: theme.text }]}>{product.name}</Text>
+                            <Text style={[styles.serviceChipMeta, { color: theme.textMuted }]}>
+                              {formatEgp(product.salePrice ?? product.price, locale)} · {product.stockQuantity}{' '}
+                              {t('store_owner_stock')}
+                            </Text>
+                          </View>
+                          <View style={styles.qtyWrap}>
+                            <Pressable
+                              onPress={() =>
+                                setAccessoryQty((current) => ({
+                                  ...current,
+                                  [product.id]: Math.max(0, (current[product.id] ?? 0) - 1),
+                                }))
+                              }
+                              style={[styles.qtyBtn, { borderColor: theme.border }]}>
+                              <Text style={{ color: theme.text, fontWeight: '800' }}>-</Text>
+                            </Pressable>
+                            <Text style={[styles.qtyValue, { color: theme.text }]}>{qty}</Text>
+                            <Pressable
+                              onPress={() =>
+                                setAccessoryQty((current) => ({
+                                  ...current,
+                                  [product.id]: Math.min(product.stockQuantity, (current[product.id] ?? 0) + 1),
+                                }))
+                              }
+                              style={[styles.qtyBtn, { borderColor: theme.border }]}>
+                              <Text style={{ color: theme.text, fontWeight: '800' }}>+</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
+
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
@@ -301,7 +510,7 @@ export function WalkInBookingModal({
                   <View style={styles.previewRow}>
                     <Text style={[styles.previewLabel, { color: theme.textMuted }]}>{t('walk_in_price_preview')}</Text>
                     <Text style={[styles.previewValue, { color: theme.accent }]}>
-                      {formatEgp(serviceTotals.totalPriceEgp, locale)}
+                      {formatEgp(serviceTotals.totalPriceEgp + accessoryTotal, locale)}
                     </Text>
                   </View>
                   <View style={[styles.previewDivider, { backgroundColor: theme.border }]} />
@@ -508,6 +717,44 @@ const styles = StyleSheet.create({
   emptyHint: {
     fontSize: 13,
     fontStyle: 'italic',
+  },
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  accessoryRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  qtyWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  qtyBtn: {
+    width: 28,
+    height: 28,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyValue: {
+    minWidth: 18,
+    textAlign: 'center',
+    fontWeight: '800',
   },
   primaryBtn: {
     borderRadius: 12,

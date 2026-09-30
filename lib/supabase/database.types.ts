@@ -111,6 +111,9 @@ export type DbBranchEmployee = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  daily_wage?: number | null;
+  commission_rate?: number | null;
+  monthly_salary?: number | null;
 };
 
 /** Time-bound shop discount offer. */
