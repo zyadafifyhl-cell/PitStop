@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BOXED_OVERLAY } from '@/constants/Theme';
@@ -31,13 +31,29 @@ export function LogExpenseModal({ visible, shopId, onClose, onSaved }: Props) {
   const { t, isRTL } = useI18n();
   const [category, setCategory] = useState<ShopExpenseCategory>('raw_materials');
   const [itemName, setItemName] = useState('');
+  const [otherLabel, setOtherLabel] = useState('');
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    if (!visible) return;
+    setCategory('raw_materials');
+    setItemName('');
+    setOtherLabel('');
+    setAmount('');
+    setError('');
+    setBusy(false);
+  }, [visible]);
+
   async function onSubmit() {
     const value = Number(amount);
-    if (!itemName.trim() || !Number.isFinite(value) || value <= 0) {
+    const recordedName = category === 'other' ? otherLabel.trim() : itemName.trim();
+    if (category === 'other' && !otherLabel.trim()) {
+      setError(t('pos_expense_other_required'));
+      return;
+    }
+    if (!recordedName || !Number.isFinite(value) || value <= 0) {
       setError(t('pos_expense_invalid'));
       return;
     }
@@ -47,10 +63,12 @@ export function LogExpenseModal({ visible, shopId, onClose, onSaved }: Props) {
       await logShopExpense({
         shopId,
         category,
-        itemName: itemName.trim(),
+        itemName: recordedName,
         amount: value,
+        notes: category === 'other' ? otherLabel.trim() : undefined,
       });
       setItemName('');
+      setOtherLabel('');
       setAmount('');
       onSaved?.();
       onClose();
@@ -70,7 +88,10 @@ export function LogExpenseModal({ visible, shopId, onClose, onSaved }: Props) {
             {CATEGORIES.map((item) => (
               <Pressable
                 key={item}
-                onPress={() => setCategory(item)}
+                onPress={() => {
+                  setCategory(item);
+                  setError('');
+                }}
                 style={[
                   styles.chip,
                   {
@@ -84,13 +105,23 @@ export function LogExpenseModal({ visible, shopId, onClose, onSaved }: Props) {
               </Pressable>
             ))}
           </View>
-          <TextInput
-            value={itemName}
-            onChangeText={setItemName}
-            placeholder={t('pos_expense_item')}
-            placeholderTextColor={theme.textDim}
-            style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
-          />
+          {category === 'other' ? (
+            <TextInput
+              value={otherLabel}
+              onChangeText={setOtherLabel}
+              placeholder={t('pos_expense_other_placeholder')}
+              placeholderTextColor={theme.textDim}
+              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+            />
+          ) : (
+            <TextInput
+              value={itemName}
+              onChangeText={setItemName}
+              placeholder={t('pos_expense_item')}
+              placeholderTextColor={theme.textDim}
+              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+            />
+          )}
           <TextInput
             value={amount}
             onChangeText={setAmount}
