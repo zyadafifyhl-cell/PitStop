@@ -45,13 +45,11 @@ import {
 import { formatEgp } from '@/lib/booking/reporting';
 import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
-import { preventAuthFormRefresh } from '@/lib/auth/classifySignInError';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { userAlert } from '@/lib/ui/userAlert';
-import { textInputSubmitProps } from '@/lib/ui/textInputSubmit';
 import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, DEFAULT_SERVICE_DURATION_MINUTES, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
 import {
   cancelBookingReminders,
@@ -102,18 +100,22 @@ const webListScrollStyle =
 export default function ShopScreen() {
   const theme = useAppTheme();
   const { t, tp, locale } = useI18n();
-  const { ready, shop, busy, login, isAdmin, shopStaff } = useShopAuth();
+  const { ready, shop, isAdmin, shopStaff } = useShopAuth();
   const { isPro } = useShopSubscription(shop?.id);
 
-  useEffect(() => {
-    if (ready && isAdmin) {
-      router.replace('/admin');
-    }
-  }, [ready, isAdmin]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!ready) return;
+      if (isAdmin) {
+        router.replace('/admin');
+        return;
+      }
+      if (!shop) {
+        router.replace('/welcome');
+      }
+    }, [ready, isAdmin, shop]),
+  );
   const { signOut } = useAppSignOut();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
   const [storeAdminTab, setStoreAdminTab] = useState<OwnerShellTabId>('dashboard');
@@ -292,33 +294,6 @@ export default function ShopScreen() {
       },
     ];
   }, [activeBookings.length, bookings, isPro, serviceRevenueMetric, shopExtras?.services, t]);
-
-  async function onLogin(event?: { preventDefault?: () => void }) {
-    preventAuthFormRefresh(event);
-    setLoginError('');
-    const result = await login(email, password);
-    if (result === 'ok_admin') {
-      router.replace('/admin');
-      return;
-    }
-    if (result === 'ok') {
-      return;
-    }
-    if (result === 'shop_not_found') {
-      userAlert(t('shop_login_shop_not_found_title'), t('shop_login_shop_not_found_body'));
-      return;
-    }
-    setPassword('');
-    if (result === 'rate_limited') {
-      setLoginError(t('auth_login_rate_limited_body'));
-      return;
-    }
-    if (result === 'network_error') {
-      setLoginError(t('auth_login_network_body'));
-      return;
-    }
-    setLoginError(t('auth_login_invalid_body'));
-  }
 
   function onLogout() {
     showCustomConfirm({
@@ -861,72 +836,11 @@ export default function ShopScreen() {
     }
   }
 
-  if (!ready) {
+  if (!ready || !shop) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
         <ActivityIndicator color={theme.accent} />
       </View>
-    );
-  }
-
-  if (!shop) {
-    return (
-      <ScrollView
-        style={[styles.screen, { backgroundColor: theme.bg }]}
-        contentContainerStyle={styles.loginContent}>
-        <View style={[styles.loginCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Text style={[styles.title, { color: theme.text }]}>{t('shop_login_title')}</Text>
-        <Text style={[styles.lead, { color: theme.textMuted }]}>{t('shop_login_lead')}</Text>
-        <Text style={[styles.label, { color: theme.text }]}>{t('shop_email_label')}</Text>
-        <TextInput
-          placeholder="wash@demo.com"
-          placeholderTextColor={theme.textDim}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          returnKeyType="next"
-          value={email}
-          onChangeText={setEmail}
-          style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
-        />
-        <Text style={[styles.label, { color: theme.text }]}>{t('customer_password_placeholder')}</Text>
-        <TextInput
-          placeholder="demo123"
-          placeholderTextColor={theme.textDim}
-          secureTextEntry
-          value={password}
-          onChangeText={(text) => {
-            setPassword(text);
-            if (loginError) setLoginError('');
-          }}
-          style={[
-            styles.input,
-            {
-              color: theme.text,
-              borderColor: loginError ? theme.text : theme.border,
-              backgroundColor: theme.bgElevated,
-            },
-          ]}
-          {...textInputSubmitProps({
-            enabled: !busy && !!email.trim() && !!password.trim(),
-            onSubmit: () => {
-              void onLogin();
-            },
-          })}
-        />
-        {loginError ? (
-          <Text style={[styles.lead, { color: theme.text, marginTop: 8 }]}>{loginError}</Text>
-        ) : null}
-        <Pressable
-          onPress={onLogin}
-          disabled={busy}
-          accessibilityRole="button"
-          {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}
-          style={[styles.primaryBtn, { backgroundColor: theme.accent, opacity: busy ? 0.65 : 1 }]}>
-          <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('shop_login_btn')}</Text>
-        </Pressable>
-        <Text style={[styles.demoHint, { color: theme.textDim }]}>{t('shop_demo_accounts')}</Text>
-        </View>
-      </ScrollView>
     );
   }
 

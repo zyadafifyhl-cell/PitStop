@@ -15,6 +15,19 @@ function endOfDay(d: Date): Date {
   return x;
 }
 
+export function selectTodayShopBookings(bookings: Booking[], branchId?: string, now = new Date()): Booking[] {
+  const todayStart = startOfDay(now).getTime();
+  const todayEnd = endOfDay(now).getTime();
+  return bookings
+    .filter((booking) => {
+      if (branchId && booking.branchId !== branchId) return false;
+      if (booking.status === 'cancelled') return false;
+      const time = new Date(booking.scheduledAt).getTime();
+      return time >= todayStart && time <= todayEnd;
+    })
+    .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+}
+
 export type WashAnalyticsOptions = {
   branchId?: string;
   branchServices?: ShopService[];
@@ -53,8 +66,6 @@ export async function computeWashAnalytics(
   const serviceById = new Map((options?.branchServices ?? []).map((service) => [service.id, service]));
 
   const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - 6);
@@ -65,10 +76,7 @@ export async function computeWashAnalytics(
     shopBookings = shopBookings.filter((b) => b.branchId === options.branchId);
   }
 
-  const todayBookings = shopBookings.filter((b) => {
-    const t = new Date(b.scheduledAt).getTime();
-    return t >= todayStart.getTime() && t <= todayEnd.getTime() && b.status !== 'cancelled';
-  }).length;
+  const todayBookings = selectTodayShopBookings(shopBookings, undefined, now).length;
 
   const pendingRequests = shopBookings.filter((b) => b.status === 'pending').length;
 

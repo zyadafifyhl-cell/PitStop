@@ -1,17 +1,22 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
+import { View } from 'react-native';
 import 'react-native-reanimated';
 
 import { AppBootstrap } from '@/components/AppBootstrap';
 import { PremiumAnimatedSplash } from '@/components/PremiumAnimatedSplash';
+import {
+  CustomerBrowseTabBar,
+  shouldShowCustomerBrowseTabBar,
+} from '@/components/ui/CustomerBrowseTabBar';
+import { CustomerAuthProvider, useCustomerAuth } from '@/context/CustomerAuthContext';
 import { I18nProvider, useI18n } from '@/context/I18nContext';
-import { ShopAuthProvider } from '@/context/ShopAuthContext';
+import { ShopAuthProvider, useShopAuth } from '@/context/ShopAuthContext';
 import { ShopCatalogProvider } from '@/context/ShopCatalogContext';
-import { CustomerAuthProvider } from '@/context/CustomerAuthContext';
 import { StoreCartProvider } from '@/context/StoreCartContext';
 import { ThemePreferenceProvider, useThemePreference } from '@/context/ThemePreferenceContext';
 import { AppDialogProvider } from '@/lib/ui/AppDialogProvider';
@@ -54,10 +59,16 @@ export default function RootLayout() {
 function RootStack() {
   const { t, locale } = useI18n();
   const { theme, effectivePreference } = useThemePreference();
+  const pathname = usePathname();
+  const { customer, isGuest } = useCustomerAuth();
+  const { shop } = useShopAuth();
+  const showBrowseTabBar = shouldShowCustomerBrowseTabBar(pathname, !shop && (!!customer || isGuest));
+  const [browseTabBarHeight, setBrowseTabBarHeight] = useState(96);
 
   return (
-    <>
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar style={effectivePreference === 'dark' ? 'light' : 'dark'} />
+      <View style={{ flex: 1, paddingBottom: showBrowseTabBar ? browseTabBarHeight : 0 }}>
       <Stack
         key={locale}
         screenOptions={{
@@ -95,7 +106,11 @@ function RootStack() {
         <Stack.Screen name="shop/merchant-privacy" options={{ title: t('merchant_settings_privacy_row') }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
       </Stack>
-    </>
+      </View>
+      {showBrowseTabBar ? (
+        <CustomerBrowseTabBar pathname={pathname} onHeight={setBrowseTabBarHeight} />
+      ) : null}
+    </View>
   );
 }
 

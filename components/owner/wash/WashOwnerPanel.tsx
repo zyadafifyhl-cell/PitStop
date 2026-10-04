@@ -57,10 +57,15 @@ import {
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
   bookingStatusLabel,
-  formatBookingDateTime,
   normalizeTimeHm,
   shopTypeLabel,
 } from '@/lib/booking/format';
+import {
+  formatBookingIdLabel,
+  formatOrderCardDateTime,
+  formatVehicleLine,
+  orderLineItems,
+} from '@/lib/booking/customerOrderPresentation';
 import {
   cancelBookingReminders,
   scheduleBookingReminders,
@@ -75,10 +80,10 @@ import { listShopReviews } from '@/lib/booking/reviewsStorage';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { listBookingsForShop, markBookingNoShow, updateBookingStatus } from '@/lib/booking/storage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
-import { openPhone } from '@/lib/linking/contact';
+import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
-import { computeWashAnalytics } from '@/lib/booking/wash/washAnalytics';
+import { computeWashAnalytics, selectTodayShopBookings } from '@/lib/booking/wash/washAnalytics';
 import { fetchPeakAnalytics } from '@/lib/posRepository';
 import { ShopFinanceOverview } from '@/components/owner/pos/ShopFinanceOverview';
 import { LogExpenseModal } from '@/components/owner/pos/LogExpenseModal';
@@ -283,6 +288,8 @@ export function WashOwnerPanel({ shop }: Props) {
   const [branchState, setBranchState] = useState<WashBranchState | null>(null);
   const [activeBranch, setActiveBranch] = useState<WashBranch | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [shopBookingRows, setShopBookingRows] = useState<Booking[]>([]);
+  const [analyticsBranchId, setAnalyticsBranchId] = useState<string | undefined>();
   const [analytics, setAnalytics] = useState<WashAnalyticsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [pickingImage, setPickingImage] = useState(false);
@@ -508,6 +515,8 @@ export function WashOwnerPanel({ shop }: Props) {
         setBranchState(stateWithCoupons);
         syncBranchForms(branchWithCoupons);
         setBookings(scopedBookings);
+        setShopBookingRows(bookingRows);
+        setAnalyticsBranchId(resolvedBranchUuid);
         setAnalytics(statsWithOperationalPending);
         setEmployees(meta.employees);
         setBranchManager(meta.branchManager);
@@ -685,6 +694,10 @@ export function WashOwnerPanel({ shop }: Props) {
   const sortedServices = useMemo(
     () => (activeBranch?.services ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
     [activeBranch?.services],
+  );
+  const todayBookingRows = useMemo(
+    () => selectTodayShopBookings(shopBookingRows, analyticsBranchId),
+    [shopBookingRows, analyticsBranchId],
   );
 
   function requestPremiumUpgrade() {
@@ -1538,36 +1551,39 @@ export function WashOwnerPanel({ shop }: Props) {
   }
 
   function renderBookingCard(booking: Booking, showActions: boolean) {
-    const serviceName =
-      locale === 'ar'
-        ? booking.serviceNameAr || booking.serviceName || booking.carType
-        : booking.serviceName || booking.carType;
-    const price = booking.servicePriceEgp != null ? formatEgp(booking.servicePriceEgp, locale) : '—';
+    const lineItems = orderLineItems(booking, locale);
+    const phone = formatPhoneDisplay(booking.customerPhone);
 
     return (
       <View key={booking.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-        <Text style={[styles.when, { color: theme.text }]}>{formatBookingDateTime(booking.scheduledAt, locale)}</Text>
-        <Text style={[styles.meta, { color: theme.textMuted }]}>
-          {t('wash_booking_customer')}: {booking.customerName || booking.customerPhone}
-        </Text>
-        <Text style={[styles.meta, { color: theme.textMuted }]}>
-          {t('book_phone_label')}: {booking.customerPhone}
-        </Text>
-        <Text style={[styles.meta, { color: theme.textMuted }]}>
-          {t('wash_booking_vehicle')}: {booking.carType}
-          {booking.carColor ? ` · ${booking.carColor}` : ''}
-        </Text>
-        <Text style={[styles.meta, { color: theme.textMuted }]}>
-          {t('wash_booking_service')}: {serviceName}
-        </Text>
-        {booking.bookingType === 'walk_in' ? (
-          <Text style={[styles.meta, { color: theme.accent }]}>
-            {t('walk_in_booking_badge')}
+        <View style={[styles.bookingTopRow, isRTL && styles.bookingTopRowRtl]}>
+          <Text style={[styles.status, { color: theme.accent, marginTop: 0 }]}>{bookingStatusLabel(booking.status, locale)}</Text>
+          <Text style={[styles.meta, { color: theme.textMuted }]}>
+            {formatOrderCardDateTime(booking.scheduledAt, locale)}
           </Text>
+        </View>
+        {booking.customerName ? (
+          <Text style={[styles.when, { color: theme.text }]}>{booking.customerName}</Text>
         ) : null}
-        <Text style={[styles.meta, { color: theme.textMuted }]}>
-          {t('wash_booking_price')}: {price}
-        </Text>
+        <Text style={[styles.meta, { color: theme.textMuted }]}>{formatBookingIdLabel(booking.id, locale)}</Text>
+        <Text style={[styles.meta, { color: theme.text }]}>{formatVehicleLine(booking)}</Text>
+        <Pressable onPress={() => onContactCustomer(booking.customerPhone)} hitSlop={6}>
+          <Text style={[styles.meta, { color: theme.textMuted }]}>
+            {t('order_mobile')}: <Text style={{ color: theme.accent, fontWeight: '800' }}>{phone}</Text>
+          </Text>
+        </Pressable>
+        {booking.bookingType === 'walk_in' ? (
+          <Text style={[styles.meta, { color: theme.accent }]}>{t('walk_in_booking_badge')}</Text>
+        ) : null}
+        <Text style={[styles.metaStrong, { color: theme.text, marginTop: 10 }]}>{t('order_service_summary')}</Text>
+        {lineItems.map((item) => (
+          <View key={item.label} style={[styles.bookingLineRow, isRTL && styles.bookingTopRowRtl]}>
+            <Text style={[styles.meta, { color: theme.text, flex: 1 }]}>
+              {item.qty} x {item.label}
+            </Text>
+            <Text style={[styles.metaStrong, { color: theme.text }]}>{formatEgp(item.priceEgp, locale)}</Text>
+          </View>
+        ))}
         {booking.customerNotes ? (
           <Text style={[styles.meta, { color: theme.textMuted }]}>
             {t('wash_booking_notes')}: {booking.customerNotes}
@@ -1578,9 +1594,6 @@ export function WashOwnerPanel({ shop }: Props) {
             {t('wash_booking_rejection_note')}: {booking.ownerRejectionNote}
           </Text>
         ) : null}
-        <Text style={[styles.status, { color: theme.accent }]}>
-          {bookingStatusLabel(booking.status, locale)}
-        </Text>
         {showActions ? (
           <View style={styles.actions}>
             {booking.status === 'pending' ? (
@@ -1936,6 +1949,11 @@ export function WashOwnerPanel({ shop }: Props) {
                           },
                         ]}
                       />
+                      {todayBookingRows.length > 0 ? (
+                        <View style={styles.todayBookings}>
+                          {todayBookingRows.map((booking) => renderBookingCard(booking, true))}
+                        </View>
+                      ) : null}
                     </OwnerSectionCard>
                   </>
                 ) : null}
@@ -2878,6 +2896,21 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 10,
   },
+  bookingTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 6,
+  },
+  bookingTopRowRtl: { flexDirection: 'row-reverse' },
+  bookingLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  todayBookings: { gap: 10, marginTop: 14 },
   card: {
     borderWidth: 1,
     borderRadius: 14,
