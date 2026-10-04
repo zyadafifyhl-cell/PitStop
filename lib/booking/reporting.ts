@@ -85,11 +85,12 @@ export function normalizeBookingMoney(
 }
 
 export function formatEgp(value: number, locale: 'en' | 'ar'): string {
-  const safe = Number.isFinite(value) ? value : 0;
+  const safe = Math.round(Number.isFinite(value) ? value : 0);
   return safe.toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-EG', {
     style: 'currency',
     currency: 'EGP',
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
 }
 

@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1E5AE6"
+        "backgroundColor": "#00255C"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -34,7 +34,7 @@
       [
         "expo-notifications",
         {
-          "color": "#1E5AE6",
+          "color": "#00255C",
           "defaultChannel": "weekly-maintenance"
         }
       ],

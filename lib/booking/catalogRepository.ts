@@ -228,6 +228,43 @@ export function patchShopCoordinates(shopId: string, latitude: number, longitude
   void saveCatalogToStorage();
 }
 
+/** Keep in-memory catalog in sync after owner updates the public shop phone. */
+export function patchShopPhone(shopId: string, phone: string): void {
+  const shop = shopsCache.find((row) => row.id === shopId);
+  if (!shop) return;
+  shop.phone = phone;
+  void saveCatalogToStorage();
+}
+
+export async function updateShopContactPhoneRemote(shopId: string, phone: string): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const nextPhone = phone.trim();
+  if (!nextPhone) return false;
+
+  const { data: rpcOk, error: rpcError } = await supabase.rpc('upsert_shop_contact_phone', {
+    p_shop_id: shopId,
+    p_phone: nextPhone,
+  });
+
+  if (!rpcError && rpcOk === true) {
+    patchShopPhone(shopId, nextPhone);
+    return true;
+  }
+
+  const { error } = await supabase
+    .from('shops')
+    .update({ phone: nextPhone, updated_at: new Date().toISOString() })
+    .eq('id', shopId);
+
+  if (error) {
+    console.warn('updateShopContactPhoneRemote:', rpcError?.message ?? error.message);
+    return false;
+  }
+  patchShopPhone(shopId, nextPhone);
+  return true;
+}
+
 export function getShopByOwnerEmail(email: string): Shop | undefined {
   const normalized = email.trim().toLowerCase();
   return shopsCache.find((shop) => shop.ownerEmail.toLowerCase() === normalized);

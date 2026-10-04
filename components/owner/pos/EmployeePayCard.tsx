@@ -79,37 +79,61 @@ export function EmployeePayCard({ shopId, employee, disabled }: Props) {
     {
       color: theme.text,
       borderColor: theme.border,
-      backgroundColor: theme.card,
+      backgroundColor: theme.bgElevated ?? theme.card,
       textAlign: (isRTL ? 'right' : 'left') as 'right' | 'left',
     },
   ];
 
+  function labeledField(label: string, input: React.ReactNode) {
+    return (
+      <View style={styles.field}>
+        <Text style={[styles.fieldLabel, { color: theme.textMuted }, isRTL && styles.rtl]}>{label}</Text>
+        {input}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrap}>
-      <TextInput
-        value={dailyWage}
-        onChangeText={setDailyWage}
-        keyboardType="decimal-pad"
-        placeholder={t('pos_employee_daily_wage')}
-        placeholderTextColor={theme.textDim}
-        style={inputStyle}
-      />
-      <TextInput
-        value={commissionRate}
-        onChangeText={setCommissionRate}
-        keyboardType="decimal-pad"
-        placeholder={t('pos_employee_commission')}
-        placeholderTextColor={theme.textDim}
-        style={inputStyle}
-      />
-      <TextInput
-        value={monthlySalary}
-        onChangeText={setMonthlySalary}
-        keyboardType="decimal-pad"
-        placeholder={t('pos_employee_monthly')}
-        placeholderTextColor={theme.textDim}
-        style={inputStyle}
-      />
+      {labeledField(
+        t('pos_employee_daily_wage'),
+        <TextInput
+          value={dailyWage}
+          onChangeText={setDailyWage}
+          keyboardType="decimal-pad"
+          autoComplete="off"
+          importantForAutofill="no"
+          placeholder="0"
+          placeholderTextColor={theme.textDim}
+          style={inputStyle}
+        />,
+      )}
+      {labeledField(
+        t('pos_employee_commission'),
+        <TextInput
+          value={commissionRate}
+          onChangeText={setCommissionRate}
+          keyboardType="decimal-pad"
+          autoComplete="off"
+          importantForAutofill="no"
+          placeholder="0"
+          placeholderTextColor={theme.textDim}
+          style={inputStyle}
+        />,
+      )}
+      {labeledField(
+        t('pos_employee_monthly'),
+        <TextInput
+          value={monthlySalary}
+          onChangeText={setMonthlySalary}
+          keyboardType="decimal-pad"
+          autoComplete="off"
+          importantForAutofill="no"
+          placeholder="0"
+          placeholderTextColor={theme.textDim}
+          style={inputStyle}
+        />,
+      )}
       <Pressable
         onPress={() => void onSavePay()}
         disabled={busy || disabled}
@@ -120,28 +144,42 @@ export function EmployeePayCard({ shopId, employee, disabled }: Props) {
           <Text style={[styles.btnText, { color: theme.text }]}>{t('pos_employee_save_pay')}</Text>
         )}
       </Pressable>
-      <View style={styles.advanceRow}>
-        <TextInput
-          value={advance}
-          onChangeText={setAdvance}
-          keyboardType="decimal-pad"
-          placeholder={t('pos_employee_advance_amount')}
-          placeholderTextColor={theme.textDim}
-          style={[inputStyle, styles.advanceInput]}
-        />
-        <Pressable
-          onPress={() => void onLogAdvance()}
-          disabled={busy || disabled}
-          style={[styles.advanceBtn, { backgroundColor: theme.accent, opacity: busy || disabled ? 0.65 : 1 }]}>
-          <Text style={[styles.btnText, { color: theme.onAccent }]}>{t('pos_employee_advance')}</Text>
-        </Pressable>
-      </View>
+      {labeledField(
+        t('pos_employee_advance_amount'),
+        <>
+          <Text style={[styles.hint, { color: theme.textDim }, isRTL && styles.rtl]}>
+            {t('pos_employee_advance_hint')}
+          </Text>
+          <View style={styles.advanceRow}>
+            <TextInput
+              value={advance}
+              onChangeText={setAdvance}
+              keyboardType="decimal-pad"
+              autoComplete="off"
+              importantForAutofill="no"
+              placeholder="0"
+              placeholderTextColor={theme.textDim}
+              style={[inputStyle, styles.advanceInput]}
+            />
+            <Pressable
+              onPress={() => void onLogAdvance()}
+              disabled={busy || disabled}
+              style={[styles.advanceBtn, { backgroundColor: theme.accent, opacity: busy || disabled ? 0.65 : 1 }]}>
+              <Text style={[styles.btnText, { color: theme.onAccent }]}>{t('pos_employee_advance')}</Text>
+            </Pressable>
+          </View>
+        </>,
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { width: '100%', gap: 8, marginTop: 10 },
+  wrap: { width: '100%', gap: 10, marginTop: 10 },
+  field: { gap: 4 },
+  fieldLabel: { fontSize: 12, fontWeight: '800' },
+  hint: { fontSize: 11, lineHeight: 15, fontWeight: '600' },
+  rtl: { textAlign: 'right' },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13 },
   btn: { borderWidth: 1, borderRadius: 10, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
   btnText: { fontSize: 12, fontWeight: '800' },

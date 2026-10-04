@@ -4,6 +4,7 @@ import type { ShopDayHours, ShopExtras, ShopOffer, ShopService, StoreOperatingSt
 import { isOfferLive } from '@/lib/booking/offerPricing';
 import { createShopOffer, deactivateShopOffer, listActiveOffersForShop } from '@/lib/booking/offerRepository';
 import { compactStoredImageUrl, compactStoredImageUrls, isQuotaExceededError, persistImageUri } from '@/lib/media/persistImageUri';
+import { updateShopContactPhoneRemote } from '@/lib/booking/catalogRepository';
 import { getSupabase } from '@/lib/supabase/client';
 
 const SHOP_EXTRAS_KEY = '@pitstop/shop-extras/v1';
@@ -237,7 +238,11 @@ export async function setShopProfileInfo(
   row.moreInfoAr = input.moreInfoAr?.trim() || undefined;
   row.winchEnabled = !!input.winchEnabled;
   row.winchPhone = input.winchPhone?.trim() || undefined;
-  return persistExtrasRow(shopId, row);
+  const next = await persistExtrasRow(shopId, row);
+  if (row.profilePhone) {
+    await updateShopContactPhoneRemote(shopId, row.profilePhone);
+  }
+  return next;
 }
 
 export async function setShopProfileImage(shopId: string, imageUrl: string): Promise<ShopExtras> {

@@ -6,6 +6,7 @@ import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { formatShopServicePrice, isVariablePriceService } from '@/lib/booking/shopServicePrice';
 import { applyOfferDiscount, normalizeOfferDiscount, type BogoPricingResult } from '@/lib/booking/offerPricing';
 import type { ShopService } from '@/lib/booking/types';
 
@@ -111,10 +112,11 @@ export function ServiceMultiPicker({
       : totalPrice;
   const showStrikePrice = showCampaignBreakdown || discountPct > 0;
 
-  function priceLabel(priceEgp: number): string {
-    if (discountPct <= 0) return formatEgp(priceEgp, locale);
-    const discounted = applyOfferDiscount(priceEgp, discountPct);
-    return `${formatEgp(discounted, locale)} (${formatEgp(priceEgp, locale)})`;
+  function priceLabel(service: ShopService): string {
+    if (isVariablePriceService(service)) return formatShopServicePrice(service, locale, t);
+    if (discountPct <= 0) return formatEgp(service.priceEgp, locale);
+    const discounted = applyOfferDiscount(service.priceEgp, discountPct);
+    return `${formatEgp(discounted, locale)} (${formatEgp(service.priceEgp, locale)})`;
   }
 
   const totalMinutes = rows.reduce((sum, id) => {
@@ -150,7 +152,7 @@ export function ServiceMultiPicker({
               </Text>
               {service ? (
                 <Text style={[styles.selectorMeta, { color: theme.accent }]}>
-                  {priceLabel(service.priceEgp)} · {service.durationMinutes}{' '}
+                  {priceLabel(service)} · {service.durationMinutes}{' '}
                   {locale === 'ar' ? 'د' : 'min'}
                   {qtyForService > 1 ? ` · ×${qtyForService}` : ''}
                 </Text>
@@ -267,7 +269,7 @@ export function ServiceMultiPicker({
                     ]}>
                     <Text style={[styles.modalOptionTitle, { color: theme.text }]}>{serviceLabel(service)}</Text>
                     <Text style={[styles.modalOptionMeta, { color: theme.textMuted }]}>
-                      {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
+                      {formatShopServicePrice(service, locale, t)} · {service.durationMinutes}{' '}
                       {locale === 'ar' ? 'د' : 'min'}
                     </Text>
                   </Pressable>
@@ -291,7 +293,7 @@ export function ServiceMultiPicker({
                   style={[styles.modalOption, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
                   <Text style={[styles.modalOptionTitle, { color: theme.text }]}>{serviceLabel(service)}</Text>
                   <Text style={[styles.modalOptionMeta, { color: theme.textMuted }]}>
-                    {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
+                    {formatShopServicePrice(service, locale, t)} · {service.durationMinutes}{' '}
                     {locale === 'ar' ? 'د' : 'min'}
                   </Text>
                 </Pressable>

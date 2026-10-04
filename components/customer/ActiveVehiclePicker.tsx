@@ -250,8 +250,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
-  activeDot: { width: 5, height: 5, borderRadius: 999, backgroundColor: '#0066FF' },
-  activeBadgeText: { color: '#60A5FA', fontSize: 10, fontWeight: '700' },
+  activeDot: { width: 5, height: 5, borderRadius: 999, backgroundColor: '#00255C' },
+  activeBadgeText: { color: '#00255C', fontSize: 10, fontWeight: '700' },
   dropdown: {
     borderWidth: 1,
     borderRadius: 12,

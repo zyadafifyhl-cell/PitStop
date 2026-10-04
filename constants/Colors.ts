@@ -1,18 +1,18 @@
-const electricBlue = '#0066FF';
+const kohlyNavy = '#00255C';
 
 export default {
   light: {
     text: '#0F172A',
     background: '#F8FAFC',
-    tint: electricBlue,
+    tint: kohlyNavy,
     tabIconDefault: '#64748B',
-    tabIconSelected: electricBlue,
+    tabIconSelected: kohlyNavy,
   },
   dark: {
     text: '#F8FAFC',
     background: '#000000',
-    tint: electricBlue,
+    tint: kohlyNavy,
     tabIconDefault: '#94A3B8',
-    tabIconSelected: electricBlue,
+    tabIconSelected: kohlyNavy,
   },
 };

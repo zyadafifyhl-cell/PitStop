@@ -69,6 +69,7 @@ import {
   formatEgp,
   toYmdLocal,
 } from '@/lib/booking/reporting';
+import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
 import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
 import { listShopReviews } from '@/lib/booking/reviewsStorage';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
@@ -147,6 +148,7 @@ type ServiceDraft = {
   description: string;
   descriptionAr: string;
   priceEgp: string;
+  priceVariesByVehicle: boolean;
   durationMinutes: string;
   category: ShopService['category'];
   visible: boolean;
@@ -183,6 +185,7 @@ function emptyServiceDraft(): ServiceDraft {
     description: '',
     descriptionAr: '',
     priceEgp: '',
+    priceVariesByVehicle: false,
     durationMinutes: '30',
     category: 'exterior_wash',
     visible: true,
@@ -1186,7 +1189,8 @@ export function WashOwnerPanel({ shop }: Props) {
         nameAr: service.nameAr ?? '',
         description: service.description ?? '',
         descriptionAr: service.descriptionAr ?? '',
-        priceEgp: String(service.priceEgp),
+        priceEgp: service.priceVariesByVehicle ? '' : String(service.priceEgp),
+        priceVariesByVehicle: !!service.priceVariesByVehicle,
         durationMinutes: String(service.durationMinutes),
         category: service.category ?? 'exterior_wash',
         visible: service.visible !== false,
@@ -1199,9 +1203,15 @@ export function WashOwnerPanel({ shop }: Props) {
 
   async function onSaveService() {
     if (!activeBranch) return;
-    const price = Number(serviceDraft.priceEgp);
+    const priceVariesByVehicle = serviceDraft.priceVariesByVehicle || !serviceDraft.priceEgp.trim();
+    const price = priceVariesByVehicle ? 0 : Number(serviceDraft.priceEgp);
     const duration = Number(serviceDraft.durationMinutes);
-    if (!serviceDraft.name.trim() || Number.isNaN(price) || price < 0 || Number.isNaN(duration) || duration < 5) {
+    if (
+      !serviceDraft.name.trim() ||
+      Number.isNaN(duration) ||
+      duration < 5 ||
+      (!priceVariesByVehicle && (Number.isNaN(price) || price < 0))
+    ) {
       Alert.alert(t('wash_service_invalid_title'), t('wash_service_invalid_body'));
       return;
     }
@@ -1216,6 +1226,7 @@ export function WashOwnerPanel({ shop }: Props) {
           description: serviceDraft.description.trim() || undefined,
           descriptionAr: serviceDraft.descriptionAr.trim() || undefined,
           priceEgp: price,
+          priceVariesByVehicle,
           durationMinutes: duration,
           category: serviceDraft.category,
           visible: serviceDraft.visible,
@@ -1231,6 +1242,7 @@ export function WashOwnerPanel({ shop }: Props) {
         description: serviceDraft.description.trim() || undefined,
         descriptionAr: serviceDraft.descriptionAr.trim() || undefined,
         priceEgp: price,
+        priceVariesByVehicle,
         durationMinutes: duration,
         category: serviceDraft.category,
         visible: serviceDraft.visible,
@@ -1884,6 +1896,7 @@ export function WashOwnerPanel({ shop }: Props) {
                 ) : null}
 
                 <ShopFinanceOverview
+                  shopId={shop.id}
                   analytics={posFinance}
                   loading={financeLoading}
                   timeframe={financeTimeframe}
@@ -1891,6 +1904,9 @@ export function WashOwnerPanel({ shop }: Props) {
                   onRecordSale={() => setWalkInModalVisible(true)}
                   onLogExpense={() => setExpenseModalVisible(true)}
                   onLogPayroll={() => setAdminTab('management')}
+                  onChanged={() => {
+                    void refreshFinancials();
+                  }}
                 />
 
                 {/* Dashboard overview */}
@@ -2121,7 +2137,7 @@ export function WashOwnerPanel({ shop }: Props) {
                           {service.visible === false ? ` (${t('wash_service_hidden')})` : ''}
                         </Text>
                         <Text style={[styles.meta, { color: theme.textMuted }]}>
-                          {formatEgp(service.priceEgp, locale)} · {service.durationMinutes} {t('wash_service_minutes')}
+                          {formatShopServicePrice(service, locale, t)} · {service.durationMinutes} {t('wash_service_minutes')}
                         </Text>
                       </View>
                       <View style={styles.actions}>
@@ -2234,24 +2250,39 @@ export function WashOwnerPanel({ shop }: Props) {
                     </Text>
                   </View>
                 ) : null}
+                <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 4 }]}>
+                  {t('wash_employee_name_placeholder')}
+                </Text>
                 <TextInput
                   placeholder={t('wash_employee_name_placeholder')}
                   placeholderTextColor={theme.textDim}
+                  autoComplete="off"
+                  importantForAutofill="no"
                   value={newEmployeeName}
                   onChangeText={setNewEmployeeName}
                   style={fieldStyle}
                 />
+                <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 4, marginTop: 8 }]}>
+                  {t('wash_employee_phone_placeholder')}
+                </Text>
                 <TextInput
                   placeholder={t('wash_employee_phone_placeholder')}
                   placeholderTextColor={theme.textDim}
                   keyboardType="phone-pad"
+                  autoComplete="off"
+                  importantForAutofill="no"
                   value={newEmployeePhone}
                   onChangeText={setNewEmployeePhone}
                   style={fieldStyle}
                 />
+                <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 4, marginTop: 8 }]}>
+                  {t('wash_employee_job_placeholder')}
+                </Text>
                 <TextInput
                   placeholder={t('wash_employee_job_placeholder')}
                   placeholderTextColor={theme.textDim}
+                  autoComplete="off"
+                  importantForAutofill="no"
                   value={newEmployeeJobTitle}
                   onChangeText={setNewEmployeeJobTitle}
                   style={fieldStyle}
@@ -2477,58 +2508,108 @@ export function WashOwnerPanel({ shop }: Props) {
         </View>
       </Modal>
 
-      {/* Service editor modal */}
       <Modal visible={serviceModalVisible} transparent animationType="fade" onRequestClose={() => setServiceModalVisible(false)}>
         <View style={styles.modalBackdrop}>
-          <ScrollView contentContainerStyle={styles.modalScrollOuter}>
-            <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
-                {serviceDraft.id ? t('wash_service_edit_title') : t('wash_service_add_title')}
+          <View style={[styles.serviceFormCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.serviceFormTitle, { color: theme.text }, isRTL && styles.textRtl]}>
+              {serviceDraft.id ? t('wash_service_edit_title') : t('wash_service_add_title')}
+            </Text>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.serviceFormScroll}>
+              <TextInput
+                placeholder={t('wash_service_name_placeholder')}
+                placeholderTextColor={theme.textDim}
+                value={serviceDraft.name}
+                onChangeText={(v) => setServiceDraft((d) => ({ ...d, name: v }))}
+                style={[styles.serviceFormInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+              />
+              <TextInput
+                placeholder={t('wash_service_name_ar_placeholder')}
+                placeholderTextColor={theme.textDim}
+                value={serviceDraft.nameAr}
+                onChangeText={(v) => setServiceDraft((d) => ({ ...d, nameAr: v }))}
+                style={[styles.serviceFormInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+              />
+              <TextInput
+                placeholder={t('wash_service_desc_placeholder')}
+                placeholderTextColor={theme.textDim}
+                value={serviceDraft.description}
+                onChangeText={(v) => setServiceDraft((d) => ({ ...d, description: v }))}
+                multiline
+                style={[styles.serviceFormInput, styles.serviceFormNote, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+              />
+              <TextInput
+                placeholder={t('wash_service_desc_ar_placeholder')}
+                placeholderTextColor={theme.textDim}
+                value={serviceDraft.descriptionAr}
+                onChangeText={(v) => setServiceDraft((d) => ({ ...d, descriptionAr: v }))}
+                multiline
+                style={[styles.serviceFormInput, styles.serviceFormNote, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+              />
+              <Pressable
+                onPress={() =>
+                  setServiceDraft((d) => ({
+                    ...d,
+                    priceVariesByVehicle: !d.priceVariesByVehicle,
+                    priceEgp: !d.priceVariesByVehicle ? '' : d.priceEgp,
+                  }))
+                }
+                style={[
+                  styles.serviceFormChip,
+                  {
+                    alignSelf: 'flex-start',
+                    marginBottom: 10,
+                    borderColor: serviceDraft.priceVariesByVehicle ? theme.accent : theme.border,
+                    backgroundColor: serviceDraft.priceVariesByVehicle ? theme.accentSoft : theme.bgElevated,
+                  },
+                ]}>
+                <Text style={{ color: serviceDraft.priceVariesByVehicle ? theme.accent : theme.text, fontWeight: '700', fontSize: 12 }}>
+                  {t('wash_service_price_varies_toggle')}
+                </Text>
+              </Pressable>
+              {serviceDraft.priceVariesByVehicle ? null : (
+                <TextInput
+                  placeholder={t('wash_service_price_placeholder')}
+                  placeholderTextColor={theme.textDim}
+                  keyboardType="numeric"
+                  value={serviceDraft.priceEgp}
+                  onChangeText={(v) => setServiceDraft((d) => ({ ...d, priceEgp: v, priceVariesByVehicle: false }))}
+                  style={[styles.serviceFormInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bgElevated }]}
+                />
+              )}
+              <Text style={[styles.serviceFormLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                {t('wash_service_duration_picker_label')}
               </Text>
-              <TextInput placeholder={t('wash_service_name_placeholder')} placeholderTextColor={theme.textDim} value={serviceDraft.name} onChangeText={(v) => setServiceDraft((d) => ({ ...d, name: v }))} style={fieldStyle} />
-              <TextInput placeholder={t('wash_service_name_ar_placeholder')} placeholderTextColor={theme.textDim} value={serviceDraft.nameAr} onChangeText={(v) => setServiceDraft((d) => ({ ...d, nameAr: v }))} style={fieldStyle} />
-              <TextInput placeholder={t('wash_service_desc_placeholder')} placeholderTextColor={theme.textDim} value={serviceDraft.description} onChangeText={(v) => setServiceDraft((d) => ({ ...d, description: v }))} multiline style={[fieldStyle, styles.noteInput]} />
-              <TextInput placeholder={t('wash_service_desc_ar_placeholder')} placeholderTextColor={theme.textDim} value={serviceDraft.descriptionAr} onChangeText={(v) => setServiceDraft((d) => ({ ...d, descriptionAr: v }))} multiline style={[fieldStyle, styles.noteInput]} />
-              <TextInput placeholder={t('wash_service_price_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={serviceDraft.priceEgp} onChangeText={(v) => setServiceDraft((d) => ({ ...d, priceEgp: v }))} style={fieldStyle} />
-              <Text style={[styles.inlineSectionTitle, { color: theme.text }]}>{t('wash_service_duration_picker_label')}</Text>
-              <View style={styles.actions}>
-                {[10, 15, 20, 30, 45, 60, 90, 120].map((minutes) => (
-                  <Pressable
-                    key={minutes}
-                    onPress={() => setServiceDraft((d) => ({ ...d, durationMinutes: String(minutes) }))}
-                    style={[
-                      styles.chipBtn,
-                      {
-                        backgroundColor:
-                          Number(serviceDraft.durationMinutes) === minutes ? theme.accent : theme.bgElevated,
-                        borderColor:
-                          Number(serviceDraft.durationMinutes) === minutes ? theme.accent : theme.border,
-                        minWidth: '23%',
-                        alignItems: 'center',
-                      },
-                    ]}>
-                    <Text
+              <View style={styles.serviceFormChips}>
+                {[10, 15, 20, 30, 45, 60, 90, 120].map((minutes) => {
+                  const selected = Number(serviceDraft.durationMinutes) === minutes;
+                  return (
+                    <Pressable
+                      key={minutes}
+                      onPress={() => setServiceDraft((d) => ({ ...d, durationMinutes: String(minutes) }))}
                       style={[
-                        styles.chipBtnText,
+                        styles.serviceFormChip,
                         {
-                          color: Number(serviceDraft.durationMinutes) === minutes ? theme.onAccent : theme.text,
+                          borderColor: selected ? theme.accent : theme.border,
+                          backgroundColor: selected ? theme.accentSoft : theme.bgElevated,
                         },
                       ]}>
-                      {minutes} {locale === 'ar' ? 'د' : 'min'}
-                    </Text>
-                  </Pressable>
-                ))}
+                      <Text style={{ color: selected ? theme.accent : theme.text, fontWeight: '700', fontSize: 12 }}>
+                        {minutes} {locale === 'ar' ? 'د' : 'min'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-              <View style={[styles.modalActions, styles.serviceModalActions]}>
-                <Pressable onPress={() => setServiceModalVisible(false)} style={[styles.modalBtnSecondary, { borderColor: theme.border }]}>
-                  <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('alert_cancel')}</Text>
-                </Pressable>
-                <Pressable onPress={onSaveService} style={[styles.modalBtnPrimary, { backgroundColor: theme.accent }]}>
-                  <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('wash_service_save')}</Text>
-                </Pressable>
-              </View>
-            </View>
-          </ScrollView>
+              <Pressable onPress={onSaveService} style={[styles.serviceFormPrimary, { backgroundColor: theme.accent }]}>
+                <Text style={[styles.serviceFormPrimaryText, { color: theme.onAccent }]}>{t('wash_service_save')}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setServiceModalVisible(false)}
+                style={[styles.serviceFormSecondary, { borderColor: theme.border }]}>
+                <Text style={{ color: theme.text, fontWeight: '700' }}>{t('alert_cancel')}</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
         </View>
       </Modal>
 
@@ -2872,6 +2953,35 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(148,163,184,0.35)',
+  },
+  serviceFormCard: {
+    ...BOXED_OVERLAY.card,
+    maxWidth: 460,
+    maxHeight: '88%',
+  },
+  serviceFormTitle: { fontSize: 20, fontWeight: '800', marginBottom: 12 },
+  serviceFormScroll: { paddingBottom: 4 },
+  serviceFormInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    fontSize: 15,
+  },
+  serviceFormNote: { minHeight: 72, textAlignVertical: 'top' },
+  serviceFormLabel: { fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  serviceFormChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  serviceFormChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  serviceFormPrimary: { borderRadius: 12, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  serviceFormPrimaryText: { fontWeight: '800', fontSize: 15 },
+  serviceFormSecondary: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   couponFieldLabel: { fontSize: 12, fontWeight: '700', marginTop: 4, marginBottom: 6 },
   modalBtnSecondary: {

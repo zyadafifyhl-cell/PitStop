@@ -18,6 +18,16 @@ export type ShopExpenseCategory =
 
 export type ShopAnalyticsTimeframe = 'today' | 'month';
 
+export type FinanceCardId = 'sales' | 'expenses' | 'payroll' | 'profit' | 'uncollected';
+
+export type FinanceDetailLine = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  amount: number;
+  at?: string;
+};
+
 export type PosPaymentStatus = 'paid' | 'unpaid';
 
 export type PosPaymentMethod = 'cash' | 'instapay' | 'credit';

@@ -22,6 +22,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
+import { formatShopServicePrice, isVariablePriceService } from '@/lib/booking/shopServicePrice';
 import { applyCampaignPrice, formatOfferBadge, isOfferLive, pickBestLiveOffer, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 import { isOrderHistoryReview } from '@/lib/booking/reviewConstants';
 import { formatReviewStarRow } from '@/lib/booking/reviewsStorage';
@@ -556,7 +557,13 @@ export default function ShopProfileScreen() {
                 {details ? (
                   <Text style={[styles.serviceMeta, { color: theme.textDim }]}>{details}</Text>
                 ) : null}
-                {renderOfferPrice(service.priceEgp)}
+                {isVariablePriceService(service) ? (
+                  <Text style={[styles.serviceMeta, { color: theme.textMuted }]}>
+                    {formatShopServicePrice(service, locale, t)}
+                  </Text>
+                ) : (
+                  renderOfferPrice(service.priceEgp)
+                )}
               </View>
               <Pressable
                 onPress={() => goToBook(service.id)}

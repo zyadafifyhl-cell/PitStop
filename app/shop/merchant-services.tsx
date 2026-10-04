@@ -94,6 +94,7 @@ export default function MerchantServicesScreen() {
       name: row.name,
       nameAr: row.nameAr,
       priceEgp: Number(row.priceEgp) || 0,
+      priceVariesByVehicle: !row.priceEgp.trim(),
       durationMinutes: Number(row.durationMinutes) || 30,
       category: row.category,
       active: true,

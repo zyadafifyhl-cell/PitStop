@@ -27,11 +27,11 @@ const SHOP_MARKER_THEME: Record<
   ShopType,
   { bg: string; border: string; glow: string; label: string }
 > = {
-  wash: { bg: '#FFFFFF', border: '#0066FF', glow: 'transparent', label: 'Wash' },
-  maintenance: { bg: '#FFFFFF', border: '#0066FF', glow: 'transparent', label: 'Service' },
-  parts: { bg: '#FFFFFF', border: '#0066FF', glow: 'transparent', label: 'Parts' },
-  accessories: { bg: '#FFFFFF', border: '#0066FF', glow: 'transparent', label: 'Store' },
-  winch: { bg: '#FFFFFF', border: '#00D2FF', glow: 'transparent', label: 'Winch' },
+  wash: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Wash' },
+  maintenance: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Service' },
+  parts: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Parts' },
+  accessories: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Store' },
+  winch: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Winch' },
 };
 
 function shopMarkerSvg(type: ShopType): string {
@@ -142,7 +142,7 @@ function ensureMarkerStyles(): void {
       width: 32px;
       height: 32px;
       border-radius: 999px;
-      background: #0066FF;
+      background: #00255C;
       border: 2px solid #ffffff;
       box-shadow: none;
       display: flex;
@@ -353,7 +353,7 @@ export function CategoryShopsMap({
           <div style="min-width:180px;line-height:1.45;">
             <strong>${escapeHtml(shop.label)}</strong><br/>
             <span style="opacity:0.85;">${escapeHtml(shop.address)}</span><br/>
-            <a href="${shop.profilePath}" style="display:inline-block;margin-top:8px;font-weight:700;color:#0066FF;">
+            <a href="${shop.profilePath}" style="display:inline-block;margin-top:8px;font-weight:700;color:#00255C;">
               ${locale === 'ar' ? 'عرض الملف' : 'View profile'}
             </a>
           </div>`;

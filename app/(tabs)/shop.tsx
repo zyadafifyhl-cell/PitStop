@@ -43,6 +43,7 @@ import {
   resolveOwnerNotification,
 } from '@/lib/booking/commerceEvents';
 import { formatEgp } from '@/lib/booking/reporting';
+import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { preventAuthFormRefresh } from '@/lib/auth/classifySignInError';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -1058,7 +1059,7 @@ export default function ShopScreen() {
       <OwnerSectionCard theme={theme} title={t('shop_profile_services')} subtitle={t('shop_manage_services_lead')}>
         {(shopExtras?.services?.length ? shopExtras.services : []).slice(0, 6).map((service) => (
           <Text key={service.id} style={[styles.meta, { color: theme.textMuted }]}>
-            {locale === 'ar' ? service.nameAr || service.name : service.name} · {service.priceEgp} EGP · {service.durationMinutes} min
+            {locale === 'ar' ? service.nameAr || service.name : service.name} · {formatShopServicePrice(service, locale, t)} · {service.durationMinutes} min
           </Text>
         ))}
         {!shopExtras?.services?.length ? (

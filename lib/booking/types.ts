@@ -171,6 +171,8 @@ export type ShopService = {
   description?: string;
   descriptionAr?: string;
   priceEgp: number;
+  /** When true, the shop quotes the price from the car — do not show a fixed EGP amount. */
+  priceVariesByVehicle?: boolean;
   durationMinutes: number;
   category?: WashServiceCategory;
   active: boolean;

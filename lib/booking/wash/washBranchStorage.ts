@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { patchShopCoordinates } from '@/lib/booking/catalogRepository';
+import { patchShopCoordinates, updateShopContactPhoneRemote } from '@/lib/booking/catalogRepository';
 import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import type { Shop, ShopDayHours, ShopOffer, ShopService } from '@/lib/booking/types';
@@ -313,31 +313,34 @@ export async function updateActiveWashBranch(
   state.updatedAt = nowIso();
   await cacheState(shop.id, state);
   let active = activeBranchFromState(state);
-  let remoteSaved = !ctx?.staff;
+  let remoteSaved = false;
+  let remoteBranchId = isUuid(active.id) ? active.id : await resolveRemoteBranchId(shop.id, active.id);
+  if (remoteBranchId && !isUuid(active.id)) {
+    state.branches = state.branches.map((branch) =>
+      branch.id === active.id ? { ...branch, id: remoteBranchId! } : branch,
+    );
+    if (state.activeBranchId === active.id) state.activeBranchId = remoteBranchId;
+    await cacheState(shop.id, state);
+    active = activeBranchFromState(state);
+  }
 
-  if (ctx?.staff) {
-    remoteSaved = false;
-    let remoteBranchId = isUuid(active.id) ? active.id : await resolveRemoteBranchId(shop.id, active.id);
-    if (remoteBranchId && !isUuid(active.id)) {
-      state.branches = state.branches.map((branch) =>
-        branch.id === active.id ? { ...branch, id: remoteBranchId! } : branch,
-      );
-      if (state.activeBranchId === active.id) state.activeBranchId = remoteBranchId;
-      await cacheState(shop.id, state);
-      active = activeBranchFromState(state);
+  if (remoteBranchId) {
+    remoteSaved = await updateBranchRemote(remoteBranchId, normalizedPatch, shop.id);
+    if (normalizedPatch.latitude != null && normalizedPatch.longitude != null) {
+      const shopSaved = await updateShopLocationRemote(shop.id, normalizedPatch.latitude, normalizedPatch.longitude);
+      remoteSaved = remoteSaved && shopSaved;
+      if (shopSaved) patchShopCoordinates(shop.id, normalizedPatch.latitude, normalizedPatch.longitude);
     }
+    if (normalizedPatch.services) {
+      await saveBranchServicesRemote(shop.id, remoteBranchId, active.services);
+    }
+  }
 
-    if (remoteBranchId) {
-      remoteSaved = await updateBranchRemote(remoteBranchId, normalizedPatch, shop.id);
-      if (normalizedPatch.latitude != null && normalizedPatch.longitude != null) {
-        const shopSaved = await updateShopLocationRemote(shop.id, normalizedPatch.latitude, normalizedPatch.longitude);
-        remoteSaved = remoteSaved && shopSaved;
-        if (shopSaved) patchShopCoordinates(shop.id, normalizedPatch.latitude, normalizedPatch.longitude);
-      }
-      if (normalizedPatch.services) {
-        await saveBranchServicesRemote(shop.id, remoteBranchId, active.services);
-      }
-    }
+  const nextPhone = normalizedPatch.profilePhone?.trim();
+  if (nextPhone) {
+    shop.phone = nextPhone;
+    const shopPhoneSaved = await updateShopContactPhoneRemote(shop.id, nextPhone);
+    remoteSaved = remoteSaved || shopPhoneSaved;
   }
 
   await syncWashBranchToShopExtras(shop.id, active);

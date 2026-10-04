@@ -61,8 +61,8 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude, onChange,
 
       const marker = L.circleMarker([initialCenter.lat, initialCenter.lng], {
         radius: 8,
-        color: '#0066FF',
-        fillColor: '#0066FF',
+        color: '#00255C',
+        fillColor: '#00255C',
         fillOpacity: 0.9,
         weight: 2,
       }).addTo(map);

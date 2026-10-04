@@ -1,22 +1,23 @@
 /** Car-wash POS queries and RPCs. */
-import { getSupabase } from '@/lib/supabase/client';
 import type { Booking } from '@/lib/booking/types';
-import type { DbBranchEmployee } from '@/lib/supabase/database.types';
 import {
-  DEMO_SHOP_ANALYTICS,
-  EMPTY_SHOP_ANALYTICS,
-  EMPTY_SHOP_FINANCIALS,
-  type PayrollRecordType,
-  type ShopAnalytics,
-  type PeakHourBucket,
-  type PeakWeekdayBucket,
-  type PosCarType,
-  type PosOrderItemInput,
-  type PosShift,
-  type ShopExpenseCategory,
-  type ShopFinancials,
-  type ShopPosCustomer,
+    DEMO_SHOP_ANALYTICS,
+    EMPTY_SHOP_ANALYTICS,
+    type FinanceCardId,
+    type FinanceDetailLine,
+    type PayrollRecordType,
+    type PeakHourBucket,
+    type PeakWeekdayBucket,
+    type PosCarType,
+    type PosOrderItemInput,
+    type PosShift,
+    type ShopAnalytics,
+    type ShopExpenseCategory,
+    type ShopFinancials,
+    type ShopPosCustomer
 } from '@/lib/posTypes';
+import { getSupabase } from '@/lib/supabase/client';
+import type { DbBranchEmployee } from '@/lib/supabase/database.types';
 
 function num(value: unknown): number {
   const n = Number(value);
@@ -171,6 +172,13 @@ export async function logShopExpense(input: {
     p_notes: input.notes ?? null,
     p_deduct_cash: input.deductCash ?? true,
   });
+  if (error) throw error;
+}
+
+export async function deleteShopExpense(expenseId: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not configured');
+  const { error } = await supabase.from('shop_expenses').delete().eq('id', expenseId);
   if (error) throw error;
 }
 
@@ -485,6 +493,170 @@ export async function fetchPeakAnalytics(
       count,
     })),
   };
+}
+
+function money(row: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    if (row[key] != null) return num(row[key]);
+  }
+  return 0;
+}
+
+function isoOrUndefined(value: unknown): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+export async function fetchFinanceCardDetails(
+  shopId: string,
+  card: FinanceCardId,
+  fromIso: string,
+  toIso: string,
+): Promise<FinanceDetailLine[]> {
+  const supabase = getSupabase();
+  if (!supabase || card === 'profit') return [];
+
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+
+  if (card === 'sales') {
+    const [ordersRes, bookingsRes] = await Promise.all([
+      supabase
+        .from('pos_orders')
+        .select('id, source, price, total_amount, car_type, created_at, payment_status')
+        .eq('shop_id', shopId)
+        .eq('status', 'completed')
+        .gte('created_at', fromIso)
+        .lt('created_at', toIso)
+        .order('created_at', { ascending: false })
+        .limit(80),
+      supabase
+        .from('bookings')
+        .select('id, booking_type, status, service_name, service_name_ar, customer_phone, scheduled_at, final_amount_paid_egp, service_price_egp, total_price')
+        .eq('shop_id', shopId)
+        .eq('booking_type', 'app')
+        .in('status', ['done', 'confirmed', 'in_progress'])
+        .gte('scheduled_at', fromIso)
+        .lt('scheduled_at', toIso)
+        .order('scheduled_at', { ascending: false })
+        .limit(80),
+    ]);
+    const orders = ((ordersRes.data ?? []) as Record<string, unknown>[]).map((row) => ({
+      id: `order:${row.id}`,
+      title: row.source === 'walk_in' ? 'walk_in' : 'app',
+      subtitle: row.car_type ? String(row.car_type) : undefined,
+      amount: money(row, 'total_amount', 'price'),
+      at: isoOrUndefined(row.created_at),
+    }));
+    const bookings = ((bookingsRes.data ?? []) as Record<string, unknown>[]).map((row) => ({
+      id: `booking:${row.id}`,
+      title: 'booking',
+      subtitle: String(row.service_name_ar || row.service_name || row.customer_phone || ''),
+      amount: money(row, 'final_amount_paid_egp', 'service_price_egp', 'total_price'),
+      at: isoOrUndefined(row.scheduled_at),
+    }));
+    return [...orders, ...bookings].sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')));
+  }
+
+  if (card === 'expenses') {
+    const { data } = await supabase
+      .from('shop_expenses')
+      .select('id, category, item_name, title, amount, created_at, recorded_at')
+      .eq('shop_id', shopId)
+      .in('category', ['raw_materials', 'utilities', 'tea_food', 'maintenance', 'other'])
+      .order('recorded_at', { ascending: false })
+      .limit(120);
+    return ((data ?? []) as Record<string, unknown>[])
+      .filter((row) => {
+        const at = new Date(String(row.created_at ?? row.recorded_at ?? ''));
+        return at >= from && at < to;
+      })
+      .map((row) => ({
+        id: String(row.id),
+        title: String(row.item_name || row.title || row.category || ''),
+        subtitle: row.category ? String(row.category) : undefined,
+        amount: num(row.amount),
+        at: isoOrUndefined(row.recorded_at ?? row.created_at),
+      }));
+  }
+
+  if (card === 'payroll') {
+    const [payrollRes, expenseRes] = await Promise.all([
+      supabase
+        .from('employee_payroll_records')
+        .select('id, type, amount, date, notes, branch_employees(full_name)')
+        .eq('shop_id', shopId)
+        .gte('date', fromIso.slice(0, 10))
+        .lt('date', toIso.slice(0, 10))
+        .order('date', { ascending: false })
+        .limit(80),
+      supabase
+        .from('shop_expenses')
+        .select('id, category, item_name, title, amount, created_at, recorded_at')
+        .eq('shop_id', shopId)
+        .in('category', ['staff_advance', 'staff_wage', 'labor_advance'])
+        .order('recorded_at', { ascending: false })
+        .limit(80),
+    ]);
+    const payroll = ((payrollRes.data ?? []) as Record<string, unknown>[]).map((row) => {
+      const employee = row.branch_employees as { full_name?: string } | { full_name?: string }[] | null;
+      const name = Array.isArray(employee) ? employee[0]?.full_name : employee?.full_name;
+      return {
+        id: `pay:${row.id}`,
+        title: String(row.type || 'payroll'),
+        subtitle: name || (row.notes ? String(row.notes) : undefined),
+        amount: num(row.amount),
+        at: isoOrUndefined(row.date),
+      };
+    });
+    const expenses = ((expenseRes.data ?? []) as Record<string, unknown>[])
+      .filter((row) => {
+        const at = new Date(String(row.created_at ?? row.recorded_at ?? ''));
+        return at >= from && at < to;
+      })
+      .map((row) => ({
+        id: `exp:${row.id}`,
+        title: String(row.category || 'staff_wage'),
+        subtitle: String(row.item_name || row.title || ''),
+        amount: num(row.amount),
+        at: isoOrUndefined(row.recorded_at ?? row.created_at),
+      }));
+    return [...payroll, ...expenses].sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')));
+  }
+
+  const [ordersRes, creditsRes] = await Promise.all([
+    supabase
+      .from('pos_orders')
+      .select('id, source, price, total_amount, car_type, created_at, payment_status')
+      .eq('shop_id', shopId)
+      .eq('status', 'completed')
+      .eq('payment_status', 'unpaid')
+      .order('created_at', { ascending: false })
+      .limit(80),
+    supabase
+      .from('customer_credits')
+      .select('id, agency_name, amount_due, created_at, status')
+      .eq('shop_id', shopId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(80),
+  ]);
+  const unpaid = ((ordersRes.data ?? []) as Record<string, unknown>[]).map((row) => ({
+    id: `unpaid:${row.id}`,
+    title: 'unpaid',
+    subtitle: row.car_type ? String(row.car_type) : undefined,
+    amount: money(row, 'total_amount', 'price'),
+    at: isoOrUndefined(row.created_at),
+  }));
+  const credits = ((creditsRes.data ?? []) as Record<string, unknown>[]).map((row) => ({
+    id: `credit:${row.id}`,
+    title: 'credit',
+    subtitle: row.agency_name ? String(row.agency_name) : undefined,
+    amount: num(row.amount_due),
+    at: isoOrUndefined(row.created_at),
+  }));
+  return [...unpaid, ...credits];
 }
 
 export function employeePayDefaults(employee: DbBranchEmployee): {

@@ -17,6 +17,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
+import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
 import { createWalkInBooking, resolveCustomerIdByPhoneRemote } from '@/lib/booking/storage';
 import { createWalkInPosOrder, listShopCustomers } from '@/lib/posRepository';
 import { POS_CAR_TYPES, type PosCarType, type ShopPosCustomer } from '@/lib/posTypes';
@@ -444,7 +445,7 @@ export function WalkInBookingModal({
                         <View style={styles.serviceOptionBody}>
                           <Text style={[styles.serviceChipTitle, { color: theme.text }]}>{label}</Text>
                           <Text style={[styles.serviceChipMeta, { color: theme.textMuted }]}>
-                            {formatEgp(service.priceEgp, locale)} · {service.durationMinutes}{' '}
+                            {formatShopServicePrice(service, locale, t)} · {service.durationMinutes}{' '}
                             {locale === 'ar' ? 'د' : 'min'}
                           </Text>
                         </View>

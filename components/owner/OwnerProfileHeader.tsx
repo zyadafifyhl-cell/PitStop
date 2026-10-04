@@ -87,7 +87,7 @@ export function OwnerProfileHeader({
             <FontAwesome
               name={notificationCount > 0 ? 'bell' : 'bell-o'}
               size={17}
-              color={notificationCount > 0 ? '#60A5FA' : theme.textMuted}
+              color={notificationCount > 0 ? theme.accent : theme.textMuted}
             />
             {notificationCount > 0 ? (
               <View style={styles.notifBadge}>
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderColor: '#FFFFFF',
-    backgroundColor: '#0066FF',
+    backgroundColor: '#00255C',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 6,

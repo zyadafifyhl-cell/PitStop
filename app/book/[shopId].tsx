@@ -50,6 +50,7 @@ import {
   shopTypeLabel,
 } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
+import { isVariablePriceService, sumFixedServicePrices } from '@/lib/booking/shopServicePrice';
 import {
   buildSlotsForShopDate,
   getActiveServices,
@@ -368,12 +369,15 @@ export default function BookShopScreen() {
 
   const rawServiceTotal = useMemo(() => {
     if (!shop) return 0;
-    const servicesTotal = selectedServices.reduce((sum, s) => sum + s.priceEgp, 0);
-    return (
-      servicesTotal ||
-      (shop.type === 'wash' ? activeServices[0]?.priceEgp ?? 0 : shopExtras?.servicePriceEgp ?? 0)
-    );
+    if (selectedServices.length) return sumFixedServicePrices(selectedServices);
+    if (shop.type === 'wash') {
+      const fallback = activeServices[0];
+      return fallback && !isVariablePriceService(fallback) ? fallback.priceEgp : 0;
+    }
+    return shopExtras?.servicePriceEgp ?? 0;
   }, [shop, selectedServices, activeServices, shopExtras?.servicePriceEgp]);
+
+  const hasVariablePricedService = selectedServices.some((service) => isVariablePriceService(service));
 
   const cartLineItems = useMemo(() => {
     const priceByServiceId = Object.fromEntries(activeServices.map((s) => [s.id, s.priceEgp]));
@@ -1026,6 +1030,9 @@ export default function BookShopScreen() {
                   · {label}
                 </Text>
               ))
+            ) : null}
+            {hasVariablePricedService ? (
+              <Text style={[styles.summaryLine, { color: theme.accent }]}>{t('wash_service_price_by_car')}</Text>
             ) : null}
             {baseTotalPrice > 0 ? (
               <>

@@ -21,7 +21,8 @@ type ServiceRow = {
   description: string | null;
   description_ar: string | null;
   category: string | null;
-  price_egp: number | string;
+  price_egp: number | string | null;
+  price_varies_by_vehicle?: boolean | null;
   duration_minutes: number;
   visible: boolean;
   sort_order: number;
@@ -84,7 +85,8 @@ function mapServiceRow(row: ServiceRow): ShopService {
     nameAr: row.name_ar ?? undefined,
     description: row.description ?? undefined,
     descriptionAr: row.description_ar ?? undefined,
-    priceEgp: Number(row.price_egp),
+    priceEgp: Number(row.price_egp ?? 0),
+    priceVariesByVehicle: row.price_varies_by_vehicle === true || Number(row.price_egp) < 0,
     durationMinutes: row.duration_minutes,
     category: (row.category as ShopService['category']) ?? 'exterior_wash',
     active: row.visible,
@@ -443,7 +445,8 @@ export async function saveBranchServicesRemote(
       description: service.description ?? null,
       description_ar: service.descriptionAr ?? null,
       category: sanitizeCategory(service.category),
-      price_egp: service.priceEgp,
+      price_egp: service.priceVariesByVehicle ? 0 : service.priceEgp,
+      price_varies_by_vehicle: !!service.priceVariesByVehicle,
       duration_minutes: service.durationMinutes,
       visible: service.visible !== false,
       sort_order: service.sortOrder ?? index,

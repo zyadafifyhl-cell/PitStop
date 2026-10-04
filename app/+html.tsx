@@ -53,4 +53,23 @@ html[data-theme="light"] #__next {
 input::-ms-reveal,
 input::-ms-clear {
   display: none;
+}
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: inherit !important;
+  caret-color: inherit;
+  transition: background-color 99999s ease-out 0s;
+  box-shadow: 0 0 0 1000px #FFFFFF inset !important;
+}
+html[data-theme="dark"] input:-webkit-autofill,
+html[data-theme="dark"] input:-webkit-autofill:hover,
+html[data-theme="dark"] input:-webkit-autofill:focus,
+html[data-theme="dark"] textarea:-webkit-autofill,
+html[data-theme="dark"] select:-webkit-autofill {
+  -webkit-text-fill-color: #F8FAFC !important;
+  caret-color: #F8FAFC;
+  box-shadow: 0 0 0 1000px #111111 inset !important;
 }`;

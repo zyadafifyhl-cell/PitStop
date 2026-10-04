@@ -54,7 +54,7 @@ export function PremiumAnimatedSplash({ onFinish }: Props) {
   return (
     <Animated.View style={[styles.overlay, { opacity }]} pointerEvents="auto">
       <LinearGradient
-        colors={['#061126', '#0B2B67', '#1E5AE6']}
+        colors={['#061126', '#001A45', '#00255C']}
         locations={[0, 0.58, 1]}
         start={{ x: 0.08, y: 0 }}
         end={{ x: 0.95, y: 1 }}
@@ -63,9 +63,9 @@ export function PremiumAnimatedSplash({ onFinish }: Props) {
 
       <View style={[styles.grid, { width: Math.max(width, 520), height: Math.max(height, 820) }]}>
         <Svg width="100%" height="100%" viewBox="0 0 520 820" preserveAspectRatio="xMidYMid slice">
-          <Path d="M-60 184 L580 72" stroke="#60A5FA" strokeWidth="1" opacity="0.18" />
+          <Path d="M-60 184 L580 72" stroke="#4A6FA5" strokeWidth="1" opacity="0.18" />
           <Path d="M-60 198 L580 86" stroke="#FFFFFF" strokeWidth="1" opacity="0.08" />
-          <Path d="M-80 646 L600 526" stroke="#60A5FA" strokeWidth="1" opacity="0.16" />
+          <Path d="M-80 646 L600 526" stroke="#4A6FA5" strokeWidth="1" opacity="0.16" />
           <Path d="M72 0 L-44 820" stroke="#FFFFFF" strokeWidth="1" opacity="0.05" />
           <Path d="M450 0 L334 820" stroke="#FFFFFF" strokeWidth="1" opacity="0.05" />
         </Svg>
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 3,
     borderRadius: 2,
-    backgroundColor: '#60A5FA',
+    backgroundColor: '#4A6FA5',
   },
   railText: {
     color: 'rgba(255, 255, 255, 0.68)',
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   eyebrow: {
-    color: '#93C5FD',
+    color: '#8BA3C7',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 2.2,
@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderWidth: 42,
-    borderColor: 'rgba(96, 165, 250, 0.10)',
+    borderColor: 'rgba(0, 37, 92, 0.35)',
     transform: [{ rotate: '18deg' }],
   },
 });

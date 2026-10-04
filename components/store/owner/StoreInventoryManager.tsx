@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#0066FF',
+    backgroundColor: '#00255C',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,

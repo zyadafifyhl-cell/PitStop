@@ -67,7 +67,7 @@ function bookingStatusTone(status: Booking['status'], palette: HomePalette) {
     return { bg: palette.ice, color: palette.iceText, border: 'rgba(14, 165, 233, 0.28)' };
   }
   if (status === 'in_progress') {
-    return { bg: 'rgba(0, 102, 255, 0.10)', color: palette.accent, border: 'rgba(0, 102, 255, 0.22)' };
+    return { bg: 'rgba(0, 37, 92, 0.10)', color: palette.accent, border: 'rgba(0, 37, 92, 0.22)' };
   }
   if (status === 'done') return { bg: 'rgba(16, 185, 129, 0.12)', color: '#34D399', border: 'rgba(16, 185, 129, 0.28)' };
   if (status === 'no_show') return { bg: 'rgba(239, 68, 68, 0.10)', color: '#F87171', border: 'rgba(239, 68, 68, 0.25)' };
@@ -345,7 +345,7 @@ function createHomeStyles(HOME: HomePalette) {
     },
     serviceCardActive: {
       backgroundColor: HOME.card,
-      borderColor: 'rgba(0, 102, 255, 0.28)',
+      borderColor: 'rgba(0, 37, 92, 0.28)',
       minHeight: 96,
       opacity: 1,
     },
@@ -358,7 +358,7 @@ function createHomeStyles(HOME: HomePalette) {
       flexDirection: 'row-reverse',
     },
     serviceCardHover: {
-      borderColor: 'rgba(0, 102, 255, 0.45)',
+      borderColor: 'rgba(0, 37, 92, 0.45)',
       shadowColor: '#0F172A',
       shadowOpacity: 0.08,
       shadowRadius: 10,
