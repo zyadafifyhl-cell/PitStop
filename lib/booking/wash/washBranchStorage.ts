@@ -17,7 +17,7 @@ import {
 } from '@/lib/booking/wash/branchRepository';
 import { applyShopOperationalBookingExceptionFlow } from '@/lib/booking/bookingShopClosureRepository';
 import { syncWashBranchToShopExtras } from '@/lib/booking/wash/washSync';
-import { persistImageUri, persistImageUris } from '@/lib/media/persistImageUri';
+import { compactStoredImageUrl, compactStoredImageUrls, isQuotaExceededError, persistImageUri, persistImageUris } from '@/lib/media/persistImageUri';
 
 const KEY = '@pitstop/wash-branches/v1';
 type BranchMap = Record<string, WashBranchState>;
@@ -42,14 +42,49 @@ async function readMap(): Promise<BranchMap> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
     const parsed = raw ? (JSON.parse(raw) as BranchMap) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (!parsed || typeof parsed !== 'object') return {};
+    if (raw?.includes('data:image')) {
+      const compact: BranchMap = {};
+      for (const [shopId, state] of Object.entries(parsed)) {
+        if (!state) continue;
+        compact[shopId] = compactBranchState(state);
+      }
+      await writeMap(compact);
+      return compact;
+    }
+    return parsed;
   } catch {
     return {};
   }
 }
 
+function compactBranchState(state: WashBranchState): WashBranchState {
+  return {
+    ...state,
+    branches: (state.branches ?? []).map((branch) => ({
+      ...branch,
+      profileImageUrl: compactStoredImageUrl(branch.profileImageUrl),
+      imageUrls: compactStoredImageUrls(branch.imageUrls),
+    })),
+  };
+}
+
 async function writeMap(map: BranchMap): Promise<void> {
-  await AsyncStorage.setItem(KEY, JSON.stringify(map));
+  const compact: BranchMap = {};
+  for (const [shopId, state] of Object.entries(map)) {
+    if (!state) continue;
+    compact[shopId] = compactBranchState(state);
+  }
+  try {
+    await AsyncStorage.setItem(KEY, JSON.stringify(compact));
+  } catch (error) {
+    if (!isQuotaExceededError(error)) throw error;
+    try {
+      await AsyncStorage.removeItem(KEY);
+    } catch {
+      // Cache can be rebuilt from remote extras.
+    }
+  }
 }
 
 function emptyBranch(name: string, nameAr?: string): WashBranch {
@@ -261,7 +296,9 @@ export async function updateActiveWashBranch(
 ): Promise<WashBranchUpdateResult> {
   const normalizedPatch = { ...patch };
   if (patch.profileImageUrl) {
-    normalizedPatch.profileImageUrl = await persistImageUri(patch.profileImageUrl);
+    const persisted = await persistImageUri(patch.profileImageUrl);
+    if (persisted) normalizedPatch.profileImageUrl = persisted;
+    else delete normalizedPatch.profileImageUrl;
   }
   if (patch.imageUrls) {
     normalizedPatch.imageUrls = await persistImageUris(patch.imageUrls);

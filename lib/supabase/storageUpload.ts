@@ -2,9 +2,11 @@ import { Platform } from 'react-native';
 
 import { getSupabase } from '@/lib/supabase/client';
 
+export const SHOP_ASSETS_BUCKET = 'shop-assets';
+
 export type StorageImageSource = {
   localUri: string;
-  bucket: string;
+  bucket?: string;
   folderPath: string;
   mimeType?: string | null;
   fileName?: string | null;
@@ -142,6 +144,8 @@ export async function uploadImageToBucket(input: StorageImageSource): Promise<st
     return uri;
   }
 
+  const bucket = input.bucket?.trim() || SHOP_ASSETS_BUCKET;
+
   try {
     let uploadBody: Blob | ArrayBuffer;
     let detectedMime = input.mimeType || (isUsableBlob(input.webFile) ? input.webFile.type : null);
@@ -168,14 +172,14 @@ export async function uploadImageToBucket(input: StorageImageSource): Promise<st
     const folder = input.folderPath.replace(/^\/+|\/+$/g, '');
     const path = `${folder}/${Date.now()}-${safeFileStem(input.fileName)}-${randomSuffix()}.${ext}`;
 
-    const { error } = await supabase.storage.from(input.bucket).upload(path, uploadBody, {
+    const { error } = await supabase.storage.from(bucket).upload(path, uploadBody, {
       cacheControl: '3600',
       upsert: false,
       contentType,
     });
     if (error) throw error;
 
-    const { data } = supabase.storage.from(input.bucket).getPublicUrl(path);
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
     if (!data.publicUrl) throw new Error('Supabase did not return a public image URL.');
     return data.publicUrl;
   } catch (error) {

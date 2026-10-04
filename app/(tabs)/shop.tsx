@@ -57,7 +57,8 @@ import {
   scheduleBookingReminders,
 } from '@/lib/booking/bookingReminders';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
-import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
+import { SHOP_ASSETS_BUCKET, uploadImageToBucket } from '@/lib/supabase/storageUpload';
+import { isQuotaExceededError } from '@/lib/media/persistImageUri';
 import {
   addShopImage,
   getShopExtras,
@@ -610,11 +611,19 @@ export default function ShopScreen() {
         mimeType: asset.mimeType,
         fileName: asset.fileName,
         webFile: asset.file,
-        bucket: 'shop-assets',
+        bucket: SHOP_ASSETS_BUCKET,
         folderPath: `${shop.id}/cover`,
+        throwOnError: true,
       });
       await setShopCoverImage(shop.id, uploadedUrl);
       await refreshShopExtras();
+    } catch (error) {
+      console.error('Storage Upload Error:', error);
+      if (isQuotaExceededError(error)) {
+        userAlert(t('wash_image_quota_title'), t('wash_image_quota_body'));
+      } else {
+        userAlert(t('wash_image_upload_failed_title'), t('wash_image_upload_failed_body'));
+      }
     } finally {
       setPickingImage(false);
     }
@@ -642,12 +651,20 @@ export default function ShopScreen() {
         const uploadedUrl = await uploadImageToBucket({
           localUri: asset.uri,
           mimeType: asset.mimeType,
-          bucket: 'shop-gallery',
+          bucket: SHOP_ASSETS_BUCKET,
           folderPath: `${shop.id}/gallery`,
+          throwOnError: true,
         });
         await addShopImage(shop.id, uploadedUrl);
       }
       await refreshShopExtras();
+    } catch (error) {
+      console.error('Storage Upload Error:', error);
+      if (isQuotaExceededError(error)) {
+        userAlert(t('wash_image_quota_title'), t('wash_image_quota_body'));
+      } else {
+        userAlert(t('wash_image_upload_failed_title'), t('wash_image_upload_failed_body'));
+      }
     } finally {
       setPickingImage(false);
     }
@@ -674,11 +691,19 @@ export default function ShopScreen() {
       const uploadedUrl = await uploadImageToBucket({
         localUri: uri,
         mimeType: asset.mimeType,
-        bucket: 'shop-assets',
+        bucket: SHOP_ASSETS_BUCKET,
         folderPath: `${shop.id}/profile`,
+        throwOnError: true,
       });
       await setShopProfileImage(shop.id, uploadedUrl);
       await refreshShopExtras();
+    } catch (error) {
+      console.error('Storage Upload Error:', error);
+      if (isQuotaExceededError(error)) {
+        userAlert(t('wash_image_quota_title'), t('wash_image_quota_body'));
+      } else {
+        userAlert(t('wash_image_upload_failed_title'), t('wash_image_upload_failed_body'));
+      }
     } finally {
       setPickingImage(false);
     }

@@ -44,7 +44,8 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { uploadImageToBucket } from '@/lib/supabase/storageUpload';
+import { SHOP_ASSETS_BUCKET, uploadImageToBucket } from '@/lib/supabase/storageUpload';
+import { isQuotaExceededError } from '@/lib/media/persistImageUri';
 import { getSupabase } from '@/lib/supabase/client';
 import { getOwnerNavTabs, type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
 import {
@@ -1016,6 +1017,15 @@ export function WashOwnerPanel({ shop }: Props) {
     showNotice(t('wash_profile_saved_title'), t('wash_profile_saved_body'));
   }
 
+  function showImagePersistError(error: unknown) {
+    console.error('Storage Upload Error:', error);
+    if (isQuotaExceededError(error)) {
+      userAlert(t('wash_image_quota_title'), t('wash_image_quota_body'));
+      return;
+    }
+    userAlert(t('wash_image_upload_failed_title'), t('wash_image_upload_failed_body'));
+  }
+
   async function onSetCoverImage() {
     if (Platform.OS !== 'web') {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1038,14 +1048,19 @@ export function WashOwnerPanel({ shop }: Props) {
       const uploadedUrl = await uploadImageToBucket({
         localUri: uri,
         mimeType: asset.mimeType,
-        bucket: 'shop-assets',
+        fileName: asset.fileName,
+        webFile: asset.file,
+        bucket: SHOP_ASSETS_BUCKET,
         folderPath: `${shop.id}/branches/${activeBranch.id}/cover`,
+        throwOnError: true,
       });
       const gallery = (activeBranch.imageUrls ?? []).slice(1).filter((url) => url !== uri);
       const { branch } = await updateActiveWashBranch(shop, {
         imageUrls: [uploadedUrl, ...gallery],
       }, branchCtx);
       syncBranchForms(branch);
+    } catch (error) {
+      showImagePersistError(error);
     } finally {
       setPickingImage(false);
     }
@@ -1076,8 +1091,11 @@ export function WashOwnerPanel({ shop }: Props) {
         const uploadedUrl = await uploadImageToBucket({
           localUri: asset.uri,
           mimeType: asset.mimeType,
-          bucket: 'shop-gallery',
+          fileName: asset.fileName,
+          webFile: asset.file,
+          bucket: SHOP_ASSETS_BUCKET,
           folderPath: `${shop.id}/branches/${activeBranch.id}/gallery`,
+          throwOnError: true,
         });
         if (uploadedUrl && uploadedUrl !== cover && !gallery.includes(uploadedUrl) && !uploadedUrls.includes(uploadedUrl)) {
           uploadedUrls.push(uploadedUrl);
@@ -1089,6 +1107,8 @@ export function WashOwnerPanel({ shop }: Props) {
         imageUrls: nextUrls.slice(0, 8),
       }, branchCtx);
       syncBranchForms(branch);
+    } catch (error) {
+      showImagePersistError(error);
     } finally {
       setPickingImage(false);
     }
@@ -1115,8 +1135,11 @@ export function WashOwnerPanel({ shop }: Props) {
       const uploadedUrl = await uploadImageToBucket({
         localUri: uri,
         mimeType: asset.mimeType,
-        bucket: 'shop-assets',
+        fileName: asset.fileName,
+        webFile: asset.file,
+        bucket: SHOP_ASSETS_BUCKET,
         folderPath: `${shop.id}/profile`,
+        throwOnError: true,
       });
       const siblingBranches = (branchState?.branches ?? [])
         .filter((branch) => branch.id !== activeBranch.id)
@@ -1137,6 +1160,8 @@ export function WashOwnerPanel({ shop }: Props) {
           : prev,
       );
       syncBranchForms(branch);
+    } catch (error) {
+      showImagePersistError(error);
     } finally {
       setPickingImage(false);
     }

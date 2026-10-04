@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ShopDayHours, ShopExtras, ShopOffer, ShopService, StoreOperatingStatus } from '@/lib/booking/types';
 import { isOfferLive } from '@/lib/booking/offerPricing';
 import { createShopOffer, deactivateShopOffer, listActiveOffersForShop } from '@/lib/booking/offerRepository';
-import { persistImageUri } from '@/lib/media/persistImageUri';
+import { compactStoredImageUrl, compactStoredImageUrls, isQuotaExceededError, persistImageUri } from '@/lib/media/persistImageUri';
 import { getSupabase } from '@/lib/supabase/client';
 
 const SHOP_EXTRAS_KEY = '@pitstop/shop-extras/v1';
@@ -17,18 +17,42 @@ function id(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function compactExtrasMap(map: ExtrasMap): ExtrasMap {
+  const next: ExtrasMap = {};
+  for (const [shopId, row] of Object.entries(map)) {
+    if (!row || typeof row !== 'object') continue;
+    next[shopId] = normalizeExtras(shopId, row);
+  }
+  return next;
+}
+
 async function readMap(): Promise<ExtrasMap> {
   try {
     const raw = await AsyncStorage.getItem(SHOP_EXTRAS_KEY);
     const parsed = raw ? (JSON.parse(raw) as ExtrasMap) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (!parsed || typeof parsed !== 'object') return {};
+    const compact = compactExtrasMap(parsed);
+    if (raw && raw.includes('data:image') && JSON.stringify(compact) !== raw) {
+      await writeMap(compact);
+    }
+    return compact;
   } catch {
     return {};
   }
 }
 
 async function writeMap(map: ExtrasMap): Promise<void> {
-  await AsyncStorage.setItem(SHOP_EXTRAS_KEY, JSON.stringify(map));
+  const compact = compactExtrasMap(map);
+  try {
+    await AsyncStorage.setItem(SHOP_EXTRAS_KEY, JSON.stringify(compact));
+  } catch (error) {
+    if (!isQuotaExceededError(error)) throw error;
+    try {
+      await AsyncStorage.setItem(SHOP_EXTRAS_KEY, JSON.stringify(compact));
+    } catch {
+      await AsyncStorage.removeItem(SHOP_EXTRAS_KEY);
+    }
+  }
 }
 
 async function upsertShopExtrasRemote(row: ShopExtras): Promise<void> {
@@ -74,7 +98,7 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
   const washShopStatus = parseWashShopStatus(row?.washShopStatus);
   return {
     shopId,
-    profileImageUrl: row?.profileImageUrl,
+    profileImageUrl: compactStoredImageUrl(row?.profileImageUrl),
     profileName: row?.profileName?.trim() || undefined,
     profileNameAr: row?.profileNameAr?.trim() || undefined,
     profileAddress: row?.profileAddress?.trim() || undefined,
@@ -85,7 +109,7 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     moreInfoAr: row?.moreInfoAr?.trim() || undefined,
     winchEnabled: !!row?.winchEnabled,
     winchPhone: row?.winchPhone?.trim() || undefined,
-    imageUrls: row?.imageUrls ?? [],
+    imageUrls: compactStoredImageUrls(row?.imageUrls),
     servicePriceEgp: row?.servicePriceEgp,
     workOpenTime: row?.workOpenTime?.trim() || undefined,
     workCloseTime: row?.workCloseTime?.trim() || undefined,

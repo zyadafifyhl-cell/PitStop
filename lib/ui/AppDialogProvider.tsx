@@ -3,7 +3,6 @@ import {
   Alert,
   type AlertButton,
   type AlertOptions,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import {
 import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { OverlayPortal } from '@/lib/ui/overlayPortal';
 
 type DialogRequest = {
   id: number;
@@ -176,8 +176,8 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
           right: 0,
           bottom: 0,
           left: 0,
-          zIndex: 9999,
-          elevation: 9999,
+          zIndex: 1,
+          elevation: 1,
         },
         card: {
           ...BOXED_OVERLAY.card,
@@ -246,13 +246,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
-      <Modal
-        visible={!!active}
-        transparent
-        animationType="fade"
-        presentationStyle="overFullScreen"
-        statusBarTranslucent
-        onRequestClose={dismissViaBackdrop}>
+      <OverlayPortal visible={!!active} onRequestClose={dismissViaBackdrop}>
         <Pressable style={styles.backdrop} onPress={dismissViaBackdrop}>
           <Pressable style={styles.card} onPress={(event) => event.stopPropagation()}>
             {!!active?.title && <Text style={styles.title}>{active.title}</Text>}
@@ -281,7 +275,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
             </View>
           </Pressable>
         </Pressable>
-      </Modal>
+      </OverlayPortal>
     </>
   );
 }

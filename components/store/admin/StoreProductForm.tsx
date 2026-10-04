@@ -68,7 +68,7 @@ export function StoreProductForm({ onSaved }: Props) {
     try {
       const uploaded = await uploadImageToBucket({
         localUri: result.assets[0].uri,
-        bucket: 'shop-images',
+        bucket: 'shop-assets',
         folderPath: 'pitstop-store',
       });
       if (uploaded) setImageUrl(uploaded);

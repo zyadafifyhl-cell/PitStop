@@ -18,7 +18,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
 import { createWalkInBooking, resolveCustomerIdByPhoneRemote } from '@/lib/booking/storage';
-import { createWalkInPosOrder, lookupShopCustomer } from '@/lib/posRepository';
+import { createWalkInPosOrder, listShopCustomers } from '@/lib/posRepository';
 import { POS_CAR_TYPES, type PosCarType, type ShopPosCustomer } from '@/lib/posTypes';
 import { listStoreProductsByShop } from '@/lib/store/productRepository';
 import type { StoreProduct } from '@/lib/store/types';
@@ -76,7 +76,8 @@ export function WalkInBookingModal({
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [accessoryQty, setAccessoryQty] = useState<Record<string, number>>({});
   const [retailProducts, setRetailProducts] = useState<StoreProduct[]>([]);
-  const [matchedCustomer, setMatchedCustomer] = useState<ShopPosCustomer | null>(null);
+  const [customerSuggestions, setCustomerSuggestions] = useState<ShopPosCustomer[]>([]);
+  const [appliedCustomerId, setAppliedCustomerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resolvingCustomer, setResolvingCustomer] = useState(false);
   const [resolvedCustomerId, setResolvedCustomerId] = useState<string | undefined>();
@@ -138,7 +139,8 @@ export function WalkInBookingModal({
     setSelectedServiceIds([]);
     setSelectedEmployeeId(null);
     setAccessoryQty({});
-    setMatchedCustomer(null);
+    setCustomerSuggestions([]);
+    setAppliedCustomerId(null);
     setCreatedBooking(null);
     setBusy(false);
     setResolvingCustomer(false);
@@ -146,15 +148,19 @@ export function WalkInBookingModal({
     void listStoreProductsByShop(shop.id).then((rows) => {
       setRetailProducts(rows.filter((product) => product.isActive && product.inventoryKind !== 'supply'));
     });
-  }, [visible, activeServices, shop.id]);
+  }, [visible, shop.id]);
 
   useEffect(() => {
     if (!visible) return;
-    const trimmed = phone.trim();
-    if (!trimmed) {
+    const phoneQuery = phone.trim();
+    const plateQuery = plate.trim();
+    const nameQuery = fullName.trim();
+    const searchQuery = phoneQuery.length >= 3 ? phoneQuery : plateQuery.length >= 3 ? plateQuery : nameQuery.length >= 3 ? nameQuery : '';
+
+    if (!searchQuery) {
       setResolvingCustomer(false);
       setResolvedCustomerId(undefined);
-      setMatchedCustomer(null);
+      setCustomerSuggestions([]);
       return;
     }
 
@@ -163,33 +169,41 @@ export function WalkInBookingModal({
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const [customerId, shopCustomer] = await Promise.all([
-            resolveCustomerIdByPhoneRemote(trimmed),
-            lookupShopCustomer(shop.id, trimmed),
+          const [customerId, matches] = await Promise.all([
+            phoneQuery ? resolveCustomerIdByPhoneRemote(phoneQuery) : Promise.resolve(undefined),
+            listShopCustomers(shop.id, searchQuery),
           ]);
           if (cancelled) return;
           setResolvedCustomerId(customerId);
-          setMatchedCustomer(shopCustomer);
-          if (shopCustomer) {
-            setFullName((current) => current.trim() || shopCustomer.fullName);
-            setPlate((current) => current.trim() || shopCustomer.licensePlate || '');
-            setCarType(shopCustomer.carType);
-          }
+          setCustomerSuggestions(matches.slice(0, 4));
         } catch {
           if (cancelled) return;
           setResolvedCustomerId(undefined);
-          setMatchedCustomer(null);
+          setCustomerSuggestions([]);
         } finally {
           if (!cancelled) setResolvingCustomer(false);
         }
       })();
-    }, 220);
+    }, 260);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [phone, visible, shop.id]);
+  }, [phone, plate, fullName, visible, shop.id]);
+
+  function applySavedCustomer(customer: ShopPosCustomer) {
+    setPhone(customer.phone);
+    setFullName(customer.fullName);
+    setPlate(customer.licensePlate || '');
+    setCarType(customer.carType);
+    setAppliedCustomerId(customer.id);
+  }
+
+  function onPhoneChange(value: string) {
+    setPhone(value);
+    if (appliedCustomerId) setAppliedCustomerId(null);
+  }
 
   function toggleServiceSelection(serviceId: string) {
     setSelectedServiceIds((current) =>
@@ -256,13 +270,12 @@ export function WalkInBookingModal({
         }
       }
 
+      onClose();
+      onCreated(booking);
       userAlert(
         t('walk_in_submit_success_title'),
         posSaved ? t('walk_in_submit_success_body') : t('walk_in_pos_partial_fail'),
       );
-      setCreatedBooking(booking);
-      setStep('invoice');
-      onCreated(booking);
     } catch (error) {
       Alert.alert(
         t('walk_in_submit_fail_title'),
@@ -298,7 +311,7 @@ export function WalkInBookingModal({
             <ScrollView contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled">
               <TextInput
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={onPhoneChange}
                 placeholder={t('walk_in_phone_placeholder')}
                 placeholderTextColor={theme.textDim}
                 keyboardType="phone-pad"
@@ -353,10 +366,46 @@ export function WalkInBookingModal({
                     {t('walk_in_phone_lookup_pending')}
                   </Text>
                 </View>
-              ) : matchedCustomer ? (
+              ) : null}
+              {appliedCustomerId ? (
                 <Text style={[styles.lookupText, { color: theme.accent }, isRTL && styles.textRtl]}>
-                  {t('walk_in_found_customer').replace('{visits}', String(matchedCustomer.totalVisits))}
+                  {t('walk_in_suggest_applied')}
                 </Text>
+              ) : null}
+              {customerSuggestions.length > 0 ? (
+                <View style={styles.suggestList}>
+                  {customerSuggestions.map((customer) => {
+                    const applied = appliedCustomerId === customer.id;
+                    return (
+                      <Pressable
+                        key={customer.id}
+                        onPress={() => applySavedCustomer(customer)}
+                        style={[
+                          styles.suggestCard,
+                          {
+                            borderColor: applied ? theme.accent : theme.border,
+                            backgroundColor: applied ? theme.accentSoft : theme.bgElevated,
+                          },
+                        ]}>
+                        <View style={styles.suggestBody}>
+                          <Text style={[styles.suggestName, { color: theme.text }, isRTL && styles.textRtl]}>
+                            {customer.fullName || customer.phone}
+                          </Text>
+                          <Text style={[styles.suggestMeta, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                            {t('walk_in_found_customer').replace('{visits}', String(customer.totalVisits))}
+                            {customer.phone ? ` · ${customer.phone}` : ''}
+                            {customer.licensePlate
+                              ? ` · ${t('walk_in_suggest_plate').replace('{plate}', customer.licensePlate)}`
+                              : ''}
+                          </Text>
+                        </View>
+                        <Text style={[styles.suggestAction, { color: theme.accent }]}>
+                          {applied ? t('walk_in_suggest_used') : t('walk_in_suggest_use')}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               ) : null}
 
               <View style={styles.serviceHeaderRow}>
@@ -640,6 +689,31 @@ const styles = StyleSheet.create({
   lookupText: {
     fontSize: 12,
     lineHeight: 16,
+  },
+  suggestList: {
+    gap: 8,
+  },
+  suggestCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  suggestBody: {
+    gap: 2,
+  },
+  suggestName: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  suggestMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  suggestAction: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   textRtl: {
     writingDirection: 'rtl',

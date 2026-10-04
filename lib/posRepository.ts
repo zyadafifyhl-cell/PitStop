@@ -71,7 +71,7 @@ export async function listShopCustomers(shopId: string, query?: string): Promise
   const supabase = getSupabase();
   if (!supabase) return [];
   let request = supabase.from('customers').select('*').eq('shop_id', shopId).order('last_visit_at', { ascending: false, nullsFirst: false });
-  const q = query?.trim();
+  const q = query?.trim().replace(/[%_\\,()]/g, '');
   if (q) {
     request = request.or(`phone.ilike.%${q}%,license_plate.ilike.%${q}%,full_name.ilike.%${q}%`);
   }

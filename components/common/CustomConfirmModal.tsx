@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import {
 import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { OverlayPortal } from '@/lib/ui/overlayPortal';
 
 export type CustomConfirmModalProps = {
   visible: boolean;
@@ -103,13 +103,7 @@ export function CustomConfirmModal({
   );
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      presentationStyle="overFullScreen"
-      statusBarTranslucent
-      onRequestClose={busy ? undefined : onCancel}>
+    <OverlayPortal visible={visible} onRequestClose={busy ? undefined : onCancel}>
       <Pressable style={styles.backdrop} onPress={busy ? undefined : onCancel}>
         <Pressable style={styles.card} onPress={(event) => event.stopPropagation()}>
           <Text style={styles.title}>{title}</Text>
@@ -136,6 +130,6 @@ export function CustomConfirmModal({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+    </OverlayPortal>
   );
 }
