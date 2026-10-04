@@ -78,8 +78,10 @@ import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
 import { computeWashAnalytics } from '@/lib/booking/wash/washAnalytics';
 import { fetchPeakAnalytics } from '@/lib/posRepository';
-import { useShopFinancials } from '@/lib/useShopFinancials';
-import type { PeakHourBucket, PeakWeekdayBucket } from '@/lib/posTypes';
+import { ShopFinanceOverview } from '@/components/owner/pos/ShopFinanceOverview';
+import { LogExpenseModal } from '@/components/owner/pos/LogExpenseModal';
+import { useShopAnalytics } from '@/lib/useShopAnalytics';
+import type { PeakHourBucket, PeakWeekdayBucket, ShopAnalyticsTimeframe } from '@/lib/posTypes';
 import {
   getBranchWorkspaceCache,
   getShopWorkspaceCache,
@@ -350,11 +352,16 @@ export function WashOwnerPanel({ shop }: Props) {
     pendingBranchSyncRef.current = pendingBranchSyncId;
   }, [pendingBranchSyncId]);
   const [walkInModalVisible, setWalkInModalVisible] = useState(false);
+  const [expenseModalVisible, setExpenseModalVisible] = useState(false);
   const [endShiftVisible, setEndShiftVisible] = useState(false);
   const [crmRefreshKey, setCrmRefreshKey] = useState(0);
   const [peakHours, setPeakHours] = useState<PeakHourBucket[]>([]);
   const [peakWeekdays, setPeakWeekdays] = useState<PeakWeekdayBucket[]>([]);
-  const { financials, refresh: refreshFinancials } = useShopFinancials(shop.id);
+  const [financeTimeframe, setFinanceTimeframe] = useState<ShopAnalyticsTimeframe>('month');
+  const { analytics: posFinance, loading: financeLoading, refresh: refreshFinancials } = useShopAnalytics(
+    shop.id,
+    financeTimeframe,
+  );
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
   const [adminTab, setAdminTab] = useState<OwnerShellTabId>('dashboard');
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
@@ -659,11 +666,6 @@ export function WashOwnerPanel({ shop }: Props) {
       }
     );
   }, [weeklyHours, selectedHoursDay]);
-
-  const maxTrend = useMemo(
-    () => Math.max(1, ...(analytics?.bookingTrend.map((x) => x.count) ?? [1])),
-    [analytics],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1856,61 +1858,45 @@ export function WashOwnerPanel({ shop }: Props) {
                   <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} />
                 ) : null}
 
+                <ShopFinanceOverview
+                  analytics={posFinance}
+                  loading={financeLoading}
+                  timeframe={financeTimeframe}
+                  onTimeframeChange={setFinanceTimeframe}
+                  onRecordSale={() => setWalkInModalVisible(true)}
+                  onLogExpense={() => setExpenseModalVisible(true)}
+                  onLogPayroll={() => setAdminTab('management')}
+                />
+
                 {/* Dashboard overview */}
                 {analytics ? (
-                  <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
-                    <OwnerMetricsGrid
-                      metrics={[
-                        {
-                          id: 'walk_in_revenue',
-                          label: t('pos_metric_walk_in'),
-                          value: formatEgp(financials.walkInRevenue + financials.accessorySales, locale),
-                          icon: 'money',
-                          tone: 'success',
-                        },
-                        {
-                          id: 'app_revenue',
-                          label: t('pos_metric_app'),
-                          value: formatEgp(financials.appBookingRevenue, locale),
-                          icon: 'mobile',
-                          tone: 'accent',
-                        },
-                        {
-                          id: 'fees_due',
-                          label: t('pos_metric_fees_due'),
-                          value: formatEgp(financials.pitstopFeesDue, locale),
-                          icon: 'percent',
-                          tone: 'warning',
-                        },
-                        {
-                          id: 'net_profit',
-                          label: t('pos_metric_net_profit'),
-                          value: formatEgp(financials.netProfit, locale),
-                          icon: 'line-chart',
-                          tone: financials.netProfit >= 0 ? 'success' : 'danger',
-                        },
-                        {
-                          id: 'today',
-                          label: t('owner_dashboard_today_bookings'),
-                          value: analytics.todayBookings,
-                          icon: 'calendar-check-o',
-                        },
-                        {
-                          id: 'pending',
-                          label: t('owner_dashboard_pending_requests'),
-                          value: analytics.pendingRequests,
-                          icon: 'clock-o',
-                          tone: 'warning',
-                        },
-                        {
-                          id: 'services',
-                          label: t('owner_dashboard_active_services'),
-                          value: sortedServices.filter((service) => service.active).length,
-                          icon: 'wrench',
-                        },
-                      ]}
-                    />
-                  </OwnerSectionCard>
+                  <>
+                    <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
+                      <OwnerMetricsGrid
+                        metrics={[
+                          {
+                            id: 'today',
+                            label: t('owner_dashboard_today_bookings'),
+                            value: analytics.todayBookings,
+                            icon: 'calendar-check-o',
+                          },
+                          {
+                            id: 'pending',
+                            label: t('owner_dashboard_pending_requests'),
+                            value: analytics.pendingRequests,
+                            icon: 'clock-o',
+                            tone: 'warning',
+                          },
+                          {
+                            id: 'services',
+                            label: t('owner_dashboard_active_services'),
+                            value: sortedServices.filter((service) => service.active).length,
+                            icon: 'wrench',
+                          },
+                        ]}
+                      />
+                    </OwnerSectionCard>
+                  </>
                 ) : null}
 
                 {/* Shop status — read-only; edit in Management */}
@@ -1938,44 +1924,17 @@ export function WashOwnerPanel({ shop }: Props) {
                   <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
                   <OwnerSectionCard
                     theme={theme}
-                    title={t('wash_analytics_title')}
-                    subtitle={t('wash_analytics_lead')}>
+                    title={t('pos_peak_title')}
+                    subtitle={t('pos_peak_lead')}>
                     {isOwner ? (
-                      <Text style={[styles.metaStrong, { color: theme.text }]}>
+                      <Text style={[styles.metaStrong, { color: theme.text, marginBottom: 6 }]}>
                         {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
                       </Text>
                     ) : null}
-                    <Text style={[styles.meta, { color: theme.textMuted, marginTop: isOwner ? 8 : 0 }]}>
-                      {t('wash_analytics_peak_hour')}: {analytics.peakHourLabel}
-                    </Text>
-                    <Text style={[styles.meta, { color: theme.textMuted }]}>
+                    <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 12 }]}>
                       {t('wash_analytics_top_service')}: {analytics.mostBookedService}
                     </Text>
-                    <Text style={[styles.inlineSectionTitle, { color: theme.text, marginTop: 12 }]}>
-                      {t('pos_peak_title')}
-                    </Text>
-                    <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 8 }]}>{t('pos_peak_lead')}</Text>
                     <PeakHoursChart hours={peakHours} weekdays={peakWeekdays} />
-                    <Text style={[styles.inlineSectionTitle, { color: theme.text, marginTop: 12 }]}>
-                      {t('wash_analytics_trend_title')}
-                    </Text>
-                    {analytics.bookingTrend.map((point) => (
-                      <View key={point.label} style={styles.trendRow}>
-                        <Text style={[styles.trendLabel, { color: theme.textMuted }]}>{point.label}</Text>
-                        <View style={[styles.trendBarTrack, { backgroundColor: theme.bgElevated }]}>
-                          <View
-                            style={[
-                              styles.trendBarFill,
-                              {
-                                backgroundColor: theme.accent,
-                                width: `${Math.round((point.count / maxTrend) * 100)}%`,
-                              },
-                            ]}
-                          />
-                        </View>
-                        <Text style={[styles.trendCount, { color: theme.text }]}>{point.count}</Text>
-                      </View>
-                    ))}
                   </OwnerSectionCard>
                   </PremiumFeatureGate>
                 ) : null}
@@ -2344,7 +2303,7 @@ export function WashOwnerPanel({ shop }: Props) {
         }}
       />
 
-      {activeBranch && canUseWalkInPos ? (
+      {activeBranch ? (
         <WalkInBookingModal
           visible={walkInModalVisible}
           onClose={() => setWalkInModalVisible(false)}
@@ -2366,6 +2325,15 @@ export function WashOwnerPanel({ shop }: Props) {
         shopId={shop.id}
         onClose={() => setEndShiftVisible(false)}
         onClosed={() => {
+          void refreshFinancials();
+        }}
+      />
+
+      <LogExpenseModal
+        visible={expenseModalVisible}
+        shopId={shop.id}
+        onClose={() => setExpenseModalVisible(false)}
+        onSaved={() => {
           void refreshFinancials();
         }}
       />

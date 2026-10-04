@@ -3,8 +3,11 @@ import { getSupabase } from '@/lib/supabase/client';
 import type { Booking } from '@/lib/booking/types';
 import type { DbBranchEmployee } from '@/lib/supabase/database.types';
 import {
+  DEMO_SHOP_ANALYTICS,
+  EMPTY_SHOP_ANALYTICS,
   EMPTY_SHOP_FINANCIALS,
   type PayrollRecordType,
+  type ShopAnalytics,
   type PeakHourBucket,
   type PeakWeekdayBucket,
   type PosCarType,
@@ -220,30 +223,220 @@ export async function updateEmployeePayRates(input: {
   return !error;
 }
 
+function mapAnalytics(row: Record<string, unknown>, extras?: Partial<ShopAnalytics>): ShopAnalytics {
+  return {
+    totalSales: num(row.totalSales),
+    walkInSales: num(row.walkInSales),
+    appBookingSales: num(row.appBookingSales),
+    washRevenue: num(row.washRevenue),
+    accessorySales: num(row.accessorySales),
+    operatingExpenses: num(row.operatingExpenses),
+    rawMaterials: num(row.rawMaterials),
+    operations: num(row.operations),
+    payroll: num(row.payroll),
+    employeeCommissions: num(row.employeeCommissions),
+    pitstopFees: num(row.pitstopFees),
+    pitstopFeesDue: num(row.pitstopFeesDue),
+    uncollected: num(row.uncollected),
+    unpaidOrders: num(row.unpaidOrders),
+    pendingCredits: num(row.pendingCredits),
+    netProfit: num(row.netProfit),
+    usedFallbackRange: false,
+    isDemo: false,
+    ...extras,
+  };
+}
+
+function isEmptyAnalytics(row: ShopAnalytics): boolean {
+  return (
+    row.totalSales === 0 &&
+    row.operatingExpenses === 0 &&
+    row.payroll === 0 &&
+    row.uncollected === 0 &&
+    row.pitstopFees === 0
+  );
+}
+
+export function rangeForAnalyticsTimeframe(
+  timeframe: 'today' | 'month',
+  now = new Date(),
+): { from: Date; to: Date } {
+  if (timeframe === 'today') {
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const to = new Date(from);
+    to.setDate(to.getDate() + 1);
+    return { from, to };
+  }
+  return {
+    from: new Date(now.getFullYear(), now.getMonth(), 1),
+    to: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+  };
+}
+
+async function fetchShopAnalyticsRange(shopId: string, fromIso: string, toIso: string): Promise<ShopAnalytics> {
+  const supabase = getSupabase();
+  if (!supabase) return EMPTY_SHOP_ANALYTICS;
+  const { data, error } = await supabase.rpc('shop_pos_analytics', {
+    p_shop_id: shopId,
+    p_from: fromIso,
+    p_to: toIso,
+  });
+  if (!error && data && typeof data === 'object') {
+    return mapAnalytics(data as Record<string, unknown>);
+  }
+  return fetchShopAnalyticsFallback(shopId, fromIso, toIso);
+}
+
+async function fetchShopAnalyticsFallback(shopId: string, fromIso: string, toIso: string): Promise<ShopAnalytics> {
+  const supabase = getSupabase();
+  if (!supabase) return EMPTY_SHOP_ANALYTICS;
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+
+  const [ordersRes, itemsRes, expensesRes, payrollRes, bookingsRes, creditsRes] = await Promise.all([
+    supabase
+      .from('pos_orders')
+      .select('source, status, price, total_amount, payment_status, pitstop_commission, created_at')
+      .eq('shop_id', shopId)
+      .eq('status', 'completed')
+      .gte('created_at', fromIso)
+      .lt('created_at', toIso),
+    supabase
+      .from('pos_order_items')
+      .select('subtotal, pos_orders!inner(shop_id, status, created_at)')
+      .eq('pos_orders.shop_id', shopId)
+      .eq('pos_orders.status', 'completed')
+      .gte('pos_orders.created_at', fromIso)
+      .lt('pos_orders.created_at', toIso),
+    supabase
+      .from('shop_expenses')
+      .select('category, amount, created_at, recorded_at')
+      .eq('shop_id', shopId),
+    supabase
+      .from('employee_payroll_records')
+      .select('type, amount, date')
+      .eq('shop_id', shopId)
+      .gte('date', fromIso.slice(0, 10))
+      .lt('date', toIso.slice(0, 10)),
+    supabase
+      .from('bookings')
+      .select('booking_type, status, service_price_egp, final_amount_paid_egp, total_price, platform_fee_egp, scheduled_at')
+      .eq('shop_id', shopId)
+      .eq('booking_type', 'app')
+      .in('status', ['done', 'confirmed', 'in_progress'])
+      .gte('scheduled_at', fromIso)
+      .lt('scheduled_at', toIso),
+    supabase.from('customer_credits').select('amount_due, status').eq('shop_id', shopId).eq('status', 'pending'),
+  ]);
+
+  const orders = (ordersRes.data ?? []) as Array<Record<string, unknown>>;
+  const walkInSales = orders
+    .filter((row) => row.source === 'walk_in')
+    .reduce((sum, row) => sum + (num(row.total_amount) || num(row.price)), 0);
+  const posAppSales = orders
+    .filter((row) => row.source === 'pitstop_app')
+    .reduce((sum, row) => sum + (num(row.total_amount) || num(row.price)), 0);
+  const bookingSales = (bookingsRes.data ?? []).reduce(
+    (sum, row) =>
+      sum + num((row as { final_amount_paid_egp?: number; service_price_egp?: number; total_price?: number }).final_amount_paid_egp
+        ?? (row as { service_price_egp?: number }).service_price_egp
+        ?? (row as { total_price?: number }).total_price),
+    0,
+  );
+  const appBookingSales = posAppSales + bookingSales;
+  const washRevenue = orders.reduce((sum, row) => sum + num(row.price), 0) + bookingSales;
+  const accessorySales = ((itemsRes.data ?? []) as Array<{ subtotal?: number }>).reduce((sum, row) => sum + num(row.subtotal), 0);
+  const expenses = (expensesRes.data ?? []) as Array<{ category?: string; amount?: number; created_at?: string; recorded_at?: string }>;
+  const inRange = expenses.filter((row) => {
+    const at = new Date(String(row.created_at ?? row.recorded_at ?? ''));
+    return at >= from && at < to;
+  });
+  const rawMaterials = inRange.filter((row) => row.category === 'raw_materials').reduce((sum, row) => sum + num(row.amount), 0);
+  const operations = inRange
+    .filter((row) => ['utilities', 'tea_food', 'maintenance', 'other'].includes(String(row.category)))
+    .reduce((sum, row) => sum + num(row.amount), 0);
+  const staffExpenses = inRange
+    .filter((row) => ['staff_advance', 'staff_wage', 'labor_advance'].includes(String(row.category)))
+    .reduce((sum, row) => sum + num(row.amount), 0);
+  const payrollRows = (payrollRes.data ?? []) as Array<{ type?: string; amount?: number }>;
+  const payrollRecords = payrollRows
+    .filter((row) => ['daily_wage', 'monthly_salary', 'commission'].includes(String(row.type)))
+    .reduce((sum, row) => sum + num(row.amount), 0);
+  const employeeCommissions = payrollRows
+    .filter((row) => row.type === 'commission')
+    .reduce((sum, row) => sum + num(row.amount), 0);
+  const pitstopFees = (bookingsRes.data ?? []).reduce((sum, row) => sum + num((row as { platform_fee_egp?: number }).platform_fee_egp), 0);
+  const unpaidOrders = orders
+    .filter((row) => row.payment_status === 'unpaid')
+    .reduce((sum, row) => sum + (num(row.total_amount) || num(row.price)), 0);
+  const pendingCredits = ((creditsRes.data ?? []) as Array<{ amount_due?: number }>).reduce((sum, row) => sum + num(row.amount_due), 0);
+  const payroll = staffExpenses + payrollRecords;
+  const totalSales = walkInSales + appBookingSales;
+  return {
+    totalSales,
+    walkInSales,
+    appBookingSales,
+    washRevenue,
+    accessorySales,
+    operatingExpenses: rawMaterials + operations,
+    rawMaterials,
+    operations,
+    payroll,
+    employeeCommissions,
+    pitstopFees,
+    pitstopFeesDue: pitstopFees,
+    uncollected: unpaidOrders + pendingCredits,
+    unpaidOrders,
+    pendingCredits,
+    netProfit: totalSales - (rawMaterials + operations) - payroll - pitstopFees,
+    usedFallbackRange: false,
+    isDemo: false,
+  };
+}
+
+export async function fetchShopAnalytics(
+  shopId: string,
+  fromIso: string,
+  toIso: string,
+  options?: { allowFallbackRange?: boolean; allowDemo?: boolean },
+): Promise<ShopAnalytics> {
+  const primary = await fetchShopAnalyticsRange(shopId, fromIso, toIso);
+  if (!isEmptyAnalytics(primary) || !options?.allowFallbackRange) {
+    if (isEmptyAnalytics(primary) && options?.allowDemo && typeof __DEV__ !== 'undefined' && __DEV__) {
+      return { ...DEMO_SHOP_ANALYTICS };
+    }
+    return primary;
+  }
+
+  const fallbackTo = new Date(toIso);
+  const fallbackFrom = new Date(fallbackTo);
+  fallbackFrom.setDate(fallbackFrom.getDate() - 30);
+  const recent = await fetchShopAnalyticsRange(shopId, fallbackFrom.toISOString(), fallbackTo.toISOString());
+  if (!isEmptyAnalytics(recent)) {
+    return { ...recent, usedFallbackRange: true };
+  }
+  if (options?.allowDemo && typeof __DEV__ !== 'undefined' && __DEV__) {
+    return { ...DEMO_SHOP_ANALYTICS };
+  }
+  return primary;
+}
+
 export async function fetchShopFinancials(
   shopId: string,
   fromIso: string,
   toIso: string,
 ): Promise<ShopFinancials> {
-  const supabase = getSupabase();
-  if (!supabase) return EMPTY_SHOP_FINANCIALS;
-  const { data, error } = await supabase.rpc('shop_pos_financials', {
-    p_shop_id: shopId,
-    p_from: fromIso,
-    p_to: toIso,
-  });
-  if (error || !data || typeof data !== 'object') return EMPTY_SHOP_FINANCIALS;
-  const row = data as Record<string, unknown>;
+  const row = await fetchShopAnalytics(shopId, fromIso, toIso, { allowFallbackRange: true });
   return {
-    walkInRevenue: num(row.walkInRevenue),
-    appBookingRevenue: num(row.appBookingRevenue),
-    accessorySales: num(row.accessorySales),
-    rawMaterialPurchases: num(row.rawMaterialPurchases),
-    operatingExpenses: num(row.operatingExpenses),
-    payrollAndAdvances: num(row.payrollAndAdvances),
-    pitstopCommissions: num(row.pitstopCommissions),
-    pitstopFeesDue: num(row.pitstopFeesDue),
-    netProfit: num(row.netProfit),
+    walkInRevenue: row.walkInSales,
+    appBookingRevenue: row.appBookingSales,
+    accessorySales: row.accessorySales,
+    rawMaterialPurchases: row.rawMaterials,
+    operatingExpenses: row.operations,
+    payrollAndAdvances: row.payroll,
+    pitstopCommissions: row.pitstopFees,
+    pitstopFeesDue: row.pitstopFeesDue,
+    netProfit: row.netProfit,
   };
 }
 

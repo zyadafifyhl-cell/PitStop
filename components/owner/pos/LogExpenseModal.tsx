@@ -12,7 +12,8 @@ import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 const CATEGORIES: ShopExpenseCategory[] = [
   'raw_materials',
   'utilities',
-  'labor_advance',
+  'staff_advance',
+  'staff_wage',
   'tea_food',
   'maintenance',
   'other',
