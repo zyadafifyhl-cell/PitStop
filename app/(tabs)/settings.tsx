@@ -170,9 +170,12 @@ export default function SettingsScreen() {
               onPress={() => setPreference(option)}
               style={[
                 styles.themeOption,
-                { borderColor: theme.border, backgroundColor: preference === option ? theme.accentSoft : theme.bgElevated },
+                {
+                  borderColor: preference === option ? theme.accent : theme.border,
+                  backgroundColor: preference === option ? theme.accent : theme.bgElevated,
+                },
               ]}>
-              <Text style={[styles.themeOptionText, { color: preference === option ? theme.accent : theme.text }]}>
+              <Text style={[styles.themeOptionText, { color: preference === option ? theme.onAccent : theme.text }]}>
                 {option === 'light' ? t('settings_theme_light') : t('settings_theme_dark')}
               </Text>
             </Pressable>

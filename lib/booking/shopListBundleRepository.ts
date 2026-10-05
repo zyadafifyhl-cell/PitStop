@@ -11,7 +11,8 @@ import { fetchDefaultBranchProfilesForShops } from '@/lib/booking/wash/branchRep
 import type { WashBranch } from '@/lib/booking/wash/types';
 import { mergeWashBranchIntoExtras } from '@/lib/booking/wash/washSync';
 
-const SHOP_LIST_BUNDLE_KEY = '@pitstop/shop-list-bundle/v1';
+const SHOP_LIST_BUNDLE_KEY = '@pitstop/shop-list-bundle/v2';
+const LEGACY_BUNDLE_KEYS = ['@pitstop/shop-list-bundle/v1'];
 const BUNDLE_TTL_MS = 5 * 60 * 1000;
 
 export type ShopListBundle = {
@@ -50,6 +51,7 @@ function mergeOffersIntoExtras(
 async function hydrateStorageCache(): Promise<void> {
   if (storageHydrated) return;
   storageHydrated = true;
+  void AsyncStorage.multiRemove(LEGACY_BUNDLE_KEYS).catch(() => undefined);
   try {
     const raw = await AsyncStorage.getItem(SHOP_LIST_BUNDLE_KEY);
     const parsed = raw ? (JSON.parse(raw) as BundleCachePayload) : {};

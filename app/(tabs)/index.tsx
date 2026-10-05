@@ -70,7 +70,7 @@ function bookingStatusTone(status: Booking['status'], palette: HomePalette) {
     return { bg: 'rgba(0, 37, 92, 0.10)', color: palette.accent, border: 'rgba(0, 37, 92, 0.22)' };
   }
   if (status === 'done') return { bg: 'rgba(16, 185, 129, 0.12)', color: '#34D399', border: 'rgba(16, 185, 129, 0.28)' };
-  if (status === 'no_show') return { bg: 'rgba(239, 68, 68, 0.10)', color: '#F87171', border: 'rgba(239, 68, 68, 0.25)' };
+  if (status === 'no_show') return { bg: 'rgba(211, 47, 47, 0.10)', color: '#D32F2F', border: 'rgba(211, 47, 47, 0.25)' };
   return { bg: palette.card, color: palette.muted, border: palette.border };
 }
 

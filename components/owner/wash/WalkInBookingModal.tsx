@@ -238,6 +238,7 @@ export function WalkInBookingModal({
         branchId,
         carType,
         customerPhone: phone.trim() || undefined,
+        customerName: fullName.trim() || undefined,
         customerId: resolvedCustomerId,
         skipPhoneLookup: true,
         serviceId: aggregated.serviceId,

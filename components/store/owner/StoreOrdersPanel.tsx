@@ -49,7 +49,7 @@ const STATUS_COLORS: Record<StoreOrderStatus, string> = {
   preparing: '#00255C',
   ready: '#1A4A8C',
   completed: '#22C55E',
-  cancelled: '#EF4444',
+  cancelled: '#C62828',
 };
 
 const STATUS_ICONS: Record<StoreOrderStatus, React.ComponentProps<typeof FontAwesome>['name']> = {
@@ -76,12 +76,21 @@ export function StoreOrdersPanel({
     textSecondary: appTheme.textMuted,
   };
   const { t, locale } = useI18n();
-  const isRetailStore = shop.type === 'parts' || shop.type === 'accessories';
-  const sectionTitle = isRetailStore ? t('store_owner_orders') : t('owner_management_bookings_title');
+  const isWash = shop.type === 'wash';
+  const isRetailStore = shop.type === 'parts' || shop.type === 'accessories' || isWash;
+  const sectionTitle = isWash
+    ? t('wash_product_orders_title')
+    : isRetailStore
+      ? t('store_owner_orders')
+      : t('owner_management_bookings_title');
   const sectionIcon: React.ComponentProps<typeof FontAwesome>['name'] = isRetailStore
     ? 'shopping-bag'
     : 'calendar';
-  const emptyLabel = isRetailStore ? t('store_owner_no_orders') : t('owner_management_bookings_empty');
+  const emptyLabel = isWash
+    ? t('wash_product_orders_empty')
+    : isRetailStore
+      ? t('store_owner_no_orders')
+      : t('owner_management_bookings_empty');
   const emptyFilterLabel = isRetailStore
     ? t('store_owner_no_orders_filter')
     : t('owner_management_bookings_empty_filter');
@@ -318,7 +327,11 @@ export function StoreOrdersPanel({
                   style={[styles.statusButton, { backgroundColor: STATUS_COLORS.completed }]}
                   onPress={() => requestStatusChange(order.id, 'completed')}
                   disabled={updating}>
-                  <Text style={styles.statusButtonText}>{t('store_order_action_confirm_delivery')}</Text>
+                  <Text style={styles.statusButtonText}>
+                    {isStoreOrderPickup(order.fulfillmentMethod)
+                      ? t('store_order_action_picked_up')
+                      : t('store_order_action_confirm_delivery')}
+                  </Text>
                 </Pressable>
                 <Pressable
                   style={[styles.statusButton, { backgroundColor: theme.dangerSoft, borderColor: theme.danger, borderWidth: 1 }]}

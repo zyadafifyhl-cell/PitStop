@@ -11,10 +11,13 @@ type TabOptions = {
   tabBarLabel?: string;
   tabBarAccessibilityLabel?: string;
   tabBarIcon?: (props: { focused: boolean; color: string; size: number }) => React.ReactNode;
+  tabBarItemStyle?: unknown;
 };
 
 function isTabHidden(options: TabOptions) {
-  return options.href === null;
+  if (options.href === null) return true;
+  const itemStyle = StyleSheet.flatten(options.tabBarItemStyle as never) as { display?: string } | undefined;
+  return itemStyle?.display === 'none';
 }
 
 export function FintechTabBar({

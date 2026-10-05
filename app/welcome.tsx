@@ -43,7 +43,7 @@ type PasswordInputProps = {
   invalid?: boolean;
 };
 
-const AUTH_ERROR_BORDER = '#EF4444';
+const AUTH_ERROR_BORDER = '#C62828';
 
 function PasswordInput({
   placeholder,

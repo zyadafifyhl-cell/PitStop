@@ -272,6 +272,7 @@ export type WalkInBookingInput = {
   branchId: string;
   carType: string;
   customerPhone?: string;
+  customerName?: string;
   customerId?: string;
   skipPhoneLookup?: boolean;
   serviceId?: string;
@@ -640,6 +641,7 @@ export async function createWalkInBooking(input: WalkInBookingInput): Promise<Bo
       branchId: input.branchId,
       customerId,
       customerPhone: customerPhone ?? '',
+      customerName: input.customerName?.trim() || undefined,
       carType,
       carColor: '',
       scheduledAt: new Date().toISOString(),

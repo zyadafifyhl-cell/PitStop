@@ -273,7 +273,7 @@ function applyBranchToForms(branch: WashBranch, setters: {
 
 export function WashOwnerPanel({ shop }: Props) {
   const theme = useAppTheme();
-  const { t, locale, isRTL } = useI18n();
+  const { t, tp, locale, isRTL } = useI18n();
   const { shopStaff, staff, isOwner, isBranchManager, isPremium: authPremium } = useShopAuth();
   const { isPro } = useShopSubscription(shop.id);
   const isPremium = isPro || authPremium;
@@ -1645,6 +1645,7 @@ export function WashOwnerPanel({ shop }: Props) {
     id: tab.id,
     label: t(tab.labelKey),
     icon: tab.icon,
+    badge: tab.id === 'products' ? orderNotifier.pendingStoreOrderCount : undefined,
   }));
 
   const shopStatusCard = (
@@ -1816,6 +1817,20 @@ export function WashOwnerPanel({ shop }: Props) {
 
         {adminTab === 'dashboard' && (
           <>
+            {orderNotifier.pendingStoreOrderCount > 0 ? (
+              <Pressable
+                onPress={() => {
+                  setStoreOrderFilter('pending');
+                  setAdminTab('products');
+                }}
+                style={[styles.productOrdersBanner, { backgroundColor: theme.accent }]}>
+                <FontAwesome name="shopping-bag" size={16} color={theme.onAccent} />
+                <Text style={[styles.productOrdersBannerText, { color: theme.onAccent }]}>
+                  {tp('wash_product_orders_pending_banner', { count: String(orderNotifier.pendingStoreOrderCount) })}
+                </Text>
+                <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={12} color={theme.onAccent} />
+              </Pressable>
+            ) : null}
             <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
               {(
                 [
@@ -2182,8 +2197,6 @@ export function WashOwnerPanel({ shop }: Props) {
               </OwnerSectionCard>
             </PremiumFeatureGate>
 
-            <StoreInventoryManager shop={shop} />
-
             {/* Coupons hidden by request */}
             {showCoupons ? (
               <PremiumFeatureGate>
@@ -2233,6 +2246,20 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         )}
 
+        {adminTab === 'products' && (
+          <>
+            <StoreOrdersPanel
+              shop={shop}
+              statusFilter={storeOrderFilter}
+              onStatusFilterChange={setStoreOrderFilter}
+              focusOrderId={focusStoreOrderId}
+              onFocusOrderHandled={() => setFocusStoreOrderId(null)}
+              onRefresh={() => void orderNotifier.refreshStoreOrders()}
+            />
+            <StoreInventoryManager shop={shop} />
+          </>
+        )}
+
         {adminTab === 'management' && (
           <>
             {focusedBooking ? (
@@ -2246,13 +2273,6 @@ export function WashOwnerPanel({ shop }: Props) {
             {shopStatusCard}
             {weeklyHoursCard}
             <ShopCustomersPanel shopId={shop.id} refreshKey={crmRefreshKey} />
-            <StoreOrdersPanel
-              shop={shop}
-              statusFilter={storeOrderFilter}
-              onStatusFilterChange={setStoreOrderFilter}
-              focusOrderId={focusStoreOrderId}
-              onFocusOrderHandled={() => setFocusStoreOrderId(null)}
-            />
             {/* Branch employees */}
             {activeBranch && isUuid(activeBranch.id) ? (
               <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_staff')}>
@@ -2368,7 +2388,7 @@ export function WashOwnerPanel({ shop }: Props) {
         onSelectStoreOrder={(order) => {
           setStoreOrderFilter('pending');
           setFocusStoreOrderId(order.id);
-          setAdminTab('management');
+          setAdminTab('products');
         }}
         onSelectBooking={(booking) => {
           setPanelTab('workspace');
@@ -2770,6 +2790,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   roleBadgeText: { fontSize: 12, fontWeight: '800' },
+  productOrdersBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 14,
+  },
+  productOrdersBannerText: { flex: 1, fontSize: 14, fontWeight: '800' },
   panelTabRow: {
     flexDirection: 'row',
     gap: 8,

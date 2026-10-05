@@ -2,12 +2,12 @@ import { router } from 'expo-router';
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
-import { Alert, Platform, Pressable, StyleSheet, Text } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MerchantNavRow } from '@/components/owner/merchant/MerchantNavRow';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { useI18n } from '@/context/I18nContext';
-import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 
 type ExtraRow = {
@@ -22,7 +22,8 @@ type Props = {
 
 export function OwnerAccountSettings({ extraPreferenceRows = [] }: Props) {
   const theme = useAppTheme();
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale, setLocale, isRTL } = useI18n();
+  const { preference, setPreference } = useThemePreference();
   const { signOut, busy: signingOut } = useAppSignOut();
 
   async function clearLocalPitstopCache() {
@@ -99,8 +100,33 @@ export function OwnerAccountSettings({ extraPreferenceRows = [] }: Props) {
           onPress={() => {
             void setLocale(locale === 'ar' ? 'en' : 'ar');
           }}
-          showDivider={extraPreferenceRows.length > 0}
         />
+        <View style={[styles.themeBlock, { borderBottomColor: theme.border }, extraPreferenceRows.length === 0 && styles.themeBlockLast]}>
+          <Text style={[styles.themeLabel, { color: theme.text, textAlign: isRTL ? 'right' : 'left' }]}>
+            {t('settings_theme_title')}
+          </Text>
+          <View style={[styles.themeOptions, isRTL && styles.rowReverse]}>
+            {(['light', 'dark'] as const).map((option) => {
+              const active = preference === option;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => void setPreference(option)}
+                  style={[
+                    styles.themeOption,
+                    {
+                      borderColor: active ? theme.accent : theme.border,
+                      backgroundColor: active ? theme.accent : theme.bg,
+                    },
+                  ]}>
+                  <Text style={[styles.themeOptionText, { color: active ? theme.onAccent : theme.text }]}>
+                    {option === 'light' ? t('settings_theme_light') : t('settings_theme_dark')}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
         {extraPreferenceRows.map((row, index) => (
           <MerchantNavRow
             key={row.label}
@@ -155,4 +181,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   signOutText: { fontSize: 16, fontWeight: '800' },
+  themeBlock: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  themeBlockLast: { borderBottomWidth: 0 },
+  themeLabel: { fontSize: 15, fontWeight: '700', marginBottom: 10 },
+  themeOptions: { flexDirection: 'row', gap: 10 },
+  rowReverse: { flexDirection: 'row-reverse' },
+  themeOption: { flex: 1, borderWidth: 1, borderRadius: 999, paddingVertical: 11, alignItems: 'center' },
+  themeOptionText: { fontSize: 14, fontWeight: '800' },
 });

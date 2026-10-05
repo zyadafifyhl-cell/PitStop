@@ -159,10 +159,12 @@ function parseStoreOperatingStatus(value: unknown): StoreOperatingStatus | undef
 }
 
 export async function getShopExtras(shopId: string): Promise<ShopExtras> {
-  const map = await readMap();
-  const remote = await fetchShopExtrasRemote(shopId);
+  const [map, remote, remoteOffers] = await Promise.all([
+    readMap(),
+    fetchShopExtrasRemote(shopId),
+    listActiveOffersForShop(shopId),
+  ]);
   const normalized = normalizeExtras(shopId, remote ?? map[shopId]);
-  const remoteOffers = await listActiveOffersForShop(shopId);
   if (remoteOffers.length) {
     normalized.offers = remoteOffers;
   }
@@ -191,7 +193,7 @@ export async function getShopExtrasCachedBatch(shopIds: string[]): Promise<Recor
   return result;
 }
 
-/** Persist many shop extras rows in one AsyncStorage write. */
+/** Cache many shop extras rows locally in one AsyncStorage write. Customer browsing must never write shop data remotely. */
 export async function persistShopExtrasBatch(rows: Record<string, ShopExtras>): Promise<void> {
   const shopIds = Object.keys(rows);
   if (!shopIds.length) return;
@@ -207,7 +209,6 @@ export async function persistShopExtrasBatch(rows: Record<string, ShopExtras>): 
   }
   if (changed) {
     await writeMap(map);
-    await Promise.all(shopIds.map((shopId) => upsertShopExtrasRemote(map[shopId])));
   }
 }
 

@@ -3,7 +3,7 @@ import type { ShopType } from '@/lib/booking/types';
 
 export type OwnerBusinessMode = 'service' | 'store';
 
-export type OwnerShellTabId = 'dashboard' | 'management' | 'operations' | 'profile' | 'settings';
+export type OwnerShellTabId = 'dashboard' | 'management' | 'operations' | 'products' | 'profile' | 'settings';
 
 export type OwnerNavIconId =
   | 'overview'
@@ -11,6 +11,7 @@ export type OwnerNavIconId =
   | 'management-store'
   | 'catalog-service'
   | 'catalog-store'
+  | 'products'
   | 'profile'
   | 'settings';
 
@@ -57,11 +58,11 @@ export function getOwnerDashboardConfig(shopType: ShopType): OwnerDashboardConfi
   };
 }
 
-/** Every merchant type uses the same 5-tab shell; labels/icons change by business mode. */
+/** Every merchant type shares the same tab shell; car washes add a Products tab for in-shop retail. */
 export function getOwnerNavTabs(shopType: ShopType): OwnerNavTabConfig[] {
   const config = getOwnerDashboardConfig(shopType);
   const isStore = config.mode === 'store';
-  return [
+  const tabs: OwnerNavTabConfig[] = [
     { id: 'dashboard', labelKey: 'owner_dashboard_overview', icon: 'overview' },
     {
       id: 'management',
@@ -76,4 +77,8 @@ export function getOwnerNavTabs(shopType: ShopType): OwnerNavTabConfig[] {
     { id: 'profile', labelKey: 'owner_dashboard_profile', icon: 'profile' },
     { id: 'settings', labelKey: 'owner_dashboard_settings', icon: 'settings' },
   ];
+  if (shopType === 'wash') {
+    tabs.splice(3, 0, { id: 'products', labelKey: 'owner_dashboard_products', icon: 'products' });
+  }
+  return tabs;
 }

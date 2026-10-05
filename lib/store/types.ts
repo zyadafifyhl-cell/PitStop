@@ -1,3 +1,5 @@
+import type { ShopType } from '@/lib/booking/types';
+
 export type StoreProductCategory = 'spare_parts' | 'accessories';
 
 export type InventoryKind = 'retail' | 'supply';
@@ -126,6 +128,7 @@ export type StoreCategoryFilter = 'all' | StoreProductCategory;
 export type StoreCartShopGroup = {
   shopId: string;
   shopName: string;
+  shopType?: ShopType;
   items: StoreCartItem[];
   itemCount: number;
   subtotal: number;

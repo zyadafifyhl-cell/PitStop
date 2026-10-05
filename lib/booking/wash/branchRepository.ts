@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
+import { compactStoredImageUrl, compactStoredImageUrls } from '@/lib/media/persistImageUri';
 import type { Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { DbBranchEmployee, DbShopBranch } from '@/lib/supabase/database.types';
@@ -309,8 +310,8 @@ function branchPatchToRow(patch: Partial<WashBranch>): Record<string, unknown> {
   if (patch.profileEmail != null) row.profile_email = patch.profileEmail;
   if (patch.moreInfo != null) row.more_info = patch.moreInfo;
   if (patch.moreInfoAr != null) row.more_info_ar = patch.moreInfoAr;
-  if (patch.profileImageUrl != null) row.profile_image_url = patch.profileImageUrl;
-  if (patch.imageUrls != null) row.image_urls = patch.imageUrls;
+  if (patch.profileImageUrl != null) row.profile_image_url = compactStoredImageUrl(patch.profileImageUrl) ?? null;
+  if (patch.imageUrls != null) row.image_urls = compactStoredImageUrls(patch.imageUrls);
   if (patch.servicePriceEgp != null) row.service_price_egp = patch.servicePriceEgp;
   if (patch.serviceDurationMinutes != null) row.service_duration_minutes = patch.serviceDurationMinutes;
   if (patch.weeklyHours != null) row.weekly_hours = patch.weeklyHours;

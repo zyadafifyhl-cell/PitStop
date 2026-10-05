@@ -3,6 +3,7 @@ import {
   addShopReviewSynced,
   fetchShopRatingSummariesRemote,
   getCustomerShopReviewSynced,
+  listLocalShopReviewsByShop,
   listShopReviewsSynced,
   setReviewHiddenSynced,
   setReviewOwnerReplySynced,
@@ -86,13 +87,9 @@ export async function getShopAverageRatings(shopIds: string[]): Promise<Record<s
   }
 
   if (missing.length) {
-    const localEntries = await Promise.all(
-      missing.map(async (shopId) => {
-        const reviews = await listShopReviews(shopId);
-        return [shopId, computeShopRatingSummary(reviews)] as const;
-      }),
-    );
-    for (const [shopId, summary] of localEntries) {
+    const localByShop = await listLocalShopReviewsByShop(missing);
+    for (const shopId of missing) {
+      const summary = computeShopRatingSummary(localByShop[shopId] ?? []);
       if (summary.count > 0) summaries[shopId] = summary;
     }
   }

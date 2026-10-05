@@ -183,6 +183,7 @@ export function groupCartItemsByShop(
     groups.set(shopId, {
       shopId,
       shopName,
+      shopType: shop?.type,
       items: [item],
       itemCount: item.quantity,
       subtotal: (item.product?.salePrice ?? item.product?.price ?? 0) * item.quantity,

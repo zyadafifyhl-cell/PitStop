@@ -10,6 +10,7 @@ export type OwnerDashboardTab<T extends string = string> = {
   id: T;
   label: string;
   icon: OwnerNavIconId;
+  badge?: number;
 };
 
 type Props<T extends string> = {
@@ -24,6 +25,7 @@ const NAV_ICONS: Record<OwnerNavIconId, React.ComponentProps<typeof MaterialComm
   'management-store': 'clipboard-list-outline',
   'catalog-service': 'wrench-outline',
   'catalog-store': 'layers-outline',
+  products: 'shopping-outline',
   profile: 'account-outline',
   settings: 'cog-outline',
 };
@@ -62,6 +64,11 @@ export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange 
               style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
               <View style={[styles.iconWrap, active && { backgroundColor: theme.accentSoft }]}>
                 <MaterialCommunityIcons name={NAV_ICONS[tab.icon]} size={20} color={color} />
+                {tab.badge ? (
+                  <View style={[styles.badge, { backgroundColor: theme.danger, borderColor: theme.card }]}>
+                    <Text style={styles.badgeText}>{tab.badge > 9 ? '9+' : tab.badge}</Text>
+                  </View>
+                ) : null}
               </View>
               <Text numberOfLines={1} style={[styles.label, { color }]}>
                 {tab.label}
@@ -118,6 +125,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  badge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
   label: {
     fontSize: 10,
     fontWeight: '700',

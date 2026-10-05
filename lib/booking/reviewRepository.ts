@@ -154,6 +154,14 @@ export async function fetchShopRatingSummariesRemote(
   return summaries;
 }
 
+/** Reviews stored on this device only — no network. */
+export async function listLocalShopReviewsByShop(shopIds: string[]): Promise<Record<string, ShopReview[]>> {
+  const map = await readMap();
+  const result: Record<string, ShopReview[]> = {};
+  for (const shopId of shopIds) result[shopId] = map[shopId] ?? [];
+  return result;
+}
+
 export async function listShopReviewsSynced(shopId: string): Promise<ShopReview[]> {
   const local = (await readMap())[shopId] ?? [];
   const remote = await fetchReviewsRemote(shopId);

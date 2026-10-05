@@ -21,6 +21,7 @@ import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { isWashShopType } from '@/lib/booking/wash/types';
 import { groupCartItemsByShop } from '@/lib/store/cartRepository';
 import { STORE_COD_DELIVERY_FEE_EGP } from '@/lib/store/constants';
 import { primaryProductImageUrl } from '@/lib/store/productImages';
@@ -41,7 +42,7 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, p
   const { t, locale, isRTL } = useI18n();
   const { customer } = useCustomerAuth();
   const { items, setQuantity, removeItem, refresh } = useStoreCart();
-  const [fulfillment, setFulfillment] = useState<StoreFulfillmentMethod>('cod');
+  const [preferredFulfillment, setFulfillment] = useState<StoreFulfillmentMethod>('cod');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [placing, setPlacing] = useState(false);
@@ -51,6 +52,8 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, p
   const groups = useMemo(() => groupCartItemsByShop(items, locale), [items, locale]);
   const selectedGroup = groups.find((group) => group.shopId === selectedShopId) ?? groups[0];
   const checkoutItems = selectedGroup?.items ?? [];
+  const pickupOnly = selectedGroup?.shopType ? isWashShopType(selectedGroup.shopType) : false;
+  const fulfillment: StoreFulfillmentMethod = pickupOnly ? 'pickup' : preferredFulfillment;
   const deliveryFee = fulfillment === 'cod' ? STORE_COD_DELIVERY_FEE_EGP : 0;
   const subtotal = selectedGroup?.subtotal ?? 0;
   const grandTotal = subtotal + deliveryFee;
@@ -85,11 +88,13 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, p
 
   const fulfillmentOptions = useMemo(
     () =>
-      [
-        { id: 'cod' as const, label: t('store_fulfillment_cod') },
-        { id: 'pickup' as const, label: t('store_fulfillment_pickup') },
-      ] as const,
-    [t],
+      pickupOnly
+        ? [{ id: 'pickup' as const, label: t('store_fulfillment_pickup') }]
+        : [
+            { id: 'cod' as const, label: t('store_fulfillment_cod') },
+            { id: 'pickup' as const, label: t('store_fulfillment_pickup') },
+          ],
+    [pickupOnly, t],
   );
 
   async function reloadLiveStock() {
@@ -295,6 +300,9 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, p
                     );
                   })}
                 </View>
+                {pickupOnly ? (
+                  <Text style={[styles.hint, { color: theme.textMuted }]}>{t('store_wash_pickup_only_hint')}</Text>
+                ) : null}
 
                 {fulfillment === 'cod' ? (
                   <>
@@ -324,10 +332,12 @@ export function StoreCartCheckoutModal({ visible, onClose, onInventoryChanged, p
                     <Text style={{ color: theme.textMuted }}>{t('store_subtotal')}</Text>
                     <Text style={{ color: theme.text }}>{formatEgp(subtotal, locale)}</Text>
                   </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={{ color: theme.textMuted }}>{t('store_delivery_fee')}</Text>
-                    <Text style={{ color: theme.text }}>{formatEgp(deliveryFee, locale)}</Text>
-                  </View>
+                  {pickupOnly ? null : (
+                    <View style={styles.summaryRow}>
+                      <Text style={{ color: theme.textMuted }}>{t('store_delivery_fee')}</Text>
+                      <Text style={{ color: theme.text }}>{formatEgp(deliveryFee, locale)}</Text>
+                    </View>
+                  )}
                   <View style={[styles.summaryRow, styles.summaryTotal]}>
                     <Text style={[styles.totalLabel, { color: theme.text }]}>{t('store_grand_total')}</Text>
                     <Text style={[styles.totalLabel, { color: theme.accent }]}>{formatEgp(grandTotal, locale)}</Text>

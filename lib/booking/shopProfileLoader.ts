@@ -101,6 +101,24 @@ export async function overlayBranchServicesOnExtras(
   return { ...merged, services: fallback };
 }
 
+/** Remote extras and the live branch menu, fetched in parallel instead of back-to-back. */
+export async function fetchShopExtrasWithBranch(shopId: string, shopType?: ShopType): Promise<ShopExtras> {
+  if (isRetailShop(shopType)) return getShopExtras(shopId);
+  const [extras, defaultBranch] = await Promise.all([getShopExtras(shopId), fetchDefaultBranchProfile(shopId)]);
+  const activeBranchId = extras.activeBranchId?.trim();
+  const branch =
+    activeBranchId && activeBranchId !== defaultBranch?.id
+      ? await fetchBranchProfile(shopId, activeBranchId)
+      : defaultBranch;
+  return overlayBranchServicesOnExtras(shopId, extras, { shopType, branch });
+}
+
+/** Local snapshot (filled by the area list) when it already carries a bookable menu. */
+export async function getCachedBookableShopExtras(shopId: string): Promise<ShopExtras | null> {
+  const extras = await getShopExtrasCached(shopId);
+  return visibleCustomerServices(extras).length ? extras : null;
+}
+
 /** Instant offline-first bootstrap from catalog + local extras cache. */
 export async function bootstrapShopProfileFromCache(shopId: string): Promise<ShopProfileBootstrap> {
   await hydrateCatalogCache();

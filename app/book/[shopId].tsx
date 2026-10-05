@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -27,8 +28,8 @@ import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { validateCouponForCheckout } from '@/lib/booking/couponRepository';
-import { getShopExtras, shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
-import { overlayBranchServicesOnExtras } from '@/lib/booking/shopProfileLoader';
+import { shopHasSavedSchedule } from '@/lib/booking/shopExtrasStorage';
+import { fetchShopExtrasWithBranch, getCachedBookableShopExtras } from '@/lib/booking/shopProfileLoader';
 import {
   applyCampaignPrice,
   buildCartLineItemsFromServiceIds,
@@ -262,14 +263,11 @@ export default function BookShopScreen() {
   );
 
   useEffect(() => {
+    if (!shop) return;
     let cancelled = false;
-    (async () => {
-      if (!shop) return;
-      const row = await overlayBranchServicesOnExtras(shop.id, await getShopExtras(shop.id), {
-        shopType: shop.type,
-      });
-      if (!cancelled) setShopExtras(row);
-    })();
+    void getCachedBookableShopExtras(shop.id).then((cached) => {
+      if (!cancelled && cached) setShopExtras((current) => current ?? cached);
+    });
     return () => {
       cancelled = true;
     };
@@ -277,10 +275,10 @@ export default function BookShopScreen() {
 
   const refreshShopExtras = useCallback(async () => {
     if (!shop) return;
-    const [extras, bookings] = await Promise.all([getShopExtras(shop.id), listBookingsForShop(shop.id)]);
-    const row = await overlayBranchServicesOnExtras(shop.id, extras, { shopType: shop.type });
-    setShopExtras(row);
-    setShopBookings(bookings);
+    await Promise.all([
+      fetchShopExtrasWithBranch(shop.id, shop.type).then(setShopExtras),
+      listBookingsForShop(shop.id).then(setShopBookings),
+    ]);
   }, [shop]);
 
   useFocusEffect(
@@ -851,6 +849,10 @@ export default function BookShopScreen() {
             allowDuplicateServices={isBogoOffer}
             bogoPricing={bogoPricing}
           />
+        ) : shop.type === 'wash' && !shopExtras ? (
+          <View style={styles.servicesLoading}>
+            <ActivityIndicator color={theme.accent} />
+          </View>
         ) : null}
 
         <ShopProfileStoreSection shopId={shop.id} shopType={shop.type} shopName={shopName} />
@@ -1197,7 +1199,7 @@ export default function BookShopScreen() {
               ) : null}
 
               {collectiblePenaltyBalance > 0 ? (
-                <View style={[styles.invoiceRow, styles.penaltyRow, { borderColor: '#EF4444' }]}>
+                <View style={[styles.invoiceRow, styles.penaltyRow, { borderColor: '#C62828' }]}>
                   <Text style={[styles.invoiceLabel, { color: theme.danger }]}>
                     {t('book_no_show_penalty_previous')}
                   </Text>
@@ -1387,6 +1389,7 @@ function inputStyle(theme: AppThemeTokens) {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  servicesLoading: { paddingVertical: 28, alignItems: 'center' },
   content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   shopName: { fontSize: 24, fontWeight: '700', marginBottom: 4, letterSpacing: -0.3 },
   meta: { fontSize: 14, marginBottom: 12 },
