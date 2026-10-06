@@ -368,7 +368,7 @@ export default function BookShopScreen() {
   const rawServiceTotal = useMemo(() => {
     if (!shop) return 0;
     if (selectedServices.length) return sumFixedServicePrices(selectedServices);
-    if (shop.type === 'wash') {
+    if (shop.type === 'wash' || shop.type === 'detailing_studio') {
       const fallback = activeServices[0];
       return fallback && !isVariablePriceService(fallback) ? fallback.priceEgp : 0;
     }
@@ -522,7 +522,7 @@ export default function BookShopScreen() {
       userAlert(t('book_missing_title'), t('book_missing_car_type'));
       return;
     }
-    if (shop.type === 'wash' && activeServices.length && selectedServices.length === 0) {
+    if ((shop.type === 'wash' || shop.type === 'detailing_studio') && activeServices.length && selectedServices.length === 0) {
       userAlert(t('book_missing_title'), t('book_missing_service'));
       return;
     }
@@ -839,7 +839,7 @@ export default function BookShopScreen() {
           </View>
         ) : null}
 
-        {shop.type === 'wash' && activeServices.length > 0 ? (
+        {(shop.type === 'wash' || shop.type === 'detailing_studio') && activeServices.length > 0 ? (
           <ServiceMultiPicker
             services={activeServices}
             selectedIds={selectedServiceIds}
@@ -849,7 +849,7 @@ export default function BookShopScreen() {
             allowDuplicateServices={isBogoOffer}
             bogoPricing={bogoPricing}
           />
-        ) : shop.type === 'wash' && !shopExtras ? (
+        ) : (shop.type === 'wash' || shop.type === 'detailing_studio') && !shopExtras ? (
           <View style={styles.servicesLoading}>
             <ActivityIndicator color={theme.accent} />
           </View>

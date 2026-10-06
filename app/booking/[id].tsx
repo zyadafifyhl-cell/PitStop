@@ -74,7 +74,7 @@ export default function OrderDetailsScreen() {
     try {
       const row = await getBookingForCustomer(bookingId, customer.phone);
       setBooking(row);
-      if (row?.branchId && row.shopType === 'wash') {
+      if (row?.branchId && (row.shopType === 'wash' || row.shopType === 'detailing_studio')) {
         const branch = await fetchBranchProfile(row.shopId, row.branchId);
         setBranchAddress(branch?.profileAddress);
       } else {

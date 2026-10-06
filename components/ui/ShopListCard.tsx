@@ -86,11 +86,12 @@ export function ShopListCard({
   const openStatus = getShopOpenStatus(extras);
   const openLabel = locale === 'ar' ? openStatus.labelAr : openStatus.labelEn;
   const washStatusBadge: WashCustomerStatus | null =
-    type === 'wash' &&
-    (extras?.washShopStatus === 'busy' ||
-      extras?.washShopStatus === 'closed' ||
-      extras?.washShopStatus === 'vacation')
-      ? extras.washShopStatus
+    type === 'wash' || type === 'detailing_studio'
+      ? extras?.washShopStatus === 'busy' ||
+        extras?.washShopStatus === 'closed' ||
+        extras?.washShopStatus === 'vacation'
+        ? extras.washShopStatus
+        : null
       : null;
 
   const mapLat = latitude ?? null;
@@ -145,7 +146,7 @@ export function ShopListCard({
             ) : (
               <Text style={[styles.ratingPlaceholder, { color: theme.textDim }]}>{t('shop_rating_none')}</Text>
             )}
-            {extras?.servicePriceEgp != null && type !== 'wash' ? (
+            {extras?.servicePriceEgp != null && type !== 'wash' && type !== 'detailing_studio' ? (
               <View style={[styles.priceChip, { backgroundColor: theme.brandSoft }]}>
                 <Text style={[styles.priceChipText, { color: theme.brand }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
               </View>
@@ -191,7 +192,7 @@ export function ShopListCard({
             ) : null}
           </View>
         </View>
-        {extras?.servicePriceEgp != null && type !== 'wash' ? (
+        {extras?.servicePriceEgp != null && type !== 'wash' && type !== 'detailing_studio' ? (
           <Text style={[styles.priceMeta, { color: theme.text }]}>{formatEgp(extras.servicePriceEgp, locale)}</Text>
         ) : null}
         {activeOffers.length > 0 ? (

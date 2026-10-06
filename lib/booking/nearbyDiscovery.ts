@@ -7,7 +7,7 @@ import {
   type WashBranchListing,
 } from '@/lib/booking/washBranchNearby';
 
-export const DISCOVERABLE_SHOP_TYPES = ['wash', 'maintenance'] as const;
+export const DISCOVERABLE_SHOP_TYPES = ['wash', 'detailing_studio', 'maintenance'] as const;
 export type DiscoverableShopType = (typeof DISCOVERABLE_SHOP_TYPES)[number];
 
 export type DiscoverableListing = ShopWithDistance | WashBranchListing;
@@ -18,7 +18,7 @@ export type DiscoverableNearbyOptions = {
 };
 
 export function isDiscoverableShopType(type: ShopType | undefined): type is DiscoverableShopType {
-  return type === 'wash' || type === 'maintenance';
+  return type === 'wash' || type === 'detailing_studio' || type === 'maintenance';
 }
 
 /** Active listings sorted closest-first via PostGIS RPC (legacy Haversine fallback when offline). */
@@ -33,8 +33,8 @@ export async function listDiscoverableSortedByDistance(
     return rpcRows as DiscoverableListing[];
   }
 
-  if (type === 'wash') {
-    return listWashBranchesSortedByDistanceLegacy(userLat, userLng);
+  if (type === 'wash' || type === 'detailing_studio') {
+    return listWashBranchesSortedByDistanceLegacy(userLat, userLng, type);
   }
   return listMaintenanceShopsSortedByDistanceLegacy(userLat, userLng);
 }

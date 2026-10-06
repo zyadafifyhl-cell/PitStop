@@ -58,7 +58,7 @@ export function getOwnerDashboardConfig(shopType: ShopType): OwnerDashboardConfi
   };
 }
 
-/** Every merchant type shares the same tab shell; car washes add a Products tab for in-shop retail. */
+/** Every merchant type shares the same tab shell; wash/detailing businesses add in-shop retail. */
 export function getOwnerNavTabs(shopType: ShopType): OwnerNavTabConfig[] {
   const config = getOwnerDashboardConfig(shopType);
   const isStore = config.mode === 'store';
@@ -77,7 +77,7 @@ export function getOwnerNavTabs(shopType: ShopType): OwnerNavTabConfig[] {
     { id: 'profile', labelKey: 'owner_dashboard_profile', icon: 'profile' },
     { id: 'settings', labelKey: 'owner_dashboard_settings', icon: 'settings' },
   ];
-  if (shopType === 'wash') {
+  if (shopType === 'wash' || shopType === 'detailing_studio') {
     tabs.splice(3, 0, { id: 'products', labelKey: 'owner_dashboard_products', icon: 'products' });
   }
   return tabs;

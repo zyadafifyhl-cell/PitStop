@@ -31,6 +31,7 @@ import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { MerchantNotificationsModal } from '@/components/merchant/MerchantNotificationsModal';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
+import { DetailingJobBoard } from '@/components/owner/pos/DetailingJobBoard';
 import { EndShiftModal } from '@/components/owner/pos/EndShiftModal';
 import { PeakHoursChart } from '@/components/owner/pos/PeakHoursChart';
 import { ShopCustomersPanel } from '@/components/owner/pos/ShopCustomersPanel';
@@ -57,6 +58,7 @@ import {
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
   bookingStatusLabel,
+  formatServiceDurationValue,
   normalizeTimeHm,
   shopTypeLabel,
 } from '@/lib/booking/format';
@@ -75,6 +77,7 @@ import {
   toYmdLocal,
 } from '@/lib/booking/reporting';
 import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
+import { DETAILING_DURATION_DAYS, DETAILING_WARRANTY_OPTIONS, isDetailingShopType } from '@/lib/booking/shopCategories';
 import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
 import { listShopReviews } from '@/lib/booking/reviewsStorage';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
@@ -155,6 +158,8 @@ type ServiceDraft = {
   priceEgp: string;
   priceVariesByVehicle: boolean;
   durationMinutes: string;
+  durationUnit: NonNullable<ShopService['durationUnit']>;
+  warrantyPeriod: string;
   category: ShopService['category'];
   visible: boolean;
 };
@@ -183,7 +188,7 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function emptyServiceDraft(): ServiceDraft {
+function emptyServiceDraft(detailing = false): ServiceDraft {
   return {
     name: '',
     nameAr: '',
@@ -191,8 +196,10 @@ function emptyServiceDraft(): ServiceDraft {
     descriptionAr: '',
     priceEgp: '',
     priceVariesByVehicle: false,
-    durationMinutes: '30',
-    category: 'exterior_wash',
+    durationMinutes: detailing ? '1' : '30',
+    durationUnit: detailing ? 'days' : 'minutes',
+    warrantyPeriod: detailing ? '1 Year' : '',
+    category: detailing ? 'detailing' : 'exterior_wash',
     visible: true,
   };
 }
@@ -325,6 +332,7 @@ export function WashOwnerPanel({ shop }: Props) {
 
   const [serviceModalVisible, setServiceModalVisible] = useState(false);
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(emptyServiceDraft());
+  const [jobBoardRefreshKey, setJobBoardRefreshKey] = useState(0);
 
   const [couponModalVisible, setCouponModalVisible] = useState(false);
   const [couponDraft, setCouponDraft] = useState<CouponDraft>(emptyCouponDraft());
@@ -1205,11 +1213,13 @@ export function WashOwnerPanel({ shop }: Props) {
         priceEgp: service.priceVariesByVehicle ? '' : String(service.priceEgp),
         priceVariesByVehicle: !!service.priceVariesByVehicle,
         durationMinutes: String(service.durationMinutes),
-        category: service.category ?? 'exterior_wash',
+        durationUnit: service.durationUnit ?? (isDetailingShopType(shop.type) ? 'days' : 'minutes'),
+        warrantyPeriod: service.warrantyPeriod ?? '',
+        category: service.category ?? (isDetailingShopType(shop.type) ? 'detailing' : 'exterior_wash'),
         visible: service.visible !== false,
       });
     } else {
-      setServiceDraft(emptyServiceDraft());
+      setServiceDraft(emptyServiceDraft(isDetailingShopType(shop.type)));
     }
     setServiceModalVisible(true);
   }
@@ -1219,10 +1229,11 @@ export function WashOwnerPanel({ shop }: Props) {
     const priceVariesByVehicle = serviceDraft.priceVariesByVehicle || !serviceDraft.priceEgp.trim();
     const price = priceVariesByVehicle ? 0 : Number(serviceDraft.priceEgp);
     const duration = Number(serviceDraft.durationMinutes);
+    const minDuration = serviceDraft.durationUnit === 'minutes' ? 5 : 1;
     if (
       !serviceDraft.name.trim() ||
       Number.isNaN(duration) ||
-      duration < 5 ||
+      duration < minDuration ||
       (!priceVariesByVehicle && (Number.isNaN(price) || price < 0))
     ) {
       Alert.alert(t('wash_service_invalid_title'), t('wash_service_invalid_body'));
@@ -1241,6 +1252,8 @@ export function WashOwnerPanel({ shop }: Props) {
           priceEgp: price,
           priceVariesByVehicle,
           durationMinutes: duration,
+          durationUnit: serviceDraft.durationUnit,
+          warrantyPeriod: serviceDraft.warrantyPeriod.trim() || undefined,
           category: serviceDraft.category,
           visible: serviceDraft.visible,
           active: true,
@@ -1257,6 +1270,8 @@ export function WashOwnerPanel({ shop }: Props) {
         priceEgp: price,
         priceVariesByVehicle,
         durationMinutes: duration,
+        durationUnit: serviceDraft.durationUnit,
+        warrantyPeriod: serviceDraft.warrantyPeriod.trim() || undefined,
         category: serviceDraft.category,
         visible: serviceDraft.visible,
         active: true,
@@ -1937,6 +1952,10 @@ export function WashOwnerPanel({ shop }: Props) {
                   }}
                 />
 
+                {isDetailingShopType(shop.type) ? (
+                  <DetailingJobBoard shopId={shop.id} refreshKey={jobBoardRefreshKey} />
+                ) : null}
+
                 {/* Dashboard overview */}
                 {analytics ? (
                   <>
@@ -2170,7 +2189,8 @@ export function WashOwnerPanel({ shop }: Props) {
                           {service.visible === false ? ` (${t('wash_service_hidden')})` : ''}
                         </Text>
                         <Text style={[styles.meta, { color: theme.textMuted }]}>
-                          {formatShopServicePrice(service, locale, t)} · {service.durationMinutes} {t('wash_service_minutes')}
+                          {formatShopServicePrice(service, locale, t)} · {formatServiceDurationValue(service.durationMinutes, service.durationUnit, locale)}
+                          {service.warrantyPeriod ? ` · ${service.warrantyPeriod}` : ''}
                         </Text>
                       </View>
                       <View style={styles.actions}>
@@ -2410,6 +2430,7 @@ export function WashOwnerPanel({ shop }: Props) {
             void refreshAll();
             void refreshFinancials();
             setCrmRefreshKey((current) => current + 1);
+            setJobBoardRefreshKey((current) => current + 1);
           }}
         />
       ) : null}
@@ -2615,15 +2636,21 @@ export function WashOwnerPanel({ shop }: Props) {
                 />
               )}
               <Text style={[styles.serviceFormLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-                {t('wash_service_duration_picker_label')}
+                {isDetailingShopType(shop.type) ? t('detailing_days_label') : t('wash_service_duration_picker_label')}
               </Text>
               <View style={styles.serviceFormChips}>
-                {[10, 15, 20, 30, 45, 60, 90, 120].map((minutes) => {
-                  const selected = Number(serviceDraft.durationMinutes) === minutes;
+                {(isDetailingShopType(shop.type) ? DETAILING_DURATION_DAYS : [10, 15, 20, 30, 45, 60, 90, 120]).map((value) => {
+                  const selected = Number(serviceDraft.durationMinutes) === value;
                   return (
                     <Pressable
-                      key={minutes}
-                      onPress={() => setServiceDraft((d) => ({ ...d, durationMinutes: String(minutes) }))}
+                      key={value}
+                      onPress={() =>
+                        setServiceDraft((d) => ({
+                          ...d,
+                          durationMinutes: String(value),
+                          durationUnit: isDetailingShopType(shop.type) ? 'days' : 'minutes',
+                        }))
+                      }
                       style={[
                         styles.serviceFormChip,
                         {
@@ -2632,12 +2659,48 @@ export function WashOwnerPanel({ shop }: Props) {
                         },
                       ]}>
                       <Text style={{ color: selected ? theme.accent : theme.text, fontWeight: '700', fontSize: 12 }}>
-                        {minutes} {locale === 'ar' ? 'د' : 'min'}
+                        {isDetailingShopType(shop.type)
+                          ? formatServiceDurationValue(value, 'days', locale)
+                          : `${value} ${locale === 'ar' ? 'د' : 'min'}`}
                       </Text>
                     </Pressable>
                   );
                 })}
               </View>
+              {isDetailingShopType(shop.type) ? (
+                <>
+                  <Text style={[styles.serviceFormLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+                    {t('detailing_warranty_label')}
+                  </Text>
+                  <View style={styles.serviceFormChips}>
+                    {['', ...DETAILING_WARRANTY_OPTIONS].map((value) => {
+                      const selected = (serviceDraft.warrantyPeriod || '') === value;
+                      return (
+                        <Pressable
+                          key={value || 'none'}
+                          onPress={() => setServiceDraft((d) => ({ ...d, warrantyPeriod: value }))}
+                          style={[
+                            styles.serviceFormChip,
+                            {
+                              borderColor: selected ? theme.accent : theme.border,
+                              backgroundColor: selected ? theme.accentSoft : theme.bgElevated,
+                            },
+                          ]}>
+                          <Text style={{ color: selected ? theme.accent : theme.text, fontWeight: '700', fontSize: 12 }}>
+                            {value === '1 Year'
+                              ? t('detailing_warranty_1y')
+                              : value === '3 Years'
+                                ? t('detailing_warranty_3y')
+                                : value === '5 Years'
+                                  ? t('detailing_warranty_5y')
+                                  : t('detailing_warranty_none')}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
               <Pressable onPress={onSaveService} style={[styles.serviceFormPrimary, { backgroundColor: theme.accent }]}>
                 <Text style={[styles.serviceFormPrimaryText, { color: theme.onAccent }]}>{t('wash_service_save')}</Text>
               </Pressable>

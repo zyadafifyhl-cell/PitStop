@@ -3,7 +3,7 @@ import { haversineKm, sortShopsByDistance, type ShopWithDistance } from '@/lib/b
 import type { Shop, ShopType } from '@/lib/booking/types';
 import { getSupabase } from '@/lib/supabase/client';
 
-export type NearbyListingType = 'wash' | 'maintenance';
+export type NearbyListingType = 'wash' | 'detailing_studio' | 'maintenance';
 
 export type WashBranchListing = ShopWithDistance & {
   branchId: string;
@@ -158,6 +158,7 @@ function sortWashListings(
 export async function listWashBranchesSortedByDistanceLegacy(
   userLat: number | null,
   userLng: number | null,
+  shopType: NearbyListingType = 'wash',
 ): Promise<WashBranchListing[]> {
   const supabase = getSupabase();
   if (supabase) {
@@ -174,7 +175,7 @@ export async function listWashBranchesSortedByDistanceLegacy(
 
         for (const shopId of shopIds) {
           const shop = getShopById(shopId);
-          if (!shop || shop.type !== 'wash') continue;
+          if (!shop || shop.type !== shopType) continue;
           const shopBranches = branchRows.filter((row) => row.shop_id === shopId);
           if (shopBranches.length === 0) {
             if (Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude)) {
@@ -197,7 +198,7 @@ export async function listWashBranchesSortedByDistanceLegacy(
     }
   }
 
-  const shops = listShopsByType('wash');
+  const shops = listShopsByType(shopType === 'maintenance' ? 'maintenance' : shopType);
   const fallback = shops.map((shop) => listingFromShopAndBranch(shop, null));
   return sortWashListings(fallback, userLat, userLng);
 }

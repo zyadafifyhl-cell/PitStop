@@ -9,6 +9,7 @@ import {
 import type { Shop, ShopExtras, ShopType } from '@/lib/booking/types';
 import { fetchDefaultBranchProfilesForShops } from '@/lib/booking/wash/branchRepository';
 import type { WashBranch } from '@/lib/booking/wash/types';
+import { isWashShopType } from '@/lib/booking/wash/types';
 import { mergeWashBranchIntoExtras } from '@/lib/booking/wash/washSync';
 
 const SHOP_LIST_BUNDLE_KEY = '@pitstop/shop-list-bundle/v2';
@@ -86,7 +87,7 @@ export async function hydrateShopListBundle(type: ShopType, areaId: string): Pro
 
 async function buildShopListBundle(shops: Shop[]): Promise<ShopListBundle> {
   const shopIds = shops.map((shop) => shop.id);
-  const washShopIds = shops.filter((shop) => shop.type === 'wash').map((shop) => shop.id);
+  const washShopIds = shops.filter((shop) => isWashShopType(shop.type)).map((shop) => shop.id);
 
   const [cachedExtras, offersByShopId, ratingsByShopId, washBranches] = await Promise.all([
     getShopExtrasCachedBatch(shopIds),

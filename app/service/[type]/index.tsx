@@ -294,9 +294,9 @@ export default function PickAreaScreen() {
       </Modal>
 
       <View style={styles.actionRow}>
-        {type === 'wash' ? (
+        {type === 'wash' || type === 'detailing_studio' ? (
           <Pressable
-            onPress={() => router.push('/nearby/wash')}
+            onPress={() => router.push(`/nearby/${type}`)}
             style={[styles.actionChip, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
             <Text style={[styles.actionChipText, { color: theme.accent }]}>{t('location_use_gps')}</Text>
           </Pressable>

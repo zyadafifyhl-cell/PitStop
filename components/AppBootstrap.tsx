@@ -13,7 +13,7 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { resolveReturnTo } from '@/lib/auth/returnTo';
 import { parsePitstopDeepLink } from '@/lib/linking/share';
 
-const PUBLIC_PATHS = ['/welcome', '/reset-password', '/auth-required'];
+const PUBLIC_PATHS = ['/welcome', '/reset-password', '/auth-required', '/register-merchant'];
 
 function readRouteParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;

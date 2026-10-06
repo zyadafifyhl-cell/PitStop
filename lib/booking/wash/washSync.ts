@@ -13,6 +13,7 @@ import {
 } from '@/lib/booking/shopExtrasStorage';
 import type { ShopExtras, ShopService } from '@/lib/booking/types';
 import type { WashBranch, WashShopStatus } from '@/lib/booking/wash/types';
+import { isWashShopType } from '@/lib/booking/wash/types';
 
 /** Map branch owner status → customer extras field (single source of truth). */
 export function resolveCustomerWashShopStatus(branch: WashBranch): WashShopStatus {
@@ -70,7 +71,7 @@ export function mergeWashBranchIntoExtras(extras: ShopExtras, branch: WashBranch
 /** Push wash branch data into shared shop extras for customer-facing screens. */
 export async function syncWashBranchToShopExtras(shopId: string, branch: WashBranch): Promise<void> {
   const shop = getShopById(shopId);
-  if (!shop || shop.type !== 'wash') return;
+  if (!shop || !isWashShopType(shop.type)) return;
 
   await setShopProfileInfo(shopId, {
     profileName: branch.profileName,

@@ -25,6 +25,8 @@ type ServiceRow = {
   price_egp: number | string | null;
   price_varies_by_vehicle?: boolean | null;
   duration_minutes: number;
+  duration_unit?: 'minutes' | 'hours' | 'days' | null;
+  warranty_period?: string | null;
   visible: boolean;
   sort_order: number;
 };
@@ -89,6 +91,8 @@ function mapServiceRow(row: ServiceRow): ShopService {
     priceEgp: Number(row.price_egp ?? 0),
     priceVariesByVehicle: row.price_varies_by_vehicle === true || Number(row.price_egp) < 0,
     durationMinutes: row.duration_minutes,
+    durationUnit: row.duration_unit ?? 'minutes',
+    warrantyPeriod: row.warranty_period ?? undefined,
     category: (row.category as ShopService['category']) ?? 'exterior_wash',
     active: row.visible,
     visible: row.visible,
@@ -449,6 +453,8 @@ export async function saveBranchServicesRemote(
       price_egp: service.priceVariesByVehicle ? 0 : service.priceEgp,
       price_varies_by_vehicle: !!service.priceVariesByVehicle,
       duration_minutes: service.durationMinutes,
+      duration_unit: service.durationUnit ?? 'minutes',
+      warranty_period: service.warrantyPeriod?.trim() || null,
       visible: service.visible !== false,
       sort_order: service.sortOrder ?? index,
     };

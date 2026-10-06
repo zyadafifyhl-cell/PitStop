@@ -30,8 +30,9 @@ export function serviceLabelForBooking(booking: Booking, locale: Locale): string
   return shopTypeLabel(booking.shopType, locale);
 }
 
-export function serviceIconName(type: ShopType): 'wrench' | 'tint' | 'cogs' | 'life-ring' {
+export function serviceIconName(type: ShopType): 'wrench' | 'tint' | 'cogs' | 'life-ring' | 'shield' {
   if (type === 'wash') return 'tint';
+  if (type === 'detailing_studio') return 'shield';
   if (type === 'maintenance') return 'wrench';
   if (type === 'winch') return 'life-ring';
   return 'cogs';

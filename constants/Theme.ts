@@ -133,6 +133,7 @@ export const BOXED_OVERLAY = {
 export const SERVICE_COLORS = {
   maintenance: LightAppTheme.accent,
   wash: LightAppTheme.warm,
+  detailing_studio: LightAppTheme.accent,
   parts: LightAppTheme.green,
   accessories: LightAppTheme.textMuted,
   winch: LightAppTheme.accent,

@@ -18,6 +18,7 @@ const ICONS: Record<ShopType, React.ComponentProps<typeof FontAwesome>['name']> 
   parts: 'cogs',
   accessories: 'shopping-bag',
   winch: 'truck',
+  detailing_studio: 'shield',
 };
 
 export function ServiceOptionCard({ type, title, subtitle, onPress }: Props) {

@@ -27,6 +27,7 @@ import type { DbBranchEmployee } from '@/lib/supabase/database.types';
 import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { userAlert } from '@/lib/ui/userAlert';
 import type { Booking, Shop, ShopService } from '@/lib/booking/types';
+import { isDetailingShopType } from '@/lib/booking/shopCategories';
 import type { TranslationKey } from '@/lib/i18n/strings';
 
 type Props = {
@@ -83,6 +84,9 @@ export function WalkInBookingModal({
   const [resolvingCustomer, setResolvingCustomer] = useState(false);
   const [resolvedCustomerId, setResolvedCustomerId] = useState<string | undefined>();
   const [createdBooking, setCreatedBooking] = useState<Booking | null>(null);
+  const [depositPaid, setDepositPaid] = useState('');
+  const [chassisNumber, setChassisNumber] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
 
   const activeServices = useMemo(
     () => services.filter((service) => service.active && service.visible !== false).sort((a, b) => a.sortOrder - b.sortOrder),
@@ -143,6 +147,9 @@ export function WalkInBookingModal({
     setCustomerSuggestions([]);
     setAppliedCustomerId(null);
     setCreatedBooking(null);
+    setDepositPaid('');
+    setChassisNumber('');
+    setDeliveryDate('');
     setBusy(false);
     setResolvingCustomer(false);
     setResolvedCustomerId(undefined);
@@ -231,10 +238,16 @@ export function WalkInBookingModal({
 
     const aggregated = buildWalkInMultiServicePayload(selectedServices, locale);
 
+    const detailing = isDetailingShopType(shop.type);
+    const total = serviceTotals.totalPriceEgp + accessoryTotal;
+    const deposit = detailing ? Math.max(0, Number(depositPaid) || 0) : total;
+    const remaining = detailing ? Math.max(0, total - deposit) : 0;
+
     setBusy(true);
     try {
       const booking = await createWalkInBooking({
         shopId: shop.id,
+        shopType: shop.type,
         branchId,
         carType,
         customerPhone: phone.trim() || undefined,
@@ -247,7 +260,7 @@ export function WalkInBookingModal({
         servicePriceEgp: aggregated.servicePriceEgp,
         serviceDurationMinutes: aggregated.serviceDurationMinutes,
         customerNotes: notes.trim() || undefined,
-        initialStatus: 'done',
+        initialStatus: detailing ? 'in_progress' : 'done',
       });
 
       let posSaved = false;
@@ -265,6 +278,11 @@ export function WalkInBookingModal({
             notes: notes.trim() || undefined,
             items: accessoryItems,
             bookingId: isUuid(booking.id) ? booking.id : undefined,
+            depositPaid: detailing ? deposit : undefined,
+            remainingBalance: detailing ? remaining : undefined,
+            carChassisNumber: detailing ? chassisNumber.trim() || undefined : undefined,
+            estimatedDeliveryDate: detailing && deliveryDate.trim() ? new Date(deliveryDate.trim()).toISOString() : undefined,
+            workflowStage: detailing ? 'in_progress' : undefined,
           });
           posSaved = true;
         } catch (posError) {
@@ -544,6 +562,33 @@ export function WalkInBookingModal({
                       );
                     })}
                   </View>
+                </>
+              ) : null}
+
+              {isDetailingShopType(shop.type) ? (
+                <>
+                  <TextInput
+                    value={depositPaid}
+                    onChangeText={setDepositPaid}
+                    placeholder={t('walk_in_deposit_placeholder')}
+                    placeholderTextColor={theme.textDim}
+                    keyboardType="numeric"
+                    style={fieldStyle}
+                  />
+                  <TextInput
+                    value={chassisNumber}
+                    onChangeText={setChassisNumber}
+                    placeholder={t('walk_in_chassis_placeholder')}
+                    placeholderTextColor={theme.textDim}
+                    style={fieldStyle}
+                  />
+                  <TextInput
+                    value={deliveryDate}
+                    onChangeText={setDeliveryDate}
+                    placeholder={t('walk_in_delivery_placeholder')}
+                    placeholderTextColor={theme.textDim}
+                    style={fieldStyle}
+                  />
                 </>
               ) : null}
 

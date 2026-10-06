@@ -1,4 +1,4 @@
-export type ShopType = 'maintenance' | 'wash' | 'parts' | 'accessories' | 'winch';
+export type ShopType = 'maintenance' | 'wash' | 'detailing_studio' | 'parts' | 'accessories' | 'winch';
 
 export type StoreCategory = 'parts' | 'accessories';
 
@@ -174,6 +174,10 @@ export type ShopService = {
   /** When true, the shop quotes the price from the car — do not show a fixed EGP amount. */
   priceVariesByVehicle?: boolean;
   durationMinutes: number;
+  /** How durationMinutes should be presented for this service. */
+  durationUnit?: 'minutes' | 'hours' | 'days';
+  /** Optional customer-facing protection warranty. */
+  warrantyPeriod?: string;
   category?: WashServiceCategory;
   active: boolean;
   /** When false, hidden from customers but kept in owner list. */

@@ -1,6 +1,7 @@
 import { pushOwnerNotification } from '@/lib/booking/commerceEvents';
 import { formatBookingDateTime, formatMerchantCancellationBody, shopTypeLabel } from '@/lib/booking/format';
 import type { Booking } from '@/lib/booking/types';
+import { isWashShopType } from '@/lib/booking/wash/types';
 import { branchHasAssignedManager } from '@/lib/booking/wash/bookingDispatch';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
 import {
@@ -13,7 +14,7 @@ async function notifyWashBookingCenter(
   booking: Booking,
   kind: 'new_booking' | 'cancelled_booking',
 ): Promise<void> {
-  if (booking.shopType !== 'wash') return;
+  if (!isWashShopType(booking.shopType)) return;
   const when = formatBookingDateTime(booking.scheduledAt, 'en');
   const body =
     kind === 'cancelled_booking'
@@ -36,7 +37,7 @@ export async function notifyMerchantBookingCreated(
 ): Promise<void> {
   await notifyWashBookingCenter(booking, 'new_booking');
 
-  if (booking.shopType !== 'wash') {
+  if (!isWashShopType(booking.shopType)) {
     await pushOwnerNotification({
       shopId: booking.shopId,
       kind: 'service_booking',

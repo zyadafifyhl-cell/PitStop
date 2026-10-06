@@ -9,8 +9,10 @@ import {
     type PeakHourBucket,
     type PeakWeekdayBucket,
     type PosCarType,
+    type PosJobOrder,
     type PosOrderItemInput,
     type PosShift,
+    type PosWorkflowStage,
     type ShopAnalytics,
     type ShopExpenseCategory,
     type ShopFinancials,
@@ -128,6 +130,11 @@ export async function createWalkInPosOrder(input: {
   notes?: string;
   items?: PosOrderItemInput[];
   bookingId?: string;
+  depositPaid?: number;
+  remainingBalance?: number;
+  carChassisNumber?: string;
+  estimatedDeliveryDate?: string;
+  workflowStage?: PosWorkflowStage;
 }): Promise<string> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not configured');
@@ -147,11 +154,73 @@ export async function createWalkInPosOrder(input: {
       unit_price: item.unitPrice,
     })),
     p_booking_id: input.bookingId ?? null,
+    p_payment_status: (input.remainingBalance ?? 0) > 0 ? 'unpaid' : 'paid',
   });
   if (error || typeof data !== 'string') {
     throw error ?? new Error('Could not create POS order');
   }
+  const remaining = Math.max(0, input.remainingBalance ?? 0);
+  const deposit = Math.max(0, input.depositPaid ?? 0);
+  if (deposit > 0 || remaining > 0 || input.carChassisNumber || input.estimatedDeliveryDate || input.workflowStage) {
+    await supabase.rpc('pos_apply_detailing_fields', {
+      p_order_id: data,
+      p_deposit_paid: deposit,
+      p_remaining_balance: remaining,
+      p_car_chassis_number: input.carChassisNumber ?? null,
+      p_estimated_delivery_date: input.estimatedDeliveryDate ?? null,
+      p_workflow_stage: input.workflowStage ?? (remaining > 0 ? 'in_progress' : 'ready_for_delivery'),
+    });
+  }
   return data;
+}
+
+export async function listPosJobOrders(shopId: string): Promise<PosJobOrder[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('pos_orders')
+    .select('id, shop_id, car_type, price, total_amount, deposit_paid, remaining_balance, car_chassis_number, estimated_delivery_date, workflow_stage, created_at, notes, customers(full_name, phone)')
+    .eq('shop_id', shopId)
+    .neq('status', 'cancelled')
+    .order('created_at', { ascending: false })
+    .limit(80);
+  if (error) {
+    console.warn('listPosJobOrders', error.message);
+    return [];
+  }
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => {
+    const customer = row.customers as { full_name?: string; phone?: string } | { full_name?: string; phone?: string }[] | null;
+    const profile = Array.isArray(customer) ? customer[0] : customer;
+    const stage = String(row.workflow_stage ?? 'ready_for_delivery');
+    return {
+      id: String(row.id),
+      shopId: String(row.shop_id),
+      carType: String(row.car_type ?? ''),
+      price: num(row.total_amount) || num(row.price),
+      depositPaid: num(row.deposit_paid),
+      remainingBalance: num(row.remaining_balance),
+      carChassisNumber: row.car_chassis_number ? String(row.car_chassis_number) : undefined,
+      estimatedDeliveryDate: row.estimated_delivery_date ? String(row.estimated_delivery_date) : undefined,
+      workflowStage:
+        stage === 'curing_inspection' || stage === 'in_progress' || stage === 'ready_for_delivery'
+          ? stage
+          : 'ready_for_delivery',
+      createdAt: String(row.created_at),
+      notes: row.notes ? String(row.notes) : undefined,
+      customerName: profile?.full_name,
+      customerPhone: profile?.phone,
+    };
+  });
+}
+
+export async function updatePosOrderWorkflow(orderId: string, stage: PosWorkflowStage): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not configured');
+  const { error } = await supabase.rpc('pos_update_order_workflow', {
+    p_order_id: orderId,
+    p_workflow_stage: stage,
+  });
+  if (error) throw error;
 }
 
 export async function logShopExpense(input: {
@@ -290,9 +359,50 @@ async function fetchShopAnalyticsRange(shopId: string, fromIso: string, toIso: s
     p_to: toIso,
   });
   if (!error && data && typeof data === 'object') {
-    return mapAnalytics(data as Record<string, unknown>);
+    const mapped = mapAnalytics(data as Record<string, unknown>);
+    return overlayDetailingBalances(shopId, fromIso, toIso, mapped);
   }
   return fetchShopAnalyticsFallback(shopId, fromIso, toIso);
+}
+
+async function overlayDetailingBalances(
+  shopId: string,
+  fromIso: string,
+  toIso: string,
+  analytics: ShopAnalytics,
+): Promise<ShopAnalytics> {
+  const supabase = getSupabase();
+  if (!supabase) return analytics;
+  const { data } = await supabase
+    .from('pos_orders')
+    .select('source, deposit_paid, remaining_balance, payment_status, total_amount, price, created_at, status')
+    .eq('shop_id', shopId)
+    .eq('status', 'completed');
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const inRange = rows.filter((row) => {
+    const at = new Date(String(row.created_at ?? ''));
+    return at >= new Date(fromIso) && at < new Date(toIso);
+  });
+  const remaining = rows.reduce((sum, row) => sum + num(row.remaining_balance), 0);
+  if (remaining <= 0 && inRange.every((row) => num(row.deposit_paid) <= 0)) return analytics;
+  const walkInSales = inRange
+    .filter((row) => row.source === 'walk_in')
+    .reduce((sum, row) => {
+      if (num(row.deposit_paid) > 0) return sum + num(row.deposit_paid);
+      if (row.payment_status === 'paid') return sum + (num(row.total_amount) || num(row.price));
+      return sum;
+    }, 0);
+  const unpaidWithoutBalance = rows
+    .filter((row) => row.payment_status === 'unpaid' && num(row.remaining_balance) <= 0)
+    .reduce((sum, row) => sum + (num(row.total_amount) || num(row.price)), 0);
+  const unpaidOrders = remaining + unpaidWithoutBalance;
+  return {
+    ...analytics,
+    walkInSales: walkInSales || analytics.walkInSales,
+    totalSales: (walkInSales || analytics.walkInSales) + analytics.appBookingSales,
+    unpaidOrders,
+    uncollected: unpaidOrders + analytics.pendingCredits,
+  };
 }
 
 async function fetchShopAnalyticsFallback(shopId: string, fromIso: string, toIso: string): Promise<ShopAnalytics> {
@@ -304,7 +414,7 @@ async function fetchShopAnalyticsFallback(shopId: string, fromIso: string, toIso
   const [ordersRes, itemsRes, expensesRes, payrollRes, bookingsRes, creditsRes] = await Promise.all([
     supabase
       .from('pos_orders')
-      .select('source, status, price, total_amount, payment_status, pitstop_commission, created_at')
+      .select('source, status, price, total_amount, payment_status, pitstop_commission, created_at, deposit_paid, remaining_balance')
       .eq('shop_id', shopId)
       .eq('status', 'completed')
       .gte('created_at', fromIso)
@@ -340,10 +450,18 @@ async function fetchShopAnalyticsFallback(shopId: string, fromIso: string, toIso
   const orders = (ordersRes.data ?? []) as Array<Record<string, unknown>>;
   const walkInSales = orders
     .filter((row) => row.source === 'walk_in')
-    .reduce((sum, row) => sum + (num(row.total_amount) || num(row.price)), 0);
+    .reduce((sum, row) => {
+      if (num(row.deposit_paid) > 0) return sum + num(row.deposit_paid);
+      if (row.payment_status === 'paid') return sum + (num(row.total_amount) || num(row.price));
+      return sum;
+    }, 0);
   const posAppSales = orders
     .filter((row) => row.source === 'pitstop_app')
-    .reduce((sum, row) => sum + (num(row.total_amount) || num(row.price)), 0);
+    .reduce((sum, row) => {
+      if (num(row.deposit_paid) > 0) return sum + num(row.deposit_paid);
+      if (row.payment_status === 'paid') return sum + (num(row.total_amount) || num(row.price));
+      return sum;
+    }, 0);
   const bookingSales = (bookingsRes.data ?? []).reduce(
     (sum, row) =>
       sum + num((row as { final_amount_paid_egp?: number; service_price_egp?: number; total_price?: number }).final_amount_paid_egp
@@ -374,9 +492,11 @@ async function fetchShopAnalyticsFallback(shopId: string, fromIso: string, toIso
     .filter((row) => row.type === 'commission')
     .reduce((sum, row) => sum + num(row.amount), 0);
   const pitstopFees = (bookingsRes.data ?? []).reduce((sum, row) => sum + num((row as { platform_fee_egp?: number }).platform_fee_egp), 0);
-  const unpaidOrders = orders
-    .filter((row) => row.payment_status === 'unpaid')
-    .reduce((sum, row) => sum + (num(row.total_amount) || num(row.price)), 0);
+  const unpaidOrders = orders.reduce((sum, row) => {
+    if (num(row.remaining_balance) > 0) return sum + num(row.remaining_balance);
+    if (row.payment_status === 'unpaid') return sum + (num(row.total_amount) || num(row.price));
+    return sum;
+  }, 0);
   const pendingCredits = ((creditsRes.data ?? []) as Array<{ amount_due?: number }>).reduce((sum, row) => sum + num(row.amount_due), 0);
   const payroll = staffExpenses + payrollRecords;
   const totalSales = walkInSales + appBookingSales;

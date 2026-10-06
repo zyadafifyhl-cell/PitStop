@@ -62,6 +62,30 @@ export type PosShift = {
   status: PosShiftStatus;
 };
 
+export type PosWorkflowStage = 'in_progress' | 'curing_inspection' | 'ready_for_delivery';
+
+export type PosJobOrder = {
+  id: string;
+  shopId: string;
+  carType: string;
+  price: number;
+  depositPaid: number;
+  remainingBalance: number;
+  carChassisNumber?: string;
+  estimatedDeliveryDate?: string;
+  workflowStage: PosWorkflowStage;
+  createdAt: string;
+  notes?: string;
+  customerName?: string;
+  customerPhone?: string;
+};
+
+export const POS_WORKFLOW_STAGES: PosWorkflowStage[] = [
+  'in_progress',
+  'curing_inspection',
+  'ready_for_delivery',
+];
+
 export type PosOrderItemInput = {
   productId: string;
   quantity: number;

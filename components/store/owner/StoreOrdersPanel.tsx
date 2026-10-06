@@ -19,6 +19,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import { clearAllShopHistory, hideMerchantHistoryItem } from '@/lib/booking/merchantHistoryRepository';
 import type { Shop } from '@/lib/booking/types';
+import { isWashShopType } from '@/lib/booking/wash/types';
 import {
   isStoreOrderCodDelivery,
   isStoreOrderPickup,
@@ -76,7 +77,7 @@ export function StoreOrdersPanel({
     textSecondary: appTheme.textMuted,
   };
   const { t, locale } = useI18n();
-  const isWash = shop.type === 'wash';
+  const isWash = isWashShopType(shop.type);
   const isRetailStore = shop.type === 'parts' || shop.type === 'accessories' || isWash;
   const sectionTitle = isWash
     ? t('wash_product_orders_title')

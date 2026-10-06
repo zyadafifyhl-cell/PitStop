@@ -51,6 +51,7 @@ function safeJsonForHtml(value: unknown): string {
 export function estimateDefaultPriceEgp(type: Booking['shopType']): number {
   if (type === 'maintenance') return 650;
   if (type === 'wash') return 220;
+  if (type === 'detailing_studio') return 2500;
   if (type === 'winch') return 500;
   return 420;
 }

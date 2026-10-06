@@ -15,11 +15,23 @@ export function formatBookingDateTime(iso: string, locale: Locale): string {
 }
 
 export function shopTypeLabel(type: ShopType, locale: Locale): string {
-  if (type === 'wash') return locale === 'ar' ? 'غسيل' : 'Car wash';
+  if (type === 'wash') return locale === 'ar' ? 'غسيل سيارات' : 'Car wash';
+  if (type === 'detailing_studio') return locale === 'ar' ? 'استوديو عناية وحماية' : 'Detailing & Protection';
   if (type === 'parts') return locale === 'ar' ? 'قطع غيار' : 'Spare parts';
   if (type === 'accessories') return locale === 'ar' ? 'إكسسوارات' : 'Accessories';
-  if (type === 'winch') return locale === 'ar' ? 'ونش' : 'Winch';
-  return locale === 'ar' ? 'صيانة' : 'Maintenance';
+  if (type === 'winch') return locale === 'ar' ? 'إنقاذ وطوارئ' : 'Roadside assistance';
+  return locale === 'ar' ? 'صيانة وميكانيكا' : 'Workshop';
+}
+
+export function formatServiceDurationValue(
+  value: number | undefined,
+  unit: 'minutes' | 'hours' | 'days' | undefined,
+  locale: Locale,
+): string {
+  const amount = Math.max(1, value ?? (unit === 'minutes' ? 30 : 1));
+  if (unit === 'days') return locale === 'ar' ? `${amount} يوم` : amount === 1 ? '1 day' : `${amount} days`;
+  if (unit === 'hours') return locale === 'ar' ? `${amount} ساعة` : amount === 1 ? '1 hour' : `${amount} hours`;
+  return locale === 'ar' ? `${amount} دقيقة` : `${amount} min`;
 }
 
 export function resolveBookingServiceLabel(

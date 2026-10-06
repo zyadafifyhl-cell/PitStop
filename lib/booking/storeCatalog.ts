@@ -11,6 +11,7 @@ export function shopSupportsInShopStore(type: ShopType): boolean {
     type === 'parts' ||
     type === 'accessories' ||
     type === 'wash' ||
+    type === 'detailing_studio' ||
     type === 'maintenance' ||
     type === 'winch'
   );
@@ -22,7 +23,7 @@ export function shopSupportsInShopStore(type: ShopType): boolean {
  */
 export function storeProductCategoryForShopType(type: ShopType): StoreProductCategory | null {
   if (type === 'parts') return 'spare_parts';
-  if (type === 'accessories' || type === 'wash' || type === 'maintenance' || type === 'winch') {
+  if (type === 'accessories' || type === 'wash' || type === 'detailing_studio' || type === 'maintenance' || type === 'winch') {
     return 'accessories';
   }
   return null;

@@ -460,6 +460,15 @@ export default function WelcomeScreen() {
                     <Text style={[styles.resetText, { color: theme.textMuted }]}>{t('customer_forgot_password')}</Text>
                   </Pressable>
                 ) : null}
+                {!isRegister ? (
+                  <Pressable
+                    onPress={() => router.push('/register-merchant' as Href)}
+                    style={styles.switchLink}
+                    accessibilityRole="button"
+                    {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}>
+                    <Text style={[styles.switchText, { color: theme.warm }]}>{t('owner_register_link')}</Text>
+                  </Pressable>
+                ) : null}
               </>
           </AuthFormShell>
           <View style={styles.languageWrap}>

@@ -14,6 +14,7 @@ import {
   filterPendingQueueBookingsForStaff,
 } from '@/lib/booking/wash/bookingDispatch';
 import { pushWashCenterNotification } from '@/lib/booking/wash/washNotificationCenter';
+import { isWashShopType } from '@/lib/booking/wash/types';
 import { formatEgp } from '@/lib/booking/reporting';
 import { sendShopPushForStoreOrder } from '@/lib/push/shopPush';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
@@ -235,7 +236,7 @@ export async function handleMerchantBookingCancelledRealtime(
   const eligible = await bookingEligibleForCancellationAlert(staff, booking, activeBranchId);
   if (!eligible) return;
 
-  if (booking.shopType === 'wash') {
+  if (isWashShopType(booking.shopType)) {
     await pushWashCenterNotification({
       shopId: booking.shopId,
       branchId: booking.branchId,

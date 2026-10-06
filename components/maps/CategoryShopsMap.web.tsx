@@ -28,15 +28,17 @@ const SHOP_MARKER_THEME: Record<
   { bg: string; border: string; glow: string; label: string }
 > = {
   wash: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Wash' },
+  detailing_studio: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Detailing' },
   maintenance: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Service' },
   parts: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Parts' },
   accessories: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Store' },
-  winch: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Winch' },
+  winch: { bg: '#FFFFFF', border: '#00255C', glow: 'transparent', label: 'Rescue' },
 };
 
 function shopMarkerSvg(type: ShopType): string {
   switch (type) {
     case 'wash':
+    case 'detailing_studio':
       return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M5 16h14l-1.2 4H6.2L5 16Z" fill="currentColor"/>
         <path d="M7 11h10l-1.4 5H8.4L7 11Z" fill="currentColor" opacity="0.55"/>

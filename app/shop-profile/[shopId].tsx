@@ -219,7 +219,7 @@ export default function ShopProfileScreen() {
   const hoursRows = getWeeklyHoursDisplayRows(extras, locale);
   const visibleReviews = reviews;
   const washStatusBadge: WashCustomerStatus | null =
-    shop.type === 'wash' &&
+    (shop.type === 'wash' || shop.type === 'detailing_studio') &&
     (extras?.washShopStatus === 'busy' ||
       extras?.washShopStatus === 'closed' ||
       extras?.washShopStatus === 'vacation')
@@ -673,7 +673,7 @@ export default function ShopProfileScreen() {
         <Text style={[styles.infoLine, { color: theme.textMuted }]}>
           {t('shop_profile_address')}: {address}
         </Text>
-        {extras?.servicePriceEgp != null && shop.type !== 'wash' ? (
+        {extras?.servicePriceEgp != null && shop.type !== 'wash' && shop.type !== 'detailing_studio' ? (
           <Text style={[styles.infoLine, { color: theme.textMuted }]}>
             {t('shop_profile_price')}: {formatEgp(extras.servicePriceEgp, locale)}
           </Text>

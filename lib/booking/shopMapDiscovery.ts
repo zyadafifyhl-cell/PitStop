@@ -163,7 +163,7 @@ export function listCatalogShopsForMap(type: ShopType): ShopMapPin[] {
     );
 }
 
-async function fetchWashBranchPinsFromSupabase(): Promise<ShopMapPin[]> {
+async function fetchWashBranchPinsFromSupabase(type: ShopType): Promise<ShopMapPin[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
 
@@ -173,7 +173,7 @@ async function fetchWashBranchPinsFromSupabase(): Promise<ShopMapPin[]> {
       'id, shop_id, latitude, longitude, name, name_ar, address, address_ar, profile_name, profile_name_ar, shops!inner(id, name, name_ar, type, address, address_ar, is_active)',
     )
     .eq('is_active', true)
-    .eq('shops.type', 'wash')
+    .eq('shops.type', type)
     .eq('shops.is_active', true)
     .not('latitude', 'is', null)
     .not('longitude', 'is', null);
@@ -253,8 +253,8 @@ export async function fetchRegisteredShopsForMap(
     return listCatalogShopsForMap(type);
   }
 
-  if (type === 'wash') {
-    const branchRows = await fetchWashBranchPinsFromSupabase();
+  if (type === 'wash' || type === 'detailing_studio') {
+    const branchRows = await fetchWashBranchPinsFromSupabase(type);
     if (branchRows.length) return branchRows;
   }
 

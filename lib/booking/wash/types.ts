@@ -123,5 +123,5 @@ export const WASH_SERVICE_CATEGORIES: Array<{
 ];
 
 export function isWashShopType(type: ShopType): boolean {
-  return type === 'wash';
+  return type === 'wash' || type === 'detailing_studio';
 }

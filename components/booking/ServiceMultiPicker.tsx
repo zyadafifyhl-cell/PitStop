@@ -6,6 +6,8 @@ import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { formatServiceDurationValue } from '@/lib/booking/format';
+import { formatWarrantyBadge, isMultiStageDetailingService } from '@/lib/booking/shopCategories';
 import { formatShopServicePrice, isVariablePriceService } from '@/lib/booking/shopServicePrice';
 import { applyOfferDiscount, normalizeOfferDiscount, type BogoPricingResult } from '@/lib/booking/offerPricing';
 import type { ShopService } from '@/lib/booking/types';
@@ -151,11 +153,26 @@ export function ServiceMultiPicker({
                 {serviceLabel(service)}
               </Text>
               {service ? (
-                <Text style={[styles.selectorMeta, { color: theme.accent }]}>
-                  {priceLabel(service)} · {service.durationMinutes}{' '}
-                  {locale === 'ar' ? 'د' : 'min'}
-                  {qtyForService > 1 ? ` · ×${qtyForService}` : ''}
-                </Text>
+                <>
+                  <Text style={[styles.selectorMeta, { color: theme.accent }]}>
+                    {priceLabel(service)} · {formatServiceDurationValue(service.durationMinutes, service.durationUnit, locale)}
+                    {qtyForService > 1 ? ` · ×${qtyForService}` : ''}
+                  </Text>
+                  <View style={styles.badgeRow}>
+                    {formatWarrantyBadge(service.warrantyPeriod, locale) ? (
+                      <View style={[styles.promoBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+                        <Text style={[styles.promoBadgeText, { color: theme.accent }]}>
+                          {formatWarrantyBadge(service.warrantyPeriod, locale)}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {isMultiStageDetailingService(service) ? (
+                      <View style={[styles.promoBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+                        <Text style={[styles.promoBadgeText, { color: theme.accent }]}>{t('detailing_badge_multistage')}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </>
               ) : null}
               {showFreeBadge ? (
                 <View style={[styles.promoBadge, { backgroundColor: theme.warmSoft, borderColor: theme.warm }]}>
@@ -321,6 +338,7 @@ const styles = StyleSheet.create({
   selectorLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
   selectorValue: { fontSize: 15, fontWeight: '800' },
   selectorMeta: { fontSize: 13, fontWeight: '700', marginTop: 4 },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   promoBadge: {
     alignSelf: 'flex-start',
     marginTop: 8,

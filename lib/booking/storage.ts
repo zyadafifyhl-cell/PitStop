@@ -199,6 +199,7 @@ async function notifyWashOwnerBooking(
 function defaultServicePriceEgp(shopType: Booking['shopType']): number {
   if (shopType === 'maintenance') return 650;
   if (shopType === 'wash') return 220;
+  if (shopType === 'detailing_studio') return 2500;
   if (shopType === 'winch') return 500;
   return 420;
 }
@@ -269,6 +270,7 @@ export type CreateBookingOptions = {
 
 export type WalkInBookingInput = {
   shopId: string;
+  shopType?: Booking['shopType'];
   branchId: string;
   carType: string;
   customerPhone?: string;
@@ -484,7 +486,7 @@ export async function createBooking(
   const bookingType = options?.bookingType ?? input.bookingType ?? 'app';
   const initialStatus = options?.initialStatus ?? 'pending';
   let branchId = input.branchId ? await resolveBranchIdForRemote(input.shopId, input.branchId) : undefined;
-  if (!branchId && input.shopType === 'wash') {
+  if (!branchId && (input.shopType === 'wash' || input.shopType === 'detailing_studio')) {
     branchId = (await resolveDefaultBranchIdForShop(input.shopId)) ?? undefined;
   }
   const baseServicePriceEgp = Math.max(
@@ -637,7 +639,7 @@ export async function createWalkInBooking(input: WalkInBookingInput): Promise<Bo
   return createBooking(
     {
       shopId: input.shopId,
-      shopType: 'wash',
+      shopType: input.shopType ?? 'wash',
       branchId: input.branchId,
       customerId,
       customerPhone: customerPhone ?? '',
@@ -840,7 +842,7 @@ export async function applyPenaltyPayment(
 
 /** Preview whether cancel_customer_service_booking would charge the 20 EGP fee. */
 export function wouldApplyLateCancelPenalty(booking: Booking, nowMs = Date.now()): boolean {
-  if (booking.shopType !== 'wash' && booking.shopType !== 'maintenance') return false;
+  if (booking.shopType !== 'wash' && booking.shopType !== 'detailing_studio' && booking.shopType !== 'maintenance') return false;
   const scheduledMs = new Date(booking.scheduledAt).getTime();
   if (Number.isNaN(scheduledMs)) return false;
   return (scheduledMs - nowMs) / 3_600_000 < LATE_CANCEL_WINDOW_HOURS;

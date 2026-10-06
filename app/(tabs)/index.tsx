@@ -76,7 +76,9 @@ function bookingStatusTone(status: Booking['status'], palette: HomePalette) {
 
 function serviceIconName(type: ShopType): React.ComponentProps<typeof FontAwesome>['name'] {
   if (type === 'wash') return 'tint';
+  if (type === 'detailing_studio') return 'shield';
   if (type === 'maintenance') return 'wrench';
+  if (type === 'winch') return 'life-ring';
   if (type === 'parts') return 'cogs';
   return 'shopping-bag';
 }
@@ -105,6 +107,17 @@ function buildHomeServiceCards(
       title: safeHomeText(translateText, 'service_wash_title', 'Car Wash'),
       subtitle: safeHomeText(translateText, 'service_wash_sub', 'Exterior wash, polish & detailing'),
       href: '/service/wash' as Href,
+      available: true,
+    },
+    {
+      type: 'detailing_studio' as const,
+      title: safeHomeText(translateText, 'service_detailing_title', 'Detailing & Protection'),
+      subtitle: safeHomeText(
+        translateText,
+        'service_detailing_sub',
+        'PPF, ceramic coating, tinting & paint correction',
+      ),
+      href: '/service/detailing_studio' as Href,
       available: true,
     },
     {
@@ -666,7 +679,13 @@ export default function HomeScreen() {
               <View style={styles.bookingIdentity}>
                 <View style={styles.bookingIconBadge}>
                   <FontAwesome
-                    name={nextBooking.shopType === 'wash' ? 'tint' : 'wrench'}
+                    name={
+                      nextBooking.shopType === 'wash'
+                        ? 'tint'
+                        : nextBooking.shopType === 'detailing_studio'
+                          ? 'shield'
+                          : 'wrench'
+                    }
                     size={18}
                     color={HOME.accent}
                   />

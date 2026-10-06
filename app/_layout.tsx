@@ -79,6 +79,7 @@ function RootStack() {
           animation: 'slide_from_right',
         }}>
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
+        <Stack.Screen name="register-merchant" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="store" options={{ headerShown: false, title: t('store_title') }} />
         <Stack.Screen name="service/[type]/index" options={{ title: t('area_pick_title') }} />

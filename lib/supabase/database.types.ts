@@ -34,7 +34,8 @@ export type DbShop = {
   id: string;
   name: string;
   name_ar: string;
-  type: 'maintenance' | 'wash' | 'parts' | 'accessories' | 'winch';
+  type: 'maintenance' | 'wash' | 'detailing_studio' | 'parts' | 'accessories' | 'winch';
+  category?: 'car_wash' | 'detailing_studio' | 'workshop' | 'parts_shop' | 'driver_network' | null;
   area_id: string;
   address: string;
   address_ar: string;
