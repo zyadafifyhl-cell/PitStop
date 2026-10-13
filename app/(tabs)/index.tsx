@@ -1,11 +1,26 @@
 import { router, type Href } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatVehicleDisplay } from '@/components/customer/ActiveVehiclePicker';
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
+import { PitStopEgWordmark } from '@/components/ui/PitStopEgWordmark';
+import { BRAND_COBALT } from '@/constants/Brand';
 import { BOXED_OVERLAY, type AppThemeTokens } from '@/constants/Theme';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
@@ -36,6 +51,9 @@ const EMPTY_PENALTY_BALANCE: PenaltyBalance = {
   pendingDisputes: 0,
   collectibleBalance: 0,
 };
+
+const LANDING_WEB = require('../../assets/images/landing-web.png');
+const LANDING_MOBILE = require('../../assets/images/landing-mobile.png');
 
 function homeColors(theme: AppThemeTokens) {
   const dark = theme.bg === '#000000';
@@ -100,7 +118,14 @@ function safeHomeText(
 function buildHomeServiceCards(
   translateText: ((key: TranslationKey) => string) | undefined,
   query: string,
-): Array<{ type: ShopType; title: string; subtitle: string; href: Href; available: boolean }> {
+): Array<{
+  type: ShopType;
+  title: string;
+  subtitle: string;
+  href: Href;
+  available: boolean;
+  image: number;
+}> {
   const cards = [
     {
       type: 'wash' as const,
@@ -108,6 +133,7 @@ function buildHomeServiceCards(
       subtitle: safeHomeText(translateText, 'service_wash_sub', 'Exterior wash, polish & detailing'),
       href: '/service/wash' as Href,
       available: true,
+      image: require('../../assets/images/service-wash.jpg'),
     },
     {
       type: 'detailing_studio' as const,
@@ -119,6 +145,7 @@ function buildHomeServiceCards(
       ),
       href: '/service/detailing_studio' as Href,
       available: true,
+      image: require('../../assets/images/service-detailing.jpg'),
     },
     {
       type: 'maintenance' as const,
@@ -130,6 +157,7 @@ function buildHomeServiceCards(
       ),
       href: '/service/maintenance' as Href,
       available: false,
+      image: require('../../assets/images/service-maintenance.jpg'),
     },
     {
       type: 'parts' as const,
@@ -137,6 +165,7 @@ function buildHomeServiceCards(
       subtitle: safeHomeText(translateText, 'service_parts_sub', 'Find parts shops in your area'),
       href: '/service/parts' as Href,
       available: false,
+      image: require('../../assets/images/service-parts.jpg'),
     },
     {
       type: 'accessories' as const,
@@ -148,6 +177,7 @@ function buildHomeServiceCards(
       ),
       href: '/service/accessories' as Href,
       available: false,
+      image: require('../../assets/images/service-accessories.jpg'),
     },
   ];
   const q = query.trim().toLowerCase();
@@ -161,13 +191,103 @@ function createHomeStyles(HOME: HomePalette) {
   return StyleSheet.create({
     screen: { flex: 1 },
     scroll: { flex: 1 },
+    sheet: {
+      width: '100%',
+      marginTop: -28,
+      paddingTop: 8,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      backgroundColor: HOME.bg,
+    },
     content: {
       width: '100%',
       maxWidth: 1024,
       alignSelf: 'center',
       paddingHorizontal: 20,
-      paddingTop: 18,
+      paddingTop: 14,
       paddingBottom: 52,
+    },
+    hero: {
+      width: '100%',
+      overflow: 'hidden',
+      justifyContent: 'flex-end',
+    },
+    heroCopy: {
+      paddingHorizontal: 22,
+      paddingBottom: 52,
+      maxWidth: 760,
+      gap: 8,
+    },
+    heroTitle: {
+      color: '#FFFFFF',
+      fontSize: 34,
+      fontWeight: '800',
+      letterSpacing: -0.8,
+      lineHeight: 40,
+    },
+    heroTagline: {
+      color: 'rgba(255,255,255,0.9)',
+      fontSize: 16,
+      lineHeight: 23,
+      maxWidth: 480,
+    },
+    heroMetaRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      gap: 10,
+      marginTop: 4,
+    },
+    heroGreeting: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    heroVehicle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      maxWidth: 240,
+      backgroundColor: 'rgba(255,255,255,0.16)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.34)',
+      borderRadius: 999,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
+    },
+    heroVehicleText: {
+      flexShrink: 1,
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    heroCta: {
+      alignSelf: 'flex-start',
+      marginTop: 8,
+      backgroundColor: '#FFFFFF',
+      borderRadius: 999,
+      paddingHorizontal: 18,
+      paddingVertical: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    heroCtaText: {
+      color: BRAND_COBALT,
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    heroBell: {
+      position: 'absolute',
+      zIndex: 2,
+      width: 40,
+      height: 40,
+      borderRadius: 999,
+      backgroundColor: 'rgba(0,0,0,0.32)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.28)',
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     topHeaderRow: {
       flexDirection: 'row',
@@ -352,9 +472,14 @@ function createHomeStyles(HOME: HomePalette) {
       gap: 14,
       borderWidth: 1,
       borderRadius: 18,
-      paddingVertical: 16,
-      paddingHorizontal: 16,
-      minHeight: 84,
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      minHeight: 104,
+    },
+    servicePhoto: {
+      width: 84,
+      height: 84,
+      borderRadius: 12,
     },
     serviceCardActive: {
       backgroundColor: HOME.card,
@@ -376,17 +501,6 @@ function createHomeStyles(HOME: HomePalette) {
       shadowOpacity: 0.08,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 3 },
-    },
-    serviceIcon: {
-      width: 44,
-      height: 44,
-      borderRadius: 14,
-      backgroundColor: HOME.bg,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    serviceIconActive: {
-      backgroundColor: HOME.ice,
     },
     serviceCopy: { flex: 1, minWidth: 0, gap: 3 },
     serviceTitleRow: {
@@ -482,6 +596,8 @@ function createHomeStyles(HOME: HomePalette) {
 
 export default function HomeScreen() {
   const { t, tp, locale, isRTL } = useI18n();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const theme = useAppTheme();
   const HOME = useMemo(() => homeColors(theme), [theme]);
   const styles = useMemo(() => createHomeStyles(HOME), [HOME]);
@@ -619,32 +735,72 @@ export default function HomeScreen() {
     return <View style={[styles.sectionCard, style]}>{children}</View>;
   }
 
+  const nativeLanding = Platform.OS !== 'web';
+  const heroHeight = nativeLanding
+    ? Math.round(Math.min(Math.max(height * 0.78, 560), 860))
+    : Math.round(Math.min(Math.max(width < 820 ? height * 0.62 : height * 0.56, 440), 620));
+
   return (
     <View style={[styles.screen, { backgroundColor: HOME.bg }]}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}>
-        <View style={styles.topHeaderRow}>
-          <View style={styles.greetingBlock}>
-            <Text style={styles.greetingName}>
-              {greetingName ? tp('home_greeting_named', { name: greetingName }) : t('home_greeting')}
-            </Text>
-            <Pressable
-              onPress={() => router.push('/settings/vehicles')}
-              style={({ pressed }) => [styles.vehiclePill, pressed && styles.actionPressed]}>
-              <FontAwesome name="car" size={11} color={HOME.iceText} />
-              <Text style={styles.vehiclePillText} numberOfLines={1}>
-                {activeVehicleLabel || t('store_no_vehicle')}
-              </Text>
-            </Pressable>
-          </View>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={[styles.hero, { height: heroHeight }]}>
+          <Image
+            source={nativeLanding ? LANDING_MOBILE : LANDING_WEB}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+          />
+          <LinearGradient
+            colors={['rgba(2,8,23,0.08)', 'rgba(2,8,23,0.18)', 'rgba(2,8,23,0.88)']}
+            locations={[0, 0.46, 1]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
           {customer && !isGuest ? (
-            <View style={styles.headerBellSlot}>
-              <CustomerNotificationsBell embedded iconColor={HOME.text} />
+            <View
+              style={[
+                styles.heroBell,
+                { top: insets.top + 12 },
+                isRTL ? { left: 16 } : { right: 16 },
+              ]}>
+              <CustomerNotificationsBell embedded iconColor="#FFFFFF" />
             </View>
           ) : null}
+          <View style={[styles.heroCopy, isRTL && { alignItems: 'flex-end', alignSelf: 'flex-end' }]}>
+            <PitStopEgWordmark
+              size={nativeLanding || width < 820 ? 'compact' : 'hero'}
+              imageStyle={{ tintColor: '#FFFFFF' }}
+              style={isRTL ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }}
+            />
+            <Text style={[styles.heroTitle, isRTL && { textAlign: 'right' }]}>{t('welcome_hero_title')}</Text>
+            <Text style={[styles.heroTagline, isRTL && { textAlign: 'right' }]}>{t('welcome_tagline')}</Text>
+            <View style={[styles.heroMetaRow, isRTL && { flexDirection: 'row-reverse' }]}>
+              <Text style={styles.heroGreeting}>
+                {greetingName ? tp('home_greeting_named', { name: greetingName }) : t('home_greeting')}
+              </Text>
+              <Pressable
+                onPress={() => router.push('/settings/vehicles')}
+                style={({ pressed }) => [styles.heroVehicle, pressed && styles.actionPressed]}>
+                <FontAwesome name="car" size={11} color="#FFFFFF" />
+                <Text style={styles.heroVehicleText} numberOfLines={1}>
+                  {activeVehicleLabel || t('store_no_vehicle')}
+                </Text>
+              </Pressable>
+            </View>
+            <Pressable
+              onPress={() => router.push('/service/wash' as Href)}
+              style={({ pressed }) => [
+                styles.heroCta,
+                isRTL && { alignSelf: 'flex-end', flexDirection: 'row-reverse' },
+                pressed && styles.actionPressed,
+              ]}>
+              <Text style={styles.heroCtaText}>{t('service_wash_title')}</Text>
+              <FontAwesome name={isRTL ? 'arrow-left' : 'arrow-right'} size={13} color={BRAND_COBALT} />
+            </Pressable>
+          </View>
         </View>
+
+        <View style={styles.sheet}>
+        <View style={styles.content}>
 
         {penaltyBalance.outstandingBalance > 0 ? (
           <Pressable
@@ -767,13 +923,7 @@ export default function HomeScreen() {
                     isRTL && styles.serviceCardRtl,
                     available && (pressed || hovered) && styles.serviceCardHover,
                   ]}>
-                  <View style={[styles.serviceIcon, available && styles.serviceIconActive]}>
-                    <FontAwesome
-                      name={serviceIconName(card.type)}
-                      size={18}
-                      color={available ? HOME.accent : HOME.muted}
-                    />
-                  </View>
+                  <Image source={card.image} style={styles.servicePhoto} contentFit="cover" />
                   <View style={styles.serviceCopy}>
                     <View style={[styles.serviceTitleRow, isRTL && styles.serviceCardRtl]}>
                       <Text style={[styles.serviceTitle, !available && styles.serviceTitleSoon]} numberOfLines={1}>
@@ -845,6 +995,8 @@ export default function HomeScreen() {
             </ScrollView>
           )}
         </SurfaceCard>
+        </View>
+        </View>
       </ScrollView>
 
       <Modal
