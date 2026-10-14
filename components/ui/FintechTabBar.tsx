@@ -1,8 +1,11 @@
+import { usePathname, useRootNavigation } from 'expo-router';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { focusedTabHref } from '@/components/ui/CustomerBrowseTabBar';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { switchPreservedTab } from '@/lib/navigation/preserveTabStack';
 
 type TabRoute = { key: string; name: string; params?: object };
 type TabOptions = {
@@ -34,6 +37,8 @@ export function FintechTabBar({
 }) {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  const rootNavigation = useRootNavigation();
   const visibleRoutes = state.routes.filter((route) => !isTabHidden(descriptors[route.key].options));
 
   if (visibleRoutes.length === 0) return null;
@@ -79,9 +84,15 @@ export function FintechTabBar({
                   target: route.key,
                   canPreventDefault: true,
                 });
-                if (!focused && !event.defaultPrevented) {
-                  navigation.navigate(route.name, route.params);
+                if (focused || event.defaultPrevented) return;
+                if (rootNavigation) {
+                  switchPreservedTab(rootNavigation, focusedTabHref(pathname), {
+                    href: route.name === 'index' ? '/' : `/${route.name}`,
+                    screen: route.name,
+                  });
+                  return;
                 }
+                navigation.navigate(route.name, route.params);
               }}
               style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
               <View style={[styles.iconWrap, focused && { backgroundColor: theme.accentSoft }]}>

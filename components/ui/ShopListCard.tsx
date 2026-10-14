@@ -152,7 +152,13 @@ export function ShopListCard({
               </View>
             ) : null}
             {onToggleFavorite ? (
-              <Pressable onPress={onToggleFavorite} hitSlop={8} style={styles.iconBtn}>
+              <Pressable
+                onPress={(event) => {
+                  event.stopPropagation?.();
+                  onToggleFavorite();
+                }}
+                hitSlop={8}
+                style={styles.iconBtn}>
                 <FontAwesome
                   name={isFavorite ? 'heart' : 'heart-o'}
                   size={20}
@@ -295,7 +301,7 @@ const styles = StyleSheet.create({
   ratingPlaceholder: { fontSize: 11, fontWeight: '600' },
   priceChip: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
   priceChipText: { fontSize: 11, fontWeight: '800' },
-  iconBtn: { padding: 4 },
+  iconBtn: { padding: 4, zIndex: 2 },
   identityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 56, height: 56, borderRadius: 28 },
   name: { fontSize: 20, fontWeight: '700', marginBottom: 6 },

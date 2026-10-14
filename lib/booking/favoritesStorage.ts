@@ -1,5 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/** Local bucket used when the visitor is not signed in, so hearts still persist. */
+export const GUEST_FAVORITES_ID = 'guest';
+
+export function resolveFavoritesOwnerId(customerId: string | null | undefined): string {
+  const id = customerId?.trim();
+  return id || GUEST_FAVORITES_ID;
+}
+
 function favoritesKey(customerId: string): string {
   return `@pitstop/favorites/${customerId}`;
 }

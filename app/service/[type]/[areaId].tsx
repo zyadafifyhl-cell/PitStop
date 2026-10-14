@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,7 +21,7 @@ import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getAreaById } from '@/lib/booking/areas';
 import { listShopsByTypeAndArea } from '@/lib/booking/catalogRepository';
-import { toggleFavoriteShop } from '@/lib/booking/favoritesStorage';
+import { toggleFavoriteShop, listFavoriteShopIds, resolveFavoritesOwnerId } from '@/lib/booking/favoritesStorage';
 import { shopTypeLabel } from '@/lib/booking/format';
 import {
   hydrateShopListBundle,
@@ -48,6 +48,7 @@ export default function ShopsInAreaScreen() {
   const [shopDropdownOpen, setShopDropdownOpen] = useState(false);
   const [listFilter, setListFilter] = useState<AreaShopListFilter>('all');
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const favoritesEpoch = useRef(0);
   const [bundle, setBundle] = useState<ShopListBundle | null>(() =>
     type && areaId ? peekShopListBundle(type, areaId) : null,
   );
@@ -81,14 +82,12 @@ export default function ShopsInAreaScreen() {
   }, [shops, locale]);
 
   const loadFavorites = useCallback(async () => {
-    if (!customer) {
-      setFavoriteIds(new Set());
-      return;
-    }
-    const { listFavoriteShopIds } = await import('@/lib/booking/favoritesStorage');
-    const ids = await listFavoriteShopIds(customer.id);
+    const epoch = ++favoritesEpoch.current;
+    const ownerId = resolveFavoritesOwnerId(customer?.id);
+    const ids = await listFavoriteShopIds(ownerId);
+    if (epoch !== favoritesEpoch.current) return;
     setFavoriteIds(new Set(ids));
-  }, [customer]);
+  }, [customer?.id]);
 
   const refreshBundle = useCallback(
     async (options?: { force?: boolean }) => {
@@ -143,9 +142,27 @@ export default function ShopsInAreaScreen() {
   }
 
   async function onToggleFavorite(shopId: string) {
-    if (!customer) return;
-    await toggleFavoriteShop(customer.id, shopId);
-    await loadFavorites();
+    const ownerId = resolveFavoritesOwnerId(customer?.id);
+    const epoch = ++favoritesEpoch.current;
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(shopId)) next.delete(shopId);
+      else next.add(shopId);
+      return next;
+    });
+    try {
+      const nowFavorite = await toggleFavoriteShop(ownerId, shopId);
+      if (epoch !== favoritesEpoch.current) return;
+      setFavoriteIds((prev) => {
+        const next = new Set(prev);
+        if (nowFavorite) next.add(shopId);
+        else next.delete(shopId);
+        return next;
+      });
+    } catch {
+      const ids = await listFavoriteShopIds(ownerId);
+      if (epoch === favoritesEpoch.current) setFavoriteIds(new Set(ids));
+    }
   }
 
   function openShop(shop: Shop) {

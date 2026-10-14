@@ -11,6 +11,8 @@ import { AppBootstrap } from '@/components/AppBootstrap';
 import { PremiumAnimatedSplash } from '@/components/PremiumAnimatedSplash';
 import {
   CustomerBrowseTabBar,
+  focusedTabHref,
+  normalizeAppPath,
   shouldShowCustomerBrowseTabBar,
 } from '@/components/ui/CustomerBrowseTabBar';
 import { CustomerAuthProvider, useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -21,6 +23,7 @@ import { StoreCartProvider } from '@/context/StoreCartContext';
 import { ThemePreferenceProvider, useThemePreference } from '@/context/ThemePreferenceContext';
 import { AppDialogProvider } from '@/lib/ui/AppDialogProvider';
 import { CustomConfirmProvider } from '@/lib/ui/CustomConfirmProvider';
+import { noteTabPath } from '@/lib/navigation/preserveTabStack';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -64,6 +67,10 @@ function RootStack() {
   const { shop } = useShopAuth();
   const showBrowseTabBar = shouldShowCustomerBrowseTabBar(pathname, !shop && (!!customer || isGuest));
   const [browseTabBarHeight, setBrowseTabBarHeight] = useState(96);
+
+  useEffect(() => {
+    noteTabPath(focusedTabHref(pathname), normalizeAppPath(pathname));
+  }, [pathname]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>

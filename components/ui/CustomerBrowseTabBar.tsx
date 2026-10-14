@@ -1,6 +1,8 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRootNavigation } from 'expo-router';
+
+import { switchPreservedTab } from '@/lib/navigation/preserveTabStack';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,7 +63,7 @@ export function shouldShowCustomerBrowseTabBar(pathname: string, isCustomerSessi
   return true;
 }
 
-function focusedTabHref(pathname: string): CustomerTab['href'] {
+export function focusedTabHref(pathname: string): CustomerTab['href'] {
   const path = normalizeAppPath(pathname);
   if (path.startsWith('/settings')) return '/settings';
   if (path.startsWith('/driver-network') || path.startsWith('/assistant')) return '/assistant';
@@ -123,7 +125,10 @@ export function CustomerBrowseTabBar({
               accessibilityState={{ selected }}
               accessibilityLabel={label}
               onPress={() => {
-                rootNavigation?.navigate('(tabs)', { screen: tab.screen });
+                switchPreservedTab(rootNavigation, focused, {
+                  href: tab.href,
+                  screen: tab.screen,
+                });
               }}
               style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
               <View style={[styles.iconWrap, selected && { backgroundColor: theme.accentSoft }]}>

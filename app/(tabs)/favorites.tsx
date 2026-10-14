@@ -9,7 +9,7 @@ import { useShopCatalog } from '@/context/ShopCatalogContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
-import { listFavoriteShopIds, removeFavoriteShop } from '@/lib/booking/favoritesStorage';
+import { listFavoriteShopIds, removeFavoriteShop, resolveFavoritesOwnerId } from '@/lib/booking/favoritesStorage';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { openPhone, openShopInMaps } from '@/lib/linking/contact';
 
@@ -21,13 +21,9 @@ export default function FavoritesScreen() {
   const [shopIds, setShopIds] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
-    if (!customer) {
-      setShopIds([]);
-      return;
-    }
-    const ids = await listFavoriteShopIds(customer.id);
+    const ids = await listFavoriteShopIds(resolveFavoritesOwnerId(customer?.id));
     setShopIds(ids);
-  }, [customer]);
+  }, [customer?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -66,8 +62,9 @@ export default function FavoritesScreen() {
             bookLabel={isStoreShopType(shop.type) ? t('book_tap_to_book') : t('shop_profile_open')}
             isFavorite
             onToggleFavorite={async () => {
-              if (!customer) return;
-              await removeFavoriteShop(customer.id, shop.id);
+              const ownerId = resolveFavoritesOwnerId(customer?.id);
+              setShopIds((prev) => prev.filter((id) => id !== shop.id));
+              await removeFavoriteShop(ownerId, shop.id);
               await refresh();
             }}
             onCall={() => openPhone(shop.phone).catch(linkFail)}

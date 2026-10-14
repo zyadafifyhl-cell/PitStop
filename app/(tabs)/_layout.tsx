@@ -44,6 +44,7 @@ export default function TabLayout() {
         headerTitleStyle: { fontWeight: '700' },
         sceneStyle: { backgroundColor: theme.bg },
         headerShown: useClientOnlyValue(false, true),
+        popToTopOnBlur: false,
       }}>
       <Tabs.Screen
         name="index"
