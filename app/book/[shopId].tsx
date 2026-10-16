@@ -133,6 +133,7 @@ export default function BookShopScreen() {
   const [vehicleId, setVehicleId] = useState<string | undefined>();
   const [dateYmd, setDateYmd] = useState(defaultBookingDateYmd());
   const [timeSlot, setTimeSlot] = useState('');
+  const [slotNowMs, setSlotNowMs] = useState(() => Date.now());
   const [saving, setSaving] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
   const [receiptSummary, setReceiptSummary] = useState<{
@@ -470,14 +471,26 @@ export default function BookShopScreen() {
     return { ...shopExtras, serviceDurationMinutes: duration };
   }, [shopExtras, selectedServices]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setSlotNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setSlotNowMs(Date.now());
+    }, []),
+  );
+
   const timeSlots = useMemo((): TimeSlotOption[] => {
     if (!hasOwnerSchedule) return [];
     return buildSlotsForShopDate({
       extras: slotExtras,
       dateYmd,
       bookings: shopBookings,
+      now: new Date(slotNowMs),
     });
-  }, [hasOwnerSchedule, slotExtras, dateYmd, shopBookings]);
+  }, [hasOwnerSchedule, slotExtras, dateYmd, shopBookings, slotNowMs]);
 
   useEffect(() => {
     const available = timeSlots.filter((s) => s.status !== 'booked');

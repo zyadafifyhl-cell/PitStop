@@ -28,6 +28,31 @@ export function selectTodayShopBookings(bookings: Booking[], branchId?: string, 
     .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 }
 
+/** App appointments the owner should still see after accepting: later slots, and today's slots that already passed. */
+export function selectShopAppointments(
+  bookings: Booking[],
+  now = new Date(),
+): { upcoming: Booking[]; earlierToday: Booking[] } {
+  const todayStart = startOfDay(now).getTime();
+  const nowMs = now.getTime();
+  const upcoming: Booking[] = [];
+  const earlierToday: Booking[] = [];
+
+  for (const booking of bookings) {
+    if (booking.status === 'cancelled' || booking.bookingType === 'walk_in') continue;
+    const time = new Date(booking.scheduledAt).getTime();
+    if (!Number.isFinite(time) || time < todayStart) continue;
+    const stillOpen = booking.status !== 'done' && booking.status !== 'no_show';
+    if (time >= nowMs && stillOpen) upcoming.push(booking);
+    else if (time < nowMs) earlierToday.push(booking);
+  }
+
+  const byTime = (a: Booking, b: Booking) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+  upcoming.sort(byTime);
+  earlierToday.sort(byTime);
+  return { upcoming, earlierToday };
+}
+
 export type WashAnalyticsOptions = {
   branchId?: string;
   branchServices?: ShopService[];

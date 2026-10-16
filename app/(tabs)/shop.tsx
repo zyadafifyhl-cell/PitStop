@@ -20,7 +20,7 @@ import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsP
 import { MerchantNotificationsModal } from '@/components/merchant/MerchantNotificationsModal';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
-import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
+import { OwnerGroupBackBar, OwnerGroupMenu } from '@/components/owner/OwnerGroupMenu';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
@@ -28,7 +28,6 @@ import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
 import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
-import { StoreOwnerDashboard } from '@/components/store/owner/StoreOwnerDashboard';
 import { StoreInventoryManager } from '@/components/store/owner/StoreInventoryManager';
 import { StoreOrdersPanel } from '@/components/store/owner/StoreOrdersPanel';
 import { StoreOwnerProfileSections } from '@/components/store/owner/StoreOwnerProfileSections';
@@ -46,7 +45,6 @@ import { formatEgp } from '@/lib/booking/reporting';
 import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { useShopAuth } from '@/context/ShopAuthContext';
-import { useShopSubscription } from '@/lib/shop/useShopSubscription';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { userAlert } from '@/lib/ui/userAlert';
@@ -79,7 +77,7 @@ import {
   updateBookingStatus,
 } from '@/lib/booking/storage';
 import { registerOwnerPushToken } from '@/lib/push/shopPush';
-import { getOwnerNavTabs, type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
+import { type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
 import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
 import { updateShopLocationRemote } from '@/lib/booking/wash/branchRepository';
 import { patchShopCoordinates } from '@/lib/booking/catalogRepository';
@@ -101,8 +99,6 @@ export default function ShopScreen() {
   const theme = useAppTheme();
   const { t, tp, locale } = useI18n();
   const { ready, shop, isAdmin, shopStaff } = useShopAuth();
-  const { isPro } = useShopSubscription(shop?.id);
-
   useFocusEffect(
     useCallback(() => {
       if (!ready) return;
@@ -123,7 +119,6 @@ export default function ShopScreen() {
   const [storeInventoryFilter, setStoreInventoryFilter] = useState<StoreInventoryListFilter>('all');
   const [focusStoreOrderId, setFocusStoreOrderId] = useState<string | null>(null);
   const [focusBookingId, setFocusBookingId] = useState<string | null>(null);
-  const [dashboardPendingOrders, setDashboardPendingOrders] = useState(0);
   const [capturingGps, setCapturingGps] = useState(false);
   const [storeStatusBusy, setStoreStatusBusy] = useState(false);
   const [mapPinCoords, setMapPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -252,48 +247,6 @@ export default function ShopScreen() {
   const focusedBooking = focusBookingId
     ? bookings.find((booking) => booking.id === focusBookingId) ?? null
     : null;
-
-  const serviceRevenueMetric = useMemo(
-    () => {
-      const completedRevenue = bookings
-        .filter((booking) => booking.status === 'done')
-        .reduce((sum, booking) => sum + Number(booking.servicePriceEgp ?? 0), 0);
-      return {
-        id: 'revenue',
-        label: t('store_owner_total_revenue'),
-        value: formatEgp(completedRevenue, locale),
-        icon: 'money' as const,
-        tone: 'success' as const,
-      };
-    },
-    [bookings, locale, t],
-  );
-
-  const serviceOwnerMetrics = useMemo(() => {
-    const today = new Date().toDateString();
-    return [
-      ...(isPro ? [serviceRevenueMetric] : []),
-      {
-        id: 'today',
-        label: t('owner_dashboard_today_bookings'),
-        value: bookings.filter((booking) => new Date(booking.scheduledAt).toDateString() === today).length,
-        icon: 'calendar-check-o' as const,
-      },
-      {
-        id: 'pending',
-        label: t('owner_dashboard_pending_requests'),
-        value: activeBookings.length,
-        icon: 'clock-o' as const,
-        tone: 'warning' as const,
-      },
-      {
-        id: 'services',
-        label: t('owner_dashboard_active_services'),
-        value: (shopExtras?.services ?? []).filter((service) => service.active).length,
-        icon: 'wrench' as const,
-      },
-    ];
-  }, [activeBookings.length, bookings, isPro, serviceRevenueMetric, shopExtras?.services, t]);
 
   function onLogout() {
     showCustomConfirm({
@@ -872,7 +825,7 @@ export default function ShopScreen() {
       notificationsLabel={t('shop_notifications_button')}
       notificationCount={pendingNotificationCount}
       onOpenNotifications={openNotificationsModal}
-      onOpenSettings={() => setStoreAdminTab('settings')}
+      onOpenSettings={() => setStoreAdminTab('profile')}
       settingsLabel={t('merchant_settings_open')}
     />
   );
@@ -1173,12 +1126,6 @@ export default function ShopScreen() {
   );
 
   if (isStoreShopType(shop.type)) {
-    const STORE_TABS = getOwnerNavTabs(shop.type).map((tab) => ({
-      id: tab.id,
-      label: t(tab.labelKey),
-      icon: tab.icon,
-    }));
-    const storeStatus = shopExtras?.storeOperatingStatus ?? 'open';
     const storeScheduleHint =
       shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime
         ? formatShopScheduleLine(
@@ -1194,45 +1141,57 @@ export default function ShopScreen() {
       if (tab === 'management') setStoreOrderFilter('all');
       if (tab === 'operations') setStoreInventoryFilter('all');
     };
+    const storeGroups = [
+      {
+        id: 'management',
+        icon: 'clipboard-list-outline' as const,
+        title: t('owner_group_orders'),
+        lead: t('owner_group_orders_lead'),
+        badge: orderNotifier.pendingStoreOrderCount,
+      },
+      {
+        id: 'operations',
+        icon: 'layers-outline' as const,
+        title: t('owner_group_inventory'),
+        lead: t('owner_group_inventory_lead'),
+      },
+      {
+        id: 'profile',
+        icon: 'account-cog-outline' as const,
+        title: t('owner_group_account'),
+        lead: t('owner_group_account_lead'),
+      },
+    ];
 
     return (
       <View style={[styles.screen, { backgroundColor: theme.bg }]}>
         <ScrollView
           style={styles.screen}
           contentContainerStyle={[styles.page, styles.pageWithBottomNav]}>
-          {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
+          {storeAdminTab !== 'dashboard' ? (
+            <OwnerGroupBackBar
+              title={
+                storeAdminTab === 'management'
+                  ? t('owner_group_orders')
+                  : storeAdminTab === 'operations'
+                    ? t('owner_group_inventory')
+                    : t('owner_group_account')
+              }
+              onBack={() => setStoreAdminTab('dashboard')}
+            />
+          ) : null}
+          {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile' || storeAdminTab === 'settings') &&
+            ownerProfileHero}
 
           {storeAdminTab === 'dashboard' ? (
-            <StoreOwnerDashboard
-              shop={shop}
-              storeStatus={storeStatus}
-              onPendingOrdersChange={setDashboardPendingOrders}
-              onNavigate={(target) => {
-                if (target === 'reports') {
-                  router.push('/shop/store-reports');
-                  return;
-                }
-                if (target === 'management') {
-                  setStoreAdminTab('management');
-                  return;
-                }
-                if (target === 'pending_orders') {
-                  setStoreOrderFilter('pending');
-                  setStoreAdminTab('management');
-                  return;
-                }
-                if (target === 'active_orders') {
-                  setStoreOrderFilter('active');
-                  setStoreAdminTab('management');
-                  return;
-                }
-                setStoreInventoryFilter('low_stock');
-                setStoreAdminTab('operations');
-              }}
+            <OwnerGroupMenu
+              title={t('owner_group_home_title')}
+              groups={storeGroups}
+              onOpen={(id) => onStoreTabChange(id as OwnerShellTabId)}
             />
           ) : null}
 
-          {storeAdminTab === 'profile' ? (
+          {storeAdminTab === 'profile' || storeAdminTab === 'settings' ? (
             <>
               <StoreOwnerProfileSections
                 theme={theme}
@@ -1267,27 +1226,24 @@ export default function ShopScreen() {
                   <MerchantCampaignsPanel shopId={shop.id} />
                 </OwnerSectionCard>
               </PremiumFeatureGate>
+              <StoreOwnerSettings
+                fieldStyle={fieldStyle}
+                workOpenTime={workOpenTime}
+                workCloseTime={workCloseTime}
+                scheduleInlineOk={scheduleInlineOk}
+                scheduleHint={storeScheduleHint}
+                onChangeWorkOpenTime={(value) => {
+                  setWorkOpenTime(value);
+                  setScheduleInlineOk(false);
+                }}
+                onChangeWorkCloseTime={(value) => {
+                  setWorkCloseTime(value);
+                  setScheduleInlineOk(false);
+                }}
+                onSaveSchedule={onSaveSchedule}
+                onOpenNotifications={openNotificationsModal}
+              />
             </>
-          ) : null}
-
-          {storeAdminTab === 'settings' ? (
-            <StoreOwnerSettings
-              fieldStyle={fieldStyle}
-              workOpenTime={workOpenTime}
-              workCloseTime={workCloseTime}
-              scheduleInlineOk={scheduleInlineOk}
-              scheduleHint={storeScheduleHint}
-              onChangeWorkOpenTime={(value) => {
-                setWorkOpenTime(value);
-                setScheduleInlineOk(false);
-              }}
-              onChangeWorkCloseTime={(value) => {
-                setWorkCloseTime(value);
-                setScheduleInlineOk(false);
-              }}
-              onSaveSchedule={onSaveSchedule}
-              onOpenNotifications={openNotificationsModal}
-            />
           ) : null}
 
           {storeAdminTab === 'operations' ? (
@@ -1313,47 +1269,68 @@ export default function ShopScreen() {
           ) : null}
         </ScrollView>
 
-        <OwnerDashboardNav tabs={STORE_TABS} activeTab={storeAdminTab} onChange={onStoreTabChange} />
+        <OwnerDashboardNav
+          tabs={storeGroups.map((item) => ({
+            id: item.id,
+            label: item.title,
+            icon: item.icon,
+            badge: item.badge,
+          }))}
+          activeTab={storeAdminTab === 'settings' || storeAdminTab === 'profile' ? 'profile' : storeAdminTab}
+          onChange={(id) => onStoreTabChange(id as OwnerShellTabId)}
+        />
 
         {ownerModals}
       </View>
     );
   }
 
-  const SERVICE_TABS = getOwnerNavTabs(shop.type).map((tab) => ({
-    id: tab.id,
-    label: t(tab.labelKey),
-    icon: tab.icon,
-  }));
+  const serviceGroups = [
+    {
+      id: 'management',
+      icon: 'calendar-clock' as const,
+      title: t('owner_group_bookings'),
+      lead: t('owner_group_bookings_lead'),
+      badge: orderNotifier.pendingBookings.length,
+    },
+    {
+      id: 'operations',
+      icon: 'wrench-outline' as const,
+      title: t('owner_group_services'),
+      lead: t('owner_group_services_lead'),
+    },
+    {
+      id: 'profile',
+      icon: 'account-cog-outline' as const,
+      title: t('owner_group_account'),
+      lead: t('owner_group_account_lead'),
+    },
+  ];
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <ScrollView style={styles.screen} contentContainerStyle={[styles.page, styles.pageWithBottomNav]}>
-        {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile') && ownerProfileHero}
+        {storeAdminTab !== 'dashboard' ? (
+          <OwnerGroupBackBar
+            title={
+              storeAdminTab === 'management'
+                ? t('owner_group_bookings')
+                : storeAdminTab === 'operations'
+                  ? t('owner_group_services')
+                  : t('owner_group_account')
+            }
+            onBack={() => setStoreAdminTab('dashboard')}
+          />
+        ) : null}
+        {(storeAdminTab === 'dashboard' || storeAdminTab === 'profile' || storeAdminTab === 'settings') &&
+          ownerProfileHero}
 
         {storeAdminTab === 'dashboard' ? (
-          <>
-            <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('shop_welcome_back').replace('{name}', shopName)}>
-              <Pressable onPress={() => setStoreAdminTab('management')} style={{ paddingTop: 4, marginBottom: 10 }}>
-                <Text style={[styles.meta, { color: theme.text, fontWeight: '800' }]}>
-                  {shopOperatingStatus === 'closed'
-                    ? t('store_status_closed')
-                    : shopOperatingStatus === 'maintenance'
-                      ? t('store_status_maintenance')
-                      : t('store_status_open')}
-                </Text>
-                <Text style={[styles.meta, { color: theme.textMuted }]}>{t('shop_operating_status_hint')}</Text>
-              </Pressable>
-              <OwnerMetricsGrid metrics={serviceOwnerMetrics} />
-            </OwnerSectionCard>
-            {!isPro ? (
-              <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
-                <OwnerSectionCard theme={theme} title={t('wash_analytics_title')} subtitle={t('premium_feature_analytics')}>
-                  <OwnerMetricsGrid metrics={[serviceRevenueMetric]} />
-                </OwnerSectionCard>
-              </PremiumFeatureGate>
-            ) : null}
-          </>
+          <OwnerGroupMenu
+            title={t('owner_group_home_title')}
+            groups={serviceGroups}
+            onOpen={(id) => setStoreAdminTab(id as OwnerShellTabId)}
+          />
         ) : null}
 
         {storeAdminTab === 'management' ? (
@@ -1389,11 +1366,25 @@ export default function ShopScreen() {
         ) : null}
 
         {storeAdminTab === 'operations' ? ownerOperationsSections : null}
-        {storeAdminTab === 'profile' ? ownerProfileSections : null}
-        {storeAdminTab === 'settings' ? ownerSettingsSections : null}
+        {storeAdminTab === 'profile' || storeAdminTab === 'settings' ? (
+          <>
+            {ownerProfileSections}
+            {ownerSettingsSections}
+          </>
+        ) : null}
       </ScrollView>
 
-      <OwnerDashboardNav tabs={SERVICE_TABS} activeTab={storeAdminTab} onChange={setStoreAdminTab} />
+      <OwnerDashboardNav
+        tabs={serviceGroups.map((item) => ({
+          id: item.id,
+          label: item.title,
+          icon: item.icon,
+          badge: item.badge,
+        }))}
+        activeTab={storeAdminTab === 'settings' || storeAdminTab === 'profile' ? 'profile' : storeAdminTab}
+        onChange={(id) => setStoreAdminTab(id as OwnerShellTabId)}
+      />
+
       {ownerModals}
     </View>
   );
@@ -1423,7 +1414,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   page: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
-  pageWithBottomNav: { paddingBottom: 96 },
+  pageWithBottomNav: { paddingBottom: 128 },
   panelTabRow: {
     flexDirection: 'row',
     gap: 8,

@@ -175,12 +175,34 @@ export function formatShopScheduleLine(
   return `Shop hours: ${openHm} – ${closeHm} · ${durationMinutes} min per booking`;
 }
 
-export function buildScheduledIso(dateYmd: string, timeHm: string): string | null {
-  const iso = `${dateYmd}T${timeHm}:00`;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  if (d.getTime() < Date.now()) return null;
-  return d.toISOString();
+/** Local wall-clock start for a booking slot. Avoids `YYYY-MM-DDTHH:mm` parsing as UTC. */
+export function slotStartLocalMs(dateYmd: string, timeHm: string): number | null {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateYmd.trim());
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timeHm.trim());
+  if (!dateMatch || !timeMatch) return null;
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+  const hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2]);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null;
+  const local = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (
+    local.getFullYear() !== year ||
+    local.getMonth() !== month - 1 ||
+    local.getDate() !== day ||
+    local.getHours() !== hour ||
+    local.getMinutes() !== minute
+  ) {
+    return null;
+  }
+  return local.getTime();
+}
+
+export function buildScheduledIso(dateYmd: string, timeHm: string, now = Date.now()): string | null {
+  const ms = slotStartLocalMs(dateYmd, timeHm);
+  if (ms == null || ms <= now) return null;
+  return new Date(ms).toISOString();
 }
 
 export function defaultBookingDateYmd(): string {

@@ -9,7 +9,7 @@ import type { OwnerNavIconId } from '@/lib/owner/dashboardConfig';
 export type OwnerDashboardTab<T extends string = string> = {
   id: T;
   label: string;
-  icon: OwnerNavIconId;
+  icon: OwnerNavIconId | React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   badge?: number;
 };
 
@@ -30,20 +30,21 @@ const NAV_ICONS: Record<OwnerNavIconId, React.ComponentProps<typeof MaterialComm
   settings: 'cog-outline',
 };
 
+function navIconName(
+  icon: OwnerDashboardTab['icon'],
+): React.ComponentProps<typeof MaterialCommunityIcons>['name'] {
+  if (icon in NAV_ICONS) return NAV_ICONS[icon as OwnerNavIconId];
+  return icon;
+}
+
 export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange }: Props<T>) {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
 
   return (
-    <View
-      style={[
-        styles.dock,
-        {
-          backgroundColor: theme.bg,
-          paddingBottom: Math.max(insets.bottom, 12),
-        },
-      ]}>
+    <View pointerEvents="box-none" style={[styles.dock, { paddingBottom: Math.max(insets.bottom, 12) }]}>
       <View
+        pointerEvents="auto"
         style={[
           styles.pill,
           {
@@ -63,7 +64,7 @@ export function OwnerDashboardNav<T extends string>({ tabs, activeTab, onChange 
               accessibilityState={{ selected: active }}
               style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
               <View style={[styles.iconWrap, active && { backgroundColor: theme.accentSoft }]}>
-                <MaterialCommunityIcons name={NAV_ICONS[tab.icon]} size={20} color={color} />
+                <MaterialCommunityIcons name={navIconName(tab.icon)} size={20} color={color} />
                 {tab.badge ? (
                   <View style={[styles.badge, { backgroundColor: theme.danger, borderColor: theme.card }]}>
                     <Text style={styles.badgeText}>{tab.badge > 9 ? '9+' : tab.badge}</Text>

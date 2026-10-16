@@ -21,6 +21,7 @@ import { BOXED_OVERLAY } from '@/constants/Theme';
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { OwnerHistoryPanel } from '@/components/owner/OwnerHistoryPanel';
 import { OwnerDashboardNav } from '@/components/owner/OwnerDashboardNav';
+import { OwnerGroupBackBar, OwnerGroupMenu } from '@/components/owner/OwnerGroupMenu';
 import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
@@ -48,7 +49,6 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { SHOP_ASSETS_BUCKET, uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import { isQuotaExceededError } from '@/lib/media/persistImageUri';
 import { getSupabase } from '@/lib/supabase/client';
-import { getOwnerNavTabs, type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
 import {
   deleteCouponRemote,
   listActiveCouponsForShop,
@@ -86,7 +86,7 @@ import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
-import { computeWashAnalytics, selectTodayShopBookings } from '@/lib/booking/wash/washAnalytics';
+import { computeWashAnalytics, selectShopAppointments, selectTodayShopBookings } from '@/lib/booking/wash/washAnalytics';
 import { fetchPeakAnalytics } from '@/lib/posRepository';
 import { ShopFinanceOverview } from '@/components/owner/pos/ShopFinanceOverview';
 import { LogExpenseModal } from '@/components/owner/pos/LogExpenseModal';
@@ -382,7 +382,7 @@ export function WashOwnerPanel({ shop }: Props) {
     financeTimeframe,
   );
   const [panelTab, setPanelTab] = useState<'workspace' | 'history'>('workspace');
-  const [adminTab, setAdminTab] = useState<OwnerShellTabId>('dashboard');
+  const [group, setGroup] = useState<'bookings' | 'money' | 'services' | 'products' | 'shop' | 'account' | null>(null);
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
   const [storeOrderFilter, setStoreOrderFilter] = useState<StoreOrderListFilter>('all');
   const [focusStoreOrderId, setFocusStoreOrderId] = useState<string | null>(null);
@@ -707,6 +707,32 @@ export function WashOwnerPanel({ shop }: Props) {
     () => selectTodayShopBookings(shopBookingRows, analyticsBranchId),
     [shopBookingRows, analyticsBranchId],
   );
+  const shopAppointments = useMemo(() => selectShopAppointments(shopBookingRows), [shopBookingRows]);
+  const appointmentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const booking of shopAppointments.upcoming) ids.add(booking.id);
+    for (const booking of shopAppointments.earlierToday) ids.add(booking.id);
+    return ids;
+  }, [shopAppointments]);
+  const otherTodayRows = useMemo(
+    () => todayBookingRows.filter((booking) => !appointmentIds.has(booking.id)),
+    [todayBookingRows, appointmentIds],
+  );
+  const visibleTodayCount = useMemo(() => {
+    const ids = new Set(todayBookingRows.map((booking) => booking.id));
+    const now = new Date();
+    for (const booking of [...shopAppointments.upcoming, ...shopAppointments.earlierToday]) {
+      const when = new Date(booking.scheduledAt);
+      if (
+        when.getFullYear() === now.getFullYear() &&
+        when.getMonth() === now.getMonth() &&
+        when.getDate() === now.getDate()
+      ) {
+        ids.add(booking.id);
+      }
+    }
+    return ids.size;
+  }, [todayBookingRows, shopAppointments]);
 
   function requestPremiumUpgrade() {
     setPremiumModalVisible(true);
@@ -1565,12 +1591,39 @@ export function WashOwnerPanel({ shop }: Props) {
     );
   }
 
-  function renderBookingCard(booking: Booking, showActions: boolean) {
+  function renderBookingCard(
+    booking: Booking,
+    showActions: boolean,
+    options?: { emphasizeTime?: boolean; timePassed?: boolean },
+  ) {
     const lineItems = orderLineItems(booking, locale);
     const phone = formatPhoneDisplay(booking.customerPhone);
+    const when = new Date(booking.scheduledAt);
+    const timeLabel = Number.isNaN(when.getTime())
+      ? booking.scheduledAt
+      : when.toLocaleTimeString(locale === 'ar' ? 'ar-EG' : 'en-EG', {
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+    const dayLabel = Number.isNaN(when.getTime())
+      ? ''
+      : when.toLocaleDateString(locale === 'ar' ? 'ar-EG' : 'en-EG', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+        });
 
     return (
       <View key={booking.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+        {options?.emphasizeTime ? (
+          <View style={{ marginBottom: 8 }}>
+            <Text style={[styles.appointmentTime, { color: theme.text }]}>{timeLabel}</Text>
+            {dayLabel ? <Text style={[styles.meta, { color: theme.textMuted }]}>{dayLabel}</Text> : null}
+            {options.timePassed ? (
+              <Text style={[styles.meta, { color: theme.textMuted }]}>{t('owner_appointments_passed')}</Text>
+            ) : null}
+          </View>
+        ) : null}
         <View style={[styles.bookingTopRow, isRTL && styles.bookingTopRowRtl]}>
           <Text style={[styles.status, { color: theme.accent, marginTop: 0 }]}>{bookingStatusLabel(booking.status, locale)}</Text>
           <Text style={[styles.meta, { color: theme.textMuted }]}>
@@ -1656,11 +1709,57 @@ export function WashOwnerPanel({ shop }: Props) {
   const canUseWalkInPos = isOwner || isBranchManager;
   const showCoupons = false;
 
-  const TABS = getOwnerNavTabs(shop.type).map((tab) => ({
-    id: tab.id,
-    label: t(tab.labelKey),
-    icon: tab.icon,
-    badge: tab.id === 'products' ? orderNotifier.pendingStoreOrderCount : undefined,
+  const sellsProducts = shop.type === 'wash' || isDetailingShopType(shop.type);
+  const ownerGroups = [
+    {
+      id: 'bookings',
+      icon: 'calendar-clock' as const,
+      title: t('owner_group_bookings'),
+      lead: t('owner_group_bookings_lead'),
+      badge: orderNotifier.pendingBookings.length,
+    },
+    {
+      id: 'money',
+      icon: 'cash-multiple' as const,
+      title: t('owner_group_money'),
+      lead: t('owner_group_money_lead'),
+    },
+    {
+      id: 'services',
+      icon: 'wrench-outline' as const,
+      title: t('owner_group_services'),
+      lead: t('owner_group_services_lead'),
+    },
+    ...(sellsProducts
+      ? [
+          {
+            id: 'products',
+            icon: 'shopping-outline' as const,
+            title: t('owner_group_products'),
+            lead: t('owner_group_products_lead'),
+            badge: orderNotifier.pendingStoreOrderCount,
+          },
+        ]
+      : []),
+    {
+      id: 'shop',
+      icon: 'store-outline' as const,
+      title: t('owner_group_shop'),
+      lead: t('owner_group_shop_lead'),
+    },
+    {
+      id: 'account',
+      icon: 'account-cog-outline' as const,
+      title: t('owner_group_account'),
+      lead: t('owner_group_account_lead'),
+    },
+  ];
+  const activeGroupTitle = ownerGroups.find((item) => item.id === group)?.title ?? '';
+  const ownerNavTabs = ownerGroups.map((item) => ({
+    id: item.id,
+    label: item.title,
+    icon: item.icon,
+    badge: item.badge,
   }));
 
   const shopStatusCard = (
@@ -1797,6 +1896,64 @@ export function WashOwnerPanel({ shop }: Props) {
     </OwnerSectionCard>
   );
 
+  function renderBranchPicker() {
+    if (isBranchManager && activeBranch) {
+      return (
+        <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+          <View style={styles.branchSelect}>
+            <Text style={[styles.branchLabel, { color: theme.textMuted }]}>{t('wash_branch_label')}</Text>
+            <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
+              {branchDisplayName(activeBranch, locale)}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+    if (!isOwner) return null;
+    return (
+      <View style={styles.branchTabsWrap}>
+        {!isPremium ? (
+          <Text style={[styles.emptyHint, { color: theme.textDim, marginBottom: 8 }, isRTL && styles.textRtl]}>
+            {t('premium_branch_free_hint')}
+          </Text>
+        ) : null}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
+          {(branchState?.branches ?? []).map((branch) => {
+            const active = branch.id === branchState?.activeBranchId;
+            return (
+              <Pressable
+                key={branch.id}
+                onPress={() => onSelectBranchOrUpgrade(branch.id)}
+                style={[
+                  styles.branchTab,
+                  {
+                    backgroundColor: active ? theme.accent : theme.bgElevated,
+                    borderColor: active ? theme.accent : theme.border,
+                  },
+                ]}>
+                <Text style={[styles.branchTabText, { color: active ? theme.onAccent : theme.text }]} numberOfLines={1}>
+                  {branchDisplayName(branch, locale)}
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            onPress={onAddBranchPress}
+            style={[
+              styles.branchTab,
+              styles.branchAddTab,
+              { backgroundColor: theme.card, borderColor: isPremium ? theme.accent : theme.premium, borderStyle: 'dashed' },
+            ]}>
+            {!isPremium ? <FontAwesome name="lock" size={12} color={theme.premium} /> : null}
+            <Text style={[styles.branchTabText, { color: isPremium ? theme.accent : theme.premium }]}>
+              + {t('wash_add_branch')}
+            </Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
+
   if (!workspaceReady) {
     return (
       <View style={[styles.container, styles.workspaceBoot, { backgroundColor: theme.bg }]}>
@@ -1808,7 +1965,8 @@ export function WashOwnerPanel({ shop }: Props) {
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
-        {(adminTab === 'dashboard' || adminTab === 'profile') && (
+        {group !== null ? <OwnerGroupBackBar title={activeGroupTitle} onBack={() => setGroup(null)} /> : null}
+        {(group === null || group === 'account') && (
           <OwnerProfileHeader
             theme={theme}
             shopName={shopName}
@@ -1825,18 +1983,18 @@ export function WashOwnerPanel({ shop }: Props) {
             onEditCover={onSetCoverImage}
             onEditProfile={onSetProfileImage}
             onOpenNotifications={openNotificationsModal}
-            onOpenSettings={() => setAdminTab('settings')}
+            onOpenSettings={() => setGroup('account')}
             settingsLabel={t('merchant_settings_open')}
           />
         )}
 
-        {adminTab === 'dashboard' && (
+        {group === null ? (
           <>
-            {orderNotifier.pendingStoreOrderCount > 0 ? (
+            {sellsProducts && orderNotifier.pendingStoreOrderCount > 0 ? (
               <Pressable
                 onPress={() => {
                   setStoreOrderFilter('pending');
-                  setAdminTab('products');
+                  setGroup('products');
                 }}
                 style={[styles.productOrdersBanner, { backgroundColor: theme.accent }]}>
                 <FontAwesome name="shopping-bag" size={16} color={theme.onAccent} />
@@ -1845,6 +2003,23 @@ export function WashOwnerPanel({ shop }: Props) {
                 </Text>
                 <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={12} color={theme.onAccent} />
               </Pressable>
+            ) : null}
+            {renderBranchPicker()}
+            <OwnerGroupMenu
+              title={t('owner_group_home_title')}
+              groups={ownerGroups}
+              onOpen={(id) => setGroup(id as NonNullable<typeof group>)}
+            />
+          </>
+        ) : null}
+
+        {group === 'bookings' ? (
+          <>
+            {renderBranchPicker()}
+            {focusedBooking ? (
+              <OwnerSectionCard theme={theme} title={t('merchant_notif_booking_title')} subtitle={t('shop_active_requests_lead')}>
+                {renderBookingCard(focusedBooking, true)}
+              </OwnerSectionCard>
             ) : null}
             <View style={[styles.panelTabRow, { borderColor: theme.border }]}>
               {(
@@ -1869,7 +2044,6 @@ export function WashOwnerPanel({ shop }: Props) {
                 </Pressable>
               ))}
             </View>
-
             {panelTab === 'history' ? (
               <OwnerHistoryPanel
                 shop={shop}
@@ -1880,222 +2054,142 @@ export function WashOwnerPanel({ shop }: Props) {
               />
             ) : (
               <>
-                {isBranchManager && activeBranch ? (
-                  <View style={[styles.branchBar, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                    <View style={styles.branchSelect}>
-                      <Text style={[styles.branchLabel, { color: theme.textMuted }]}>{t('wash_branch_label')}</Text>
-                      <Text style={[styles.branchName, { color: theme.text }]} numberOfLines={1}>
-                        {branchDisplayName(activeBranch, locale)}
-                      </Text>
-                    </View>
-                  </View>
-                ) : isOwner ? (
-                  <View style={styles.branchTabsWrap}>
-                    {!isPremium ? (
-                      <Text style={[styles.emptyHint, { color: theme.textDim, marginBottom: 8 }, isRTL && styles.textRtl]}>
-                        {t('premium_branch_free_hint')}
-                      </Text>
-                    ) : null}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchTabsRow}>
-                      {(branchState?.branches ?? []).map((branch) => {
-                        const active = branch.id === branchState?.activeBranchId;
-                        return (
-                          <Pressable
-                            key={branch.id}
-                            onPress={() => onSelectBranchOrUpgrade(branch.id)}
-                            style={[
-                              styles.branchTab,
-                              {
-                                backgroundColor: active ? theme.accent : theme.bgElevated,
-                                borderColor: active ? theme.accent : theme.border,
-                              },
-                            ]}>
-                            <Text
-                              style={[styles.branchTabText, { color: active ? theme.onAccent : theme.text }]}
-                              numberOfLines={1}>
-                              {branchDisplayName(branch, locale)}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                      <Pressable
-                        onPress={onAddBranchPress}
-                        style={[
-                          styles.branchTab,
-                          styles.branchAddTab,
-                          { backgroundColor: theme.card, borderColor: isPremium ? theme.accent : theme.premium, borderStyle: 'dashed' },
-                        ]}>
-                        {!isPremium ? <FontAwesome name="lock" size={12} color={theme.premium} /> : null}
-                        <Text style={[styles.branchTabText, { color: isPremium ? theme.accent : theme.premium }]}>
-                          + {t('wash_add_branch')}
-                        </Text>
-                      </Pressable>
-                    </ScrollView>
-                  </View>
+                {canUseWalkInPos ? (
+                  <Pressable
+                    onPress={() => setWalkInModalVisible(true)}
+                    style={[styles.walkInBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+                    <Text style={[styles.walkInBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
+                  </Pressable>
                 ) : null}
-
-                {loading && !analytics ? (
-                  <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} />
-                ) : null}
-
-                <ShopFinanceOverview
-                  shopId={shop.id}
-                  analytics={posFinance}
-                  loading={financeLoading}
-                  timeframe={financeTimeframe}
-                  onTimeframeChange={setFinanceTimeframe}
-                  onRecordSale={() => setWalkInModalVisible(true)}
-                  onLogExpense={() => setExpenseModalVisible(true)}
-                  onLogPayroll={() => setAdminTab('management')}
-                  onChanged={() => {
-                    void refreshFinancials();
-                  }}
-                />
-
                 {isDetailingShopType(shop.type) ? (
                   <DetailingJobBoard shopId={shop.id} refreshKey={jobBoardRefreshKey} />
                 ) : null}
-
-                {/* Dashboard overview */}
+                {loading && !analytics ? <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} /> : null}
                 {analytics ? (
-                  <>
-                    <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
-                      <OwnerMetricsGrid
-                        metrics={[
-                          {
-                            id: 'today',
-                            label: t('owner_dashboard_today_bookings'),
-                            value: analytics.todayBookings,
-                            icon: 'calendar-check-o',
-                          },
-                          {
-                            id: 'pending',
-                            label: t('owner_dashboard_pending_requests'),
-                            value: analytics.pendingRequests,
-                            icon: 'clock-o',
-                            tone: 'warning',
-                          },
-                          {
-                            id: 'services',
-                            label: t('owner_dashboard_active_services'),
-                            value: sortedServices.filter((service) => service.active).length,
-                            icon: 'wrench',
-                          },
-                        ]}
-                      />
-                      {todayBookingRows.length > 0 ? (
-                        <View style={styles.todayBookings}>
-                          {todayBookingRows.map((booking) => renderBookingCard(booking, true))}
-                        </View>
-                      ) : null}
-                    </OwnerSectionCard>
-                  </>
-                ) : null}
-
-                {/* Shop status — read-only; edit in Management */}
-                <Pressable onPress={() => setAdminTab('management')}>
-                  <OwnerSectionCard theme={theme} title={t('wash_status_title')} subtitle={t('shop_operating_status_hint')}>
-                    <View style={styles.actions}>
-                      <View
-                        style={[
-                          styles.chipBtn,
-                          {
-                            backgroundColor: theme.accent,
-                            borderColor: theme.accent,
-                          },
-                        ]}>
-                        <Text style={[styles.chipBtnText, { color: theme.onAccent }]}>
-                          {t(washStatusLabelKey(shopStatus))}
-                        </Text>
-                      </View>
-                    </View>
-                  </OwnerSectionCard>
-                </Pressable>
-
-                {/* Analytics widgets */}
-                {analytics ? (
-                  <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
                   <OwnerSectionCard
                     theme={theme}
-                    title={t('pos_peak_title')}
-                    subtitle={t('pos_peak_lead')}>
-                    {isOwner ? (
-                      <Text style={[styles.metaStrong, { color: theme.text, marginBottom: 6 }]}>
-                        {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
+                    title={t('owner_appointments_title')}
+                    subtitle={t('owner_appointments_lead')}
+                    icon="car">
+                    {shopAppointments.upcoming.length === 0 && shopAppointments.earlierToday.length === 0 ? (
+                      <Text style={[styles.meta, { color: theme.textMuted, marginTop: 8 }]}>
+                        {t('owner_appointments_empty')}
                       </Text>
-                    ) : null}
-                    <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 12 }]}>
-                      {t('wash_analytics_top_service')}: {analytics.mostBookedService}
-                    </Text>
-                    <PeakHoursChart hours={peakHours} weekdays={peakWeekdays} />
+                    ) : (
+                      <>
+                        {shopAppointments.upcoming.length > 0 ? (
+                          <View style={styles.todayBookings}>
+                            <Text style={[styles.appointmentGroupLabel, { color: theme.text }]}>
+                              {t('owner_appointments_coming')}
+                            </Text>
+                            {shopAppointments.upcoming.map((booking) =>
+                              renderBookingCard(booking, true, { emphasizeTime: true }),
+                            )}
+                          </View>
+                        ) : null}
+                        {shopAppointments.earlierToday.length > 0 ? (
+                          <View style={styles.todayBookings}>
+                            <Text style={[styles.appointmentGroupLabel, { color: theme.text }]}>
+                              {t('owner_appointments_earlier')}
+                            </Text>
+                            {shopAppointments.earlierToday.map((booking) =>
+                              renderBookingCard(booking, true, { emphasizeTime: true, timePassed: true }),
+                            )}
+                          </View>
+                        ) : null}
+                      </>
+                    )}
                   </OwnerSectionCard>
-                  </PremiumFeatureGate>
                 ) : null}
-
-                {/* Orders & history shortcuts */}
-                <OwnerSectionCard theme={theme} title={t('wash_hub_shortcuts_title')} subtitle={t('wash_hub_shortcuts_lead')}>
-                  {canUseWalkInPos ? (
-                    <>
-                      <Pressable
-                        onPress={() => setWalkInModalVisible(true)}
-                        style={[styles.walkInBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                        <Text style={[styles.walkInBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setEndShiftVisible(true)}
-                        style={[styles.walkInBtn, { backgroundColor: theme.bgElevated, borderColor: theme.accent }]}>
-                        <Text style={[styles.walkInBtnText, { color: theme.accent }]}>{t('pos_shift_end_button')}</Text>
-                      </Pressable>
-                    </>
-                  ) : null}
-                  <View style={styles.shortcutRow}>
-                    <Pressable
-                      onPress={() => {
-                        if (!isPremium) {
-                          requestPremiumUpgrade();
-                          return;
-                        }
-                        router.push('/shop/wash-reports');
-                      }}
-                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-                      <View style={styles.shortcutCardRow}>
-                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reports')}</Text>
-                        {!isPremium ? <FontAwesome name="lock" size={13} color={theme.premium} /> : null}
-                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
+                {analytics ? (
+                  <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
+                    <OwnerMetricsGrid
+                      metrics={[
+                        {
+                          id: 'today',
+                          label: t('owner_dashboard_today_bookings'),
+                          value: visibleTodayCount,
+                          icon: 'calendar-check-o',
+                        },
+                        {
+                          id: 'pending',
+                          label: t('owner_dashboard_pending_requests'),
+                          value: analytics.pendingRequests,
+                          icon: 'clock-o',
+                          tone: 'warning',
+                        },
+                      ]}
+                    />
+                    {otherTodayRows.length > 0 ? (
+                      <View style={styles.todayBookings}>
+                        {otherTodayRows.map((booking) => renderBookingCard(booking, true))}
                       </View>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => router.push('/shop/wash-owner-hub?tab=reviews')}
-                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-                      <View style={styles.shortcutCardRow}>
-                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reviews')}</Text>
-                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
-                      </View>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => router.push('/shop/wash-owner-hub?tab=queue')}
-                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-                      <View style={styles.shortcutCardRow}>
-                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_stat_pending')}</Text>
-                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
-                      </View>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => router.push('/shop/wash-history')}
-                      style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-                      <View style={styles.shortcutCardRow}>
-                        <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_tab_history')}</Text>
-                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
-                      </View>
-                    </Pressable>
+                    ) : null}
+                  </OwnerSectionCard>
+                ) : null}
+                <Pressable
+                  onPress={() => router.push('/shop/wash-owner-hub?tab=queue')}
+                  style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
+                  <View style={styles.shortcutCardRow}>
+                    <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_stat_pending')}</Text>
+                    <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
                   </View>
-                </OwnerSectionCard>
+                </Pressable>
               </>
             )}
           </>
-        )}
+        ) : null}
 
-        {adminTab === 'profile' && (
+        {group === 'money' ? (
+          <>
+            <ShopFinanceOverview
+              shopId={shop.id}
+              analytics={posFinance}
+              loading={financeLoading}
+              timeframe={financeTimeframe}
+              onTimeframeChange={setFinanceTimeframe}
+              onRecordSale={() => setWalkInModalVisible(true)}
+              onLogExpense={() => setExpenseModalVisible(true)}
+              onLogPayroll={() => setGroup('shop')}
+              onEndShift={canUseWalkInPos ? () => setEndShiftVisible(true) : undefined}
+              onChanged={() => {
+                void refreshFinancials();
+              }}
+            />
+            <OwnerSectionCard theme={theme} title={t('pos_peak_title')} subtitle={t('pos_peak_lead')}>
+              {analytics ? (
+                <PremiumFeatureGate shopId={shop.id} hint={t('premium_feature_analytics')}>
+                  {isOwner ? (
+                    <Text style={[styles.metaStrong, { color: theme.text, marginBottom: 6 }]}>
+                      {t('wash_analytics_weekly_revenue')}: {formatEgp(analytics.weeklyRevenue, locale)}
+                    </Text>
+                  ) : null}
+                  <Text style={[styles.meta, { color: theme.textMuted, marginBottom: 12 }]}>
+                    {t('wash_analytics_top_service')}: {analytics.mostBookedService}
+                  </Text>
+                  <PeakHoursChart hours={peakHours} weekdays={peakWeekdays} />
+                </PremiumFeatureGate>
+              ) : null}
+              <Pressable
+                onPress={() => {
+                  if (!isPremium) {
+                    requestPremiumUpgrade();
+                    return;
+                  }
+                  router.push('/shop/wash-reports');
+                }}
+                style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border, marginTop: 12 }]}>
+                <View style={styles.shortcutCardRow}>
+                  <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_hub_subtab_reports')}</Text>
+                  {!isPremium ? <FontAwesome name="lock" size={13} color={theme.premium} /> : null}
+                  <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
+                </View>
+              </Pressable>
+            </OwnerSectionCard>
+          </>
+        ) : null}
+
+        {group === 'account' && (
           <>
             {/* Profile */}
             <OwnerSectionCard theme={theme} title={t('wash_profile_title')} subtitle={t('wash_profile_lead')}>
@@ -2165,13 +2259,13 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         )}
 
-        {adminTab === 'settings' && (
+        {group === 'account' && (
           <>
             <OwnerAccountSettings />
           </>
         )}
 
-        {adminTab === 'operations' && (
+        {group === 'services' && (
           <>
             {/* Services CRUD — free tier */}
             <OwnerSectionCard theme={theme} title={t('wash_services_title')} subtitle={t('wash_services_lead')}>
@@ -2266,7 +2360,7 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         )}
 
-        {adminTab === 'products' && (
+        {group === 'products' && (
           <>
             <StoreOrdersPanel
               shop={shop}
@@ -2280,16 +2374,9 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         )}
 
-        {adminTab === 'management' && (
+        {group === 'shop' && (
           <>
-            {focusedBooking ? (
-              <OwnerSectionCard
-                theme={theme}
-                title={t('merchant_notif_booking_title')}
-                subtitle={t('shop_active_requests_lead')}>
-                {renderBookingCard(focusedBooking, true)}
-              </OwnerSectionCard>
-            ) : null}
+            {renderBranchPicker()}
             {shopStatusCard}
             {weeklyHoursCard}
             <ShopCustomersPanel shopId={shop.id} refreshKey={crmRefreshKey} />
@@ -2395,7 +2482,11 @@ export function WashOwnerPanel({ shop }: Props) {
         )}
       </ScrollView>
 
-      <OwnerDashboardNav tabs={TABS} activeTab={adminTab} onChange={setAdminTab} />
+      <OwnerDashboardNav
+        tabs={ownerNavTabs}
+        activeTab={group ?? 'home'}
+        onChange={(id) => setGroup(id as NonNullable<typeof group>)}
+      />
 
       <PremiumUpgradeModal visible={premiumModalVisible} onClose={() => setPremiumModalVisible(false)} />
 
@@ -2408,12 +2499,12 @@ export function WashOwnerPanel({ shop }: Props) {
         onSelectStoreOrder={(order) => {
           setStoreOrderFilter('pending');
           setFocusStoreOrderId(order.id);
-          setAdminTab('products');
+          setGroup('products');
         }}
         onSelectBooking={(booking) => {
           setPanelTab('workspace');
           setFocusBookingId(booking.id);
-          setAdminTab('management');
+          setGroup('bookings');
         }}
       />
 
@@ -3004,6 +3095,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   todayBookings: { gap: 10, marginTop: 14 },
+  appointmentTime: { fontSize: 28, fontWeight: '800' },
+  appointmentGroupLabel: { fontSize: 13, fontWeight: '800', marginBottom: 2 },
   card: {
     borderWidth: 1,
     borderRadius: 14,
@@ -3175,7 +3268,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 96,
+    paddingBottom: 128,
   },
   bottomTabBar: {
     flexDirection: 'row',

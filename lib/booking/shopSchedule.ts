@@ -1,5 +1,5 @@
 import type { Booking, ShopDayHours, ShopExtras, ShopService } from '@/lib/booking/types';
-import { toDateYmd } from '@/lib/booking/format';
+import { slotStartLocalMs, toDateYmd } from '@/lib/booking/format';
 
 export type SlotAvailability = 'available' | 'almost_full' | 'booked';
 
@@ -80,6 +80,7 @@ export function buildSlotsForShopDate(input: {
   extras: ShopExtras | null | undefined;
   dateYmd: string;
   bookings: Booking[];
+  now?: Date;
 }): TimeSlotOption[] {
   if (input.extras?.washShopStatus === 'vacation' || input.extras?.washShopStatus === 'closed') {
     return [];
@@ -101,9 +102,7 @@ export function buildSlotsForShopDate(input: {
   let end = close;
   if (end <= open) end += 24 * 60;
 
-  const now = new Date();
-  const isToday = input.dateYmd === toDateYmd(now);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const now = input.now ?? new Date();
 
   const bookedTimes = new Set(
     input.bookings
@@ -118,7 +117,8 @@ export function buildSlotsForShopDate(input: {
   for (let start = open; start + durationMinutes <= end; start += durationMinutes) {
     const normalizedStart = start >= 24 * 60 ? start - 24 * 60 : start;
     const time = minutesToHm(normalizedStart);
-    if (isToday && normalizedStart <= nowMinutes) continue;
+    const slotMs = slotStartLocalMs(input.dateYmd, time);
+    if (slotMs == null || slotMs <= now.getTime()) continue;
     if (breakStart != null && breakEnd != null && normalizedStart >= breakStart && normalizedStart < breakEnd) {
       continue;
     }

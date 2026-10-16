@@ -23,6 +23,7 @@ type Props = {
   onRecordSale?: () => void;
   onLogExpense?: () => void;
   onLogPayroll?: () => void;
+  onEndShift?: () => void;
   onChanged?: () => void;
 };
 
@@ -35,6 +36,7 @@ export function ShopFinanceOverview({
   onRecordSale,
   onLogExpense,
   onLogPayroll,
+  onEndShift,
   onChanged,
 }: Props) {
   const theme = useAppTheme();
@@ -54,6 +56,69 @@ export function ShopFinanceOverview({
             : t('pos_finance_lead')
       }
       icon="calculator">
+      <View style={[styles.timeRow, isRTL && styles.rowRtl]}>
+        {(['today', 'month'] as const).map((item) => {
+          const active = timeframe === item;
+          return (
+            <Pressable
+              key={item}
+              onPress={() => onTimeframeChange(item)}
+              style={[
+                styles.timePill,
+                {
+                  backgroundColor: active ? theme.accent : theme.bgElevated,
+                  borderColor: active ? theme.accent : theme.border,
+                },
+              ]}>
+              <Text style={[styles.timePillText, { color: active ? theme.onAccent : theme.text }]}>
+                {item === 'today' ? t('pos_finance_today') : t('pos_finance_month')}
+              </Text>
+            </Pressable>
+          );
+        })}
+        {loading ? <ActivityIndicator size="small" color={theme.accent} /> : null}
+      </View>
+
+      <Pressable
+        onPress={() => setOpenCard('profit')}
+        style={[
+          styles.result,
+          {
+            backgroundColor: profitPositive ? theme.successSoft : theme.dangerSoft,
+            borderColor: profitPositive ? theme.success : theme.danger,
+          },
+        ]}>
+        <Text style={[styles.resultLabel, { color: profitPositive ? theme.success : theme.danger }, isRTL && styles.rtl]}>
+          {profitPositive ? t('pos_profit_positive') : t('pos_profit_negative')}
+        </Text>
+        <Text style={[styles.resultValue, { color: theme.text }, isRTL && styles.rtl]}>
+          {formatEgp(analytics.netProfit, locale)}
+        </Text>
+        <Text style={[styles.resultHint, { color: theme.textMuted }, isRTL && styles.rtl]}>
+          {t('pos_card_profit_hint').replace('{fees}', formatEgp(analytics.pitstopFees, locale))}
+        </Text>
+      </Pressable>
+
+      <View style={styles.books}>
+        <PnlGroup title={t('pos_pnl_revenue')}>
+          <BookLine label={t('pos_card_sales')} value={formatEgp(analytics.totalSales, locale)} onPress={() => setOpenCard('sales')} strong />
+          <PnlRow label={t('pos_finance_source_walk_in')} value={formatEgp(analytics.walkInSales, locale)} theme={theme} />
+          <PnlRow label={t('pos_finance_source_app')} value={formatEgp(analytics.appBookingSales, locale)} theme={theme} />
+        </PnlGroup>
+        <PnlGroup title={t('pos_pnl_costs')}>
+          <BookLine label={t('pos_card_expenses')} value={formatEgp(analytics.operatingExpenses, locale)} onPress={() => setOpenCard('expenses')} />
+          <PnlRow label={t('pos_pnl_materials')} value={formatEgp(analytics.rawMaterials, locale)} theme={theme} />
+          <PnlRow label={t('pos_pnl_operations')} value={formatEgp(analytics.operations, locale)} theme={theme} />
+          <BookLine label={t('pos_card_payroll')} value={formatEgp(analytics.payroll, locale)} onPress={() => setOpenCard('payroll')} />
+          <PnlRow label={t('pos_pnl_fees')} value={formatEgp(analytics.pitstopFees, locale)} theme={theme} />
+        </PnlGroup>
+        <PnlGroup title={t('pos_pnl_ledger')}>
+          <BookLine label={t('pos_card_uncollected')} value={formatEgp(analytics.uncollected, locale)} onPress={() => setOpenCard('uncollected')} />
+          <PnlRow label={t('pos_finance_unpaid_order')} value={formatEgp(analytics.unpaidOrders, locale)} theme={theme} />
+          <PnlRow label={t('pos_finance_credit')} value={formatEgp(analytics.pendingCredits, locale)} theme={theme} />
+        </PnlGroup>
+      </View>
+
       <View style={styles.actionRow}>
         {onRecordSale ? (
           <Pressable onPress={onRecordSale} style={[styles.actionBtn, { backgroundColor: theme.accent }]}>
@@ -77,97 +142,15 @@ export function ShopFinanceOverview({
             <Text style={[styles.actionText, { color: theme.text }]}>{t('pos_finance_record_payroll')}</Text>
           </Pressable>
         ) : null}
+        {onEndShift ? (
+          <Pressable
+            onPress={onEndShift}
+            style={[styles.actionBtn, { backgroundColor: theme.bgElevated, borderColor: theme.border, borderWidth: 1 }]}>
+            <FontAwesome name="flag-checkered" size={13} color={theme.text} />
+            <Text style={[styles.actionText, { color: theme.text }]}>{t('pos_shift_end_button')}</Text>
+          </Pressable>
+        ) : null}
       </View>
-      <View style={styles.timeRow}>
-        {(['today', 'month'] as const).map((item) => {
-          const active = timeframe === item;
-          return (
-            <Pressable
-              key={item}
-              onPress={() => onTimeframeChange(item)}
-              style={[
-                styles.timePill,
-                {
-                  backgroundColor: active ? theme.accent : theme.bgElevated,
-                  borderColor: active ? theme.accent : theme.border,
-                },
-              ]}>
-              <Text style={[styles.timePillText, { color: active ? theme.onAccent : theme.text }]}>
-                {item === 'today' ? t('pos_finance_today') : t('pos_finance_month')}
-              </Text>
-            </Pressable>
-          );
-        })}
-        {loading ? <ActivityIndicator size="small" color={theme.accent} /> : null}
-      </View>
-
-      <View style={styles.grid}>
-        <FinanceCard
-          icon="shopping-cart"
-          tone="success"
-          label={t('pos_card_sales')}
-          value={formatEgp(analytics.totalSales, locale)}
-          hint={t('pos_card_sales_hint')
-            .replace('{walkIn}', formatEgp(analytics.walkInSales, locale))
-            .replace('{app}', formatEgp(analytics.appBookingSales, locale))}
-          onPress={() => setOpenCard('sales')}
-        />
-        <FinanceCard
-          icon="tint"
-          tone="warning"
-          label={t('pos_card_expenses')}
-          value={formatEgp(analytics.operatingExpenses, locale)}
-          hint={t('pos_card_expenses_hint')
-            .replace('{materials}', formatEgp(analytics.rawMaterials, locale))
-            .replace('{ops}', formatEgp(analytics.operations, locale))}
-          onPress={() => setOpenCard('expenses')}
-        />
-        <FinanceCard
-          icon="users"
-          tone="accent"
-          label={t('pos_card_payroll')}
-          value={formatEgp(analytics.payroll, locale)}
-          hint={t('pos_card_payroll_hint').replace('{commission}', formatEgp(analytics.employeeCommissions, locale))}
-          onPress={() => setOpenCard('payroll')}
-        />
-        <FinanceCard
-          icon="line-chart"
-          tone={profitPositive ? 'success' : 'danger'}
-          label={t('pos_card_profit')}
-          value={formatEgp(analytics.netProfit, locale)}
-          hint={t('pos_card_profit_hint').replace('{fees}', formatEgp(analytics.pitstopFees, locale))}
-          badge={profitPositive ? t('pos_profit_positive') : t('pos_profit_negative')}
-          onPress={() => setOpenCard('profit')}
-        />
-        <FinanceCard
-          icon="briefcase"
-          tone="warning"
-          label={t('pos_card_uncollected')}
-          value={formatEgp(analytics.uncollected, locale)}
-          hint={t('pos_card_uncollected_hint')
-            .replace('{orders}', formatEgp(analytics.unpaidOrders, locale))
-            .replace('{credits}', formatEgp(analytics.pendingCredits, locale))}
-          onPress={() => setOpenCard('uncollected')}
-        />
-      </View>
-
-      <Text style={[styles.sectionTitle, { color: theme.text }, isRTL && styles.rtl]}>{t('pos_pnl_title')}</Text>
-      <Text style={[styles.sectionLead, { color: theme.textMuted }, isRTL && styles.rtl]}>{t('pos_pnl_lead')}</Text>
-
-      <PnlGroup title={t('pos_pnl_revenue')}>
-        <PnlRow label={t('pos_pnl_wash')} value={formatEgp(analytics.washRevenue, locale)} theme={theme} />
-        <PnlRow label={t('pos_pnl_accessories')} value={formatEgp(analytics.accessorySales, locale)} theme={theme} />
-      </PnlGroup>
-      <PnlGroup title={t('pos_pnl_costs')}>
-        <PnlRow label={t('pos_pnl_materials')} value={formatEgp(analytics.rawMaterials, locale)} theme={theme} />
-        <PnlRow label={t('pos_pnl_wages')} value={formatEgp(analytics.payroll, locale)} theme={theme} />
-        <PnlRow label={t('pos_pnl_operations')} value={formatEgp(analytics.operations, locale)} theme={theme} />
-        <PnlRow label={t('pos_pnl_fees')} value={formatEgp(analytics.pitstopFees, locale)} theme={theme} />
-      </PnlGroup>
-      <PnlGroup title={t('pos_pnl_ledger')}>
-        <PnlRow label={t('pos_pnl_receivables')} value={formatEgp(analytics.uncollected, locale)} theme={theme} />
-        <PnlRow label={t('pos_pnl_fees_due')} value={formatEgp(analytics.pitstopFeesDue, locale)} theme={theme} />
-      </PnlGroup>
 
       <FinanceCardDetailModal
         visible={openCard != null}
@@ -179,66 +162,6 @@ export function ShopFinanceOverview({
         onChanged={onChanged}
       />
     </OwnerSectionCard>
-  );
-}
-
-function FinanceCard({
-  icon,
-  tone,
-  label,
-  value,
-  hint,
-  badge,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof FontAwesome>['name'];
-  tone: 'accent' | 'success' | 'warning' | 'danger';
-  label: string;
-  value: string;
-  hint: string;
-  badge?: string;
-  onPress: () => void;
-}) {
-  const theme = useAppTheme();
-  const { t } = useI18n();
-  const colors = {
-    accent: theme.brand,
-    success: theme.success,
-    warning: theme.warning,
-    danger: theme.danger,
-  };
-  const backgrounds = {
-    accent: theme.brandSoft,
-    success: theme.successSoft,
-    warning: theme.warningSoft,
-    danger: theme.dangerSoft,
-  };
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        { backgroundColor: theme.card, borderColor: theme.border, opacity: pressed ? 0.88 : 1 },
-      ]}>
-      <View style={styles.cardTop}>
-        <View style={[styles.icon, { backgroundColor: backgrounds[tone] }]}>
-          <FontAwesome name={icon} size={16} color={colors[tone]} />
-        </View>
-        <View style={styles.cardTopRight}>
-          {badge ? (
-            <View style={[styles.badge, { backgroundColor: backgrounds[tone] }]}>
-              <Text style={[styles.badgeText, { color: colors[tone] }]}>{badge}</Text>
-            </View>
-          ) : null}
-          <FontAwesome name="chevron-right" size={12} color={theme.textDim} />
-        </View>
-      </View>
-      <Text style={[styles.value, { color: theme.text }]}>{value}</Text>
-      <Text style={[styles.label, { color: theme.text }]}>{label}</Text>
-      <Text style={[styles.hint, { color: theme.textMuted }]}>{hint}</Text>
-      <Text style={[styles.openHint, { color: theme.accent }]}>{t('pos_finance_open_hint')}</Text>
-    </Pressable>
   );
 }
 
@@ -475,6 +398,28 @@ function lineTitle(line: FinanceDetailLine, t: (key: TranslationKey) => string):
   return line.title;
 }
 
+function BookLine({
+  label,
+  value,
+  onPress,
+  strong,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+  strong?: boolean;
+}) {
+  const theme = useAppTheme();
+  const { isRTL } = useI18n();
+  return (
+    <Pressable onPress={onPress} style={[styles.bookLine, isRTL && styles.rowRtl]}>
+      <Text style={[styles.bookLabel, { color: theme.text }, strong && styles.bookLabelStrong]}>{label}</Text>
+      <Text style={[styles.bookValue, { color: theme.text }]}>{value}</Text>
+      <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={11} color={theme.textMuted} />
+    </Pressable>
+  );
+}
+
 function PnlGroup({ title, children }: { title: string; children: React.ReactNode }) {
   const theme = useAppTheme();
   return (
@@ -503,11 +448,20 @@ function PnlRow({
 }
 
 const styles = StyleSheet.create({
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  result: { borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 14 },
+  resultLabel: { fontSize: 13, fontWeight: '800' },
+  resultValue: { marginTop: 4, fontSize: 32, fontWeight: '900', letterSpacing: -0.6 },
+  resultHint: { marginTop: 6, fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  books: { gap: 10 },
+  bookLine: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  bookLabel: { flex: 1, fontSize: 14, fontWeight: '700' },
+  bookLabelStrong: { fontWeight: '800' },
+  bookValue: { fontSize: 15, fontWeight: '800' },
+  rowRtl: { flexDirection: 'row-reverse' },
+  actionRow: { gap: 8, marginTop: 14 },
   actionBtn: {
-    flexGrow: 1,
-    minWidth: 150,
-    minHeight: 42,
+    width: '100%',
+    minHeight: 44,
     borderRadius: 12,
     paddingHorizontal: 12,
     flexDirection: 'row',
@@ -515,7 +469,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  actionText: { fontSize: 13, fontWeight: '800' },
+  actionText: { flexShrink: 1, fontSize: 13, fontWeight: '800' },
   timeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 },
   timePill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   timePillText: { fontSize: 12, fontWeight: '800' },
