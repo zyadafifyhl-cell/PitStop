@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -12,6 +12,7 @@ import { isStoreShopType } from '@/lib/booking/storeCatalog';
 import { listFavoriteShopIds, removeFavoriteShop, resolveFavoritesOwnerId } from '@/lib/booking/favoritesStorage';
 import { shopTypeLabel } from '@/lib/booking/format';
 import { openPhone, openShopInMaps } from '@/lib/linking/contact';
+import { pushFromBrowseTab, setActiveBrowseTab } from '@/lib/navigation/preserveTabStack';
 
 export default function FavoritesScreen() {
   const { t, locale } = useI18n();
@@ -27,12 +28,20 @@ export default function FavoritesScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      setActiveBrowseTab('/favorites');
       refresh();
     }, [refresh]),
   );
 
   function linkFail() {
     Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body'));
+  }
+
+  function openFavoriteShop(shopId: string, storeType: boolean) {
+    pushFromBrowseTab(
+      '/favorites',
+      (storeType ? `/parts-shop/${shopId}` : `/shop-profile/${shopId}`) as any,
+    );
   }
 
   const shops = catalogReady
@@ -69,11 +78,7 @@ export default function FavoritesScreen() {
             }}
             onCall={() => openPhone(shop.phone).catch(linkFail)}
             onOpenMaps={() => openShopInMaps(shop, locale).catch(linkFail)}
-            onPress={() =>
-              isStoreShopType(shop.type)
-                ? router.push(`/parts-shop/${shop.id}` as any)
-                : router.push(`/shop-profile/${shop.id}` as any)
-            }
+            onPress={() => openFavoriteShop(shop.id, isStoreShopType(shop.type))}
           />
         ))
       )}

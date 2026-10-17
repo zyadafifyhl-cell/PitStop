@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { focusedTabHref } from '@/components/ui/CustomerBrowseTabBar';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { switchPreservedTab } from '@/lib/navigation/preserveTabStack';
+import { deepestPathForTab, switchPreservedTab } from '@/lib/navigation/preserveTabStack';
 
 type TabRoute = { key: string; name: string; params?: object };
 type TabOptions = {
@@ -84,15 +84,22 @@ export function FintechTabBar({
                   target: route.key,
                   canPreventDefault: true,
                 });
-                if (focused || event.defaultPrevented) return;
-                if (rootNavigation) {
-                  switchPreservedTab(rootNavigation, focusedTabHref(pathname), {
-                    href: route.name === 'index' ? '/' : `/${route.name}`,
-                    screen: route.name,
-                  });
+                if (event.defaultPrevented) return;
+
+                const targetHref = route.name === 'index' ? '/' : `/${route.name}`;
+                const currentHref = focusedTabHref(pathname);
+
+                // Even when this route looks focused in the tab state, still run through
+                // preservation — deep Home routes can leave the tab navigator while Home
+                // still appears selected in some edge cases.
+                if (focused && currentHref === targetHref && !deepestPathForTab(targetHref)) {
                   return;
                 }
-                navigation.navigate(route.name, route.params);
+
+                switchPreservedTab(rootNavigation ?? undefined, currentHref, pathname, {
+                  href: targetHref,
+                  screen: route.name,
+                });
               }}
               style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
               <View style={[styles.iconWrap, focused && { backgroundColor: theme.accentSoft }]}>

@@ -2,15 +2,17 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRootNavigation } from 'expo-router';
 
-import { switchPreservedTab } from '@/lib/navigation/preserveTabStack';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
-import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import {
+  getActiveBrowseTab,
+  isSharedBrowseDeepPath,
+  switchPreservedTab,
+} from '@/lib/navigation/preserveTabStack';
 
 const TAB_ROUTES = new Set(['/', '/index', '/bookings', '/orders', '/favorites', '/assistant', '/shop', '/settings']);
 
@@ -65,11 +67,36 @@ export function shouldShowCustomerBrowseTabBar(pathname: string, isCustomerSessi
 
 export function focusedTabHref(pathname: string): CustomerTab['href'] {
   const path = normalizeAppPath(pathname);
-  if (path.startsWith('/settings')) return '/settings';
-  if (path.startsWith('/driver-network') || path.startsWith('/assistant')) return '/assistant';
-  if (path.startsWith('/booking/')) return '/bookings';
-  if (path.startsWith('/favorites')) return '/favorites';
-  if (path.startsWith('/orders')) return '/orders';
+  if (path === '/settings' || path.startsWith('/settings/')) return '/settings';
+  if (
+    path === '/assistant' ||
+    path.startsWith('/assistant/') ||
+    path.startsWith('/driver-network')
+  ) {
+    return '/assistant';
+  }
+  // Must check `/bookings` before falling through — `/bookings`.startsWith('/booking/') is false,
+  // so without an exact match this tab was wrongly treated as Home and Home taps became no-ops.
+  if (path === '/bookings' || path.startsWith('/booking/')) return '/bookings';
+  if (path === '/favorites' || path.startsWith('/favorites/')) return '/favorites';
+  if (path === '/orders' || path.startsWith('/orders/')) return '/orders';
+
+  // Shop profile / book / service screens are shared on the root stack — keep the tab
+  // that opened them highlighted (e.g. Favorites stays active after Open profile).
+  if (isSharedBrowseDeepPath(path)) {
+    const owner = getActiveBrowseTab();
+    if (
+      owner === '/' ||
+      owner === '/bookings' ||
+      owner === '/orders' ||
+      owner === '/favorites' ||
+      owner === '/assistant' ||
+      owner === '/settings'
+    ) {
+      return owner;
+    }
+  }
+
   return '/';
 }
 
@@ -125,7 +152,7 @@ export function CustomerBrowseTabBar({
               accessibilityState={{ selected }}
               accessibilityLabel={label}
               onPress={() => {
-                switchPreservedTab(rootNavigation, focused, {
+                switchPreservedTab(rootNavigation, focused, pathname, {
                   href: tab.href,
                   screen: tab.screen,
                 });

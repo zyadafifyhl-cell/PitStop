@@ -4,6 +4,15 @@ type RootNav = {
   navigate: (name: string, params?: object) => void;
 };
 
+export type BrowseTabHref =
+  | '/'
+  | '/bookings'
+  | '/orders'
+  | '/favorites'
+  | '/assistant'
+  | '/settings'
+  | '/shop';
+
 const TAB_ROOTS = new Set([
   '/',
   '/index',
@@ -15,49 +24,109 @@ const TAB_ROOTS = new Set([
   '/settings',
 ]);
 
-/** Paths pushed above each tab, oldest first. */
-const stacks = new Map<string, string[]>();
+/** Tab that currently "owns" shared deep screens (shop profile, book, etc.). */
+let activeBrowseTab: BrowseTabHref = '/';
 
-function normalize(pathname: string): string {
-  if (!pathname || pathname === '/index') return '/';
-  return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+/** Deepest remembered path for each tab (empty = sit on that tab's root). */
+const deepestByTab = new Map<string, string>();
+
+export function deepestPathForTab(tabHref: string): string {
+  return deepestByTab.get(tabHref) ?? '';
 }
 
-/** Record the screen the user is on so leaving a tab can restore it later. */
+export function getActiveBrowseTab(): BrowseTabHref {
+  return activeBrowseTab;
+}
+
+export function setActiveBrowseTab(tabHref: BrowseTabHref) {
+  activeBrowseTab = tabHref;
+}
+
+function normalize(pathname: string): string {
+  if (!pathname || pathname === '/index' || pathname === '/(tabs)' || pathname === '/(tabs)/index') {
+    return '/';
+  }
+  const stripped = pathname.startsWith('/(tabs)') ? pathname.slice('/(tabs)'.length) || '/' : pathname;
+  if (stripped.length > 1 && stripped.endsWith('/')) return stripped.slice(0, -1);
+  return stripped;
+}
+
+function tabRootHref(href: string): Href {
+  return (href === '/' ? '/' : href) as Href;
+}
+
+/** Shared screens that can be opened from more than one tab (not exclusive to Home). */
+export function isSharedBrowseDeepPath(pathname: string): boolean {
+  const path = normalize(pathname);
+  return (
+    path.startsWith('/shop-profile/') ||
+    path.startsWith('/parts-shop/') ||
+    path.startsWith('/book/') ||
+    path.startsWith('/service/') ||
+    path.startsWith('/nearby/') ||
+    path === '/store' ||
+    path.startsWith('/store/') ||
+    path.startsWith('/points-marketplace')
+  );
+}
+
+/** Open a shared deep screen while keeping the given tab highlighted/owning the stack. */
+export function pushFromBrowseTab(tabHref: BrowseTabHref, href: Href) {
+  setActiveBrowseTab(tabHref);
+  const path = typeof href === 'string' ? href : String(href);
+  deepestByTab.set(tabHref, normalize(path.split('?')[0] ?? path));
+  router.push(href);
+}
+
+/** Record where this tab currently is so we can return to it later. */
 export function noteTabPath(tabHref: string, pathname: string) {
   const path = normalize(pathname);
   if (TAB_ROOTS.has(path)) {
-    stacks.set(tabHref, []);
+    deepestByTab.set(tabHref, '');
+    if (
+      tabHref === '/' ||
+      tabHref === '/bookings' ||
+      tabHref === '/orders' ||
+      tabHref === '/favorites' ||
+      tabHref === '/assistant' ||
+      tabHref === '/settings' ||
+      tabHref === '/shop'
+    ) {
+      setActiveBrowseTab(tabHref);
+    }
     return;
   }
-
-  const list = stacks.get(tabHref) ?? [];
-  const existing = list.lastIndexOf(path);
-  if (existing >= 0) {
-    stacks.set(tabHref, list.slice(0, existing + 1));
-    return;
-  }
-  stacks.set(tabHref, [...list, path]);
+  deepestByTab.set(tabHref, path);
 }
 
 /**
- * Switch tabs without dropping the screen the previous tab was showing.
- * Deep routes live on the root stack, so a normal tab navigate pops them.
- * We remember that path and open it again when the tab is selected.
+ * Switch tabs without dropping deep screens owned by the tab you leave.
+ * Service/shop routes live on the root stack above `(tabs)`, so a plain tab
+ * navigate pops them — we remember each tab's last path and restore it.
  */
 export function switchPreservedTab(
   nav: RootNav | null | undefined,
   currentHref: string,
+  currentPathname: string,
   target: { href: string; screen: string },
 ) {
-  if (currentHref === target.href) return;
+  noteTabPath(currentHref, currentPathname);
 
-  const saved = stacks.get(target.href) ?? [];
-  const deepest = saved[saved.length - 1];
-  if (deepest) {
-    router.navigate(deepest as Href);
+  if (currentHref === target.href) {
     return;
   }
 
-  nav?.navigate('(tabs)', { screen: target.screen });
+  setActiveBrowseTab(target.href as BrowseTabHref);
+
+  const saved = deepestByTab.get(target.href) ?? '';
+  if (saved) {
+    router.navigate(saved as Href);
+    return;
+  }
+
+  try {
+    router.navigate(tabRootHref(target.href));
+  } catch {
+    nav?.navigate('(tabs)', { screen: target.screen });
+  }
 }

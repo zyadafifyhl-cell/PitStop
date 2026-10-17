@@ -32,6 +32,8 @@ export default function TabLayout() {
     <Tabs
       key={locale}
       tabBar={(props) => (hideTabBar ? null : <FintechTabBar {...(props as any)} />)}
+      // Keep inactive tab scenes mounted so switching back does not remount / wipe UI state.
+      detachInactiveScreens={false}
       screenOptions={{
         tabBarActiveTintColor: theme.accent,
         tabBarInactiveTintColor: theme.textMuted,
@@ -45,6 +47,8 @@ export default function TabLayout() {
         sceneStyle: { backgroundColor: theme.bg },
         headerShown: useClientOnlyValue(false, true),
         popToTopOnBlur: false,
+        freezeOnBlur: false,
+        lazy: false,
       }}>
       <Tabs.Screen
         name="index"
