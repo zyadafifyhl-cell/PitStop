@@ -1037,65 +1037,118 @@ export default function BookShopScreen() {
                 backgroundColor: theme.card,
               },
             ]}>
-            <Text style={[styles.summaryTitle, { color: theme.text }]}>{t('book_summary_title')}</Text>
-            <Text style={[styles.summaryLine, { color: theme.text }]}>{shopName}</Text>
+            <Text style={[styles.summaryTitle, { color: theme.textMuted }]}>{t('book_summary_title')}</Text>
+            <Text style={[styles.summaryShop, { color: theme.text }]}>{shopName}</Text>
             {serviceLabels.length ? (
               serviceLabels.map((label) => (
-                <Text key={label} style={[styles.summaryLine, { color: theme.textMuted }]}>
-                  · {label}
+                <Text key={label} style={[styles.summaryService, { color: theme.textMuted }]}>
+                  {label}
                 </Text>
               ))
             ) : null}
             {hasVariablePricedService ? (
-              <Text style={[styles.summaryLine, { color: theme.accent }]}>{t('wash_service_price_by_car')}</Text>
+              <Text style={[styles.summaryService, { color: theme.accent }]}>{t('wash_service_price_by_car')}</Text>
             ) : null}
+
             {baseTotalPrice > 0 ? (
               <>
-                <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
-                  {t('book_invoice_services_total')}: {formatEgp(baseTotalPrice, locale)}
-                </Text>
+                <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
+                <View style={styles.summaryPriceRow}>
+                  <Text style={[styles.summaryPriceLabel, { color: theme.textMuted }]}>
+                    {t('book_invoice_services_total')}
+                  </Text>
+                  <Text style={[styles.summaryPriceValue, { color: campaignPricing ? theme.text : theme.accent }]}>
+                    {formatEgp(baseTotalPrice, locale)}
+                    {!campaignPricing && totalMinutes > 0
+                      ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}`
+                      : ''}
+                  </Text>
+                </View>
                 {campaignPricing ? (
                   <>
-                    <Text style={[styles.summaryLine, { color: theme.warm }]}>
-                      {campaignPricing.isBogo
-                        ? t('book_invoice_bogo_discount')
-                        : t('book_invoice_offer_discount').replace('{offer}', campaignPricing.offerLabel)}
-                    </Text>
-                    <Text style={[styles.summaryLine, { color: theme.danger }]}>
-                      -{formatEgp(campaignPricing.savingsEgp, locale)}
-                      {qualifiesForFreeWash ? ` · ${t('book_offer_free_wash')}` : ''}
-                    </Text>
-                    <Text style={[styles.summaryLine, { color: theme.accent, fontWeight: '800' }]}>
-                      {t('book_invoice_after_offer')}: {formatEgp(campaignPricing.discountedEgp, locale)}
-                      {totalMinutes > 0 ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}` : ''}
-                    </Text>
+                    <View style={styles.summaryPriceRow}>
+                      <Text style={[styles.summaryPriceLabel, { color: theme.textMuted }]} numberOfLines={2}>
+                        {campaignPricing.isBogo
+                          ? t('book_invoice_bogo_discount')
+                          : t('book_invoice_offer_discount').replace('{offer}', campaignPricing.offerLabel)}
+                        {qualifiesForFreeWash ? ` · ${t('book_offer_free_wash')}` : ''}
+                      </Text>
+                      <Text style={[styles.summaryPriceValue, { color: theme.danger }]}>
+                        -{formatEgp(campaignPricing.savingsEgp, locale)}
+                      </Text>
+                    </View>
+                    <View style={styles.summaryPriceRow}>
+                      <Text style={[styles.summaryPriceLabel, { color: theme.text, fontWeight: '800' }]}>
+                        {t('book_invoice_after_offer')}
+                      </Text>
+                      <Text style={[styles.summaryPriceValue, { color: theme.accent }]}>
+                        {formatEgp(campaignPricing.discountedEgp, locale)}
+                        {totalMinutes > 0 ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}` : ''}
+                      </Text>
+                    </View>
                   </>
-                ) : (
-                  <Text style={[styles.summaryLine, { color: theme.accent }]}>
-                    {formatEgp(baseTotalPrice, locale)}
-                    {totalMinutes > 0 ? ` · ${totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}` : ''}
-                  </Text>
-                )}
+                ) : null}
+                {appliedDiscountEgp > 0 ? (
+                  <View style={styles.summaryPriceRow}>
+                    <Text style={[styles.summaryPriceLabel, { color: theme.textMuted }]}>
+                      {t('book_invoice_points_discount')}
+                    </Text>
+                    <Text style={[styles.summaryPriceValue, { color: theme.green }]}>
+                      -{formatEgp(appliedDiscountEgp, locale)}
+                    </Text>
+                  </View>
+                ) : null}
+                {collectiblePenaltyBalance > 0 ? (
+                  <View style={styles.summaryPriceRow}>
+                    <Text style={[styles.summaryPriceLabel, { color: theme.danger }]}>
+                      {t('book_no_show_penalty_previous')}
+                    </Text>
+                    <Text style={[styles.summaryPriceValue, { color: theme.danger }]}>
+                      +{formatEgp(collectiblePenaltyBalance, locale)}
+                    </Text>
+                  </View>
+                ) : null}
+                {checkoutOriginalPriceEgp > 0 && (appliedDiscountEgp > 0 || collectiblePenaltyBalance > 0) ? (
+                  <>
+                    <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
+                    <View style={styles.summaryPriceRow}>
+                      <Text style={[styles.summaryTotalLabel, { color: theme.text }]}>
+                        {t('book_invoice_total_payment')}
+                      </Text>
+                      <Text style={[styles.summaryTotalValue, { color: theme.accent }]}>
+                        {formatEgp(checkoutTotalDueEgp, locale)}
+                      </Text>
+                    </View>
+                  </>
+                ) : null}
               </>
             ) : null}
-            <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
-              {carType.trim() || '—'}
-              {carColor.trim() ? ` · ${carColor.trim()}` : ''}
-            </Text>
-            <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
-              {dateYmd} · {timeSlot}
-            </Text>
-            {customerNotes.trim() ? (
-              <Text style={[styles.summaryLine, { color: theme.textMuted }]}>
-                {customerNotes.trim()}
+
+            <View style={[styles.summaryMeta, { backgroundColor: theme.bgElevated }]}>
+              <Text style={[styles.summaryMetaLine, { color: theme.text }]}>
+                {carType.trim() || '—'}
+                {carColor.trim() ? ` · ${carColor.trim()}` : ''}
+              </Text>
+              <Text style={[styles.summaryMetaLine, { color: theme.textMuted }]}>
+                {dateYmd} · {timeSlot}
+              </Text>
+              {customerNotes.trim() ? (
+                <Text style={[styles.summaryMetaLine, { color: theme.textMuted }]}>
+                  <Text style={{ color: theme.text, fontWeight: '700' }}>{t('book_summary_notes')}</Text>
+                  {' · '}
+                  {customerNotes.trim()}
+                </Text>
+              ) : null}
+            </View>
+            {checkoutOriginalPriceEgp > 0 ? (
+              <Text style={[styles.summaryFeeNote, { color: theme.textDim }]}>
+                {t('book_platform_fee_note').replace('{fee}', formatEgp(checkoutPlatformFee, locale))}
               </Text>
             ) : null}
           </View>
         ) : null}
 
-        {checkoutOriginalPriceEgp > 0 && timeSlot && selectedSlot?.status !== 'booked' ? (
-          <>
-            {loyaltyEnabled && loyaltyBalance > 0 && customer && !isGuest ? (
+        {checkoutOriginalPriceEgp > 0 && timeSlot && selectedSlot?.status !== 'booked' && loyaltyEnabled && loyaltyBalance > 0 && customer && !isGuest ? (
               <View
                 style={[
                   styles.checkoutCard,
@@ -1158,86 +1211,6 @@ export default function BookShopScreen() {
                   </>
                 ) : null}
               </View>
-            ) : null}
-
-            <View
-              style={[
-                styles.checkoutCard,
-                { backgroundColor: CHECKOUT_CARD, borderColor: theme.border },
-              ]}>
-              <Text style={[styles.checkoutSectionTitle, { color: theme.text }]}>
-                {t('book_summary_title')}
-              </Text>
-
-              <View style={styles.invoiceRow}>
-                <Text style={[styles.invoiceLabel, { color: theme.textMuted }]}>
-                  {t('book_invoice_services_total')}
-                </Text>
-                <Text style={[styles.invoiceValue, { color: theme.text }]}>
-                  {formatEgp(rawServiceTotal, locale)}
-                </Text>
-              </View>
-
-              {campaignPricing ? (
-                <View style={styles.invoiceRow}>
-                  <Text style={[styles.invoiceLabel, { color: theme.textMuted }]} numberOfLines={2}>
-                    {campaignPricing.isBogo
-                      ? t('book_invoice_bogo_discount')
-                      : t('book_invoice_offer_discount').replace('{offer}', campaignPricing.offerLabel)}
-                  </Text>
-                  <Text style={[styles.invoiceValue, { color: theme.danger }]}>
-                    -{formatEgp(campaignPricing.savingsEgp, locale)}
-                  </Text>
-                </View>
-              ) : null}
-
-              <View style={styles.invoiceRow}>
-                <Text style={[styles.invoiceLabel, { color: theme.textMuted }]}>
-                  {t('book_invoice_subtotal')}
-                </Text>
-                <Text style={[styles.invoiceValue, { color: theme.text }]}>
-                  {formatEgp(checkoutOriginalPriceEgp, locale)}
-                </Text>
-              </View>
-
-              {appliedDiscountEgp > 0 ? (
-                <View style={styles.invoiceRow}>
-                  <Text style={[styles.invoiceLabel, { color: theme.textMuted }]}>
-                    {t('book_invoice_points_discount')}
-                  </Text>
-                  <Text style={[styles.invoiceValue, { color: theme.green }]}>
-                    -{formatEgp(appliedDiscountEgp, locale)}
-                  </Text>
-                </View>
-              ) : null}
-
-              {collectiblePenaltyBalance > 0 ? (
-                <View style={[styles.invoiceRow, styles.penaltyRow, { borderColor: '#C62828' }]}>
-                  <Text style={[styles.invoiceLabel, { color: theme.danger }]}>
-                    {t('book_no_show_penalty_previous')}
-                  </Text>
-                  <Text style={[styles.invoiceValue, { color: theme.danger }]}>
-                    +{formatEgp(collectiblePenaltyBalance, locale)}
-                  </Text>
-                </View>
-              ) : null}
-
-              <View style={[styles.invoiceDivider, { backgroundColor: theme.border }]} />
-
-              <View style={styles.invoiceRow}>
-                <Text style={[styles.invoiceTotalLabel, { color: theme.text }]}>
-                  {t('book_invoice_total_payment')}
-                </Text>
-                <Text style={[styles.invoiceTotalValue, { color: CHECKOUT_ACCENT }]}>
-                  {formatEgp(checkoutTotalDueEgp, locale)}
-                </Text>
-              </View>
-
-              <Text style={[styles.checkoutHint, { color: theme.textDim, fontSize: 16, marginTop: 8 }]}>
-                {t('book_platform_fee_note').replace('{fee}', formatEgp(checkoutPlatformFee, locale))}
-              </Text>
-            </View>
-          </>
         ) : null}
 
         {showCoupons && checkoutOriginalPriceEgp > 0 ? (
@@ -1459,25 +1432,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   redeemMaxBtnText: { fontSize: 15, fontWeight: '800' },
-  invoiceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 6,
-  },
-  penaltyRow: {
-    borderWidth: 1,
-    borderRadius: 9,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-  },
-  invoiceLabel: { fontSize: 16, fontWeight: '700' },
-  invoiceValue: { fontSize: 16, fontWeight: '800' },
-  invoiceDivider: { height: 1, marginVertical: 8 },
-  invoiceTotalLabel: { fontSize: 17, fontWeight: '900' },
-  invoiceTotalValue: { fontSize: 24, fontWeight: '900' },
   checkoutLabel: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   checkoutValue: { fontSize: 22, fontWeight: '900' },
   checkoutStrike: { fontSize: 16, fontWeight: '700', textDecorationLine: 'line-through' },
@@ -1542,9 +1496,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minWidth: 72,
   },
-  summaryCard: { borderWidth: 1, borderRadius: 12, padding: 16, marginTop: 18 },
-  summaryTitle: { fontSize: 15, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  summaryLine: { fontSize: 14, lineHeight: 21, marginBottom: 4 },
+  summaryCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 18,
+    gap: 6,
+  },
+  summaryTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  summaryShop: { fontSize: 18, fontWeight: '800', letterSpacing: -0.2 },
+  summaryService: { fontSize: 14, lineHeight: 20 },
+  summaryDivider: { height: StyleSheet.hairlineWidth, marginVertical: 6 },
+  summaryPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  summaryPriceLabel: { flex: 1, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  summaryPriceValue: { fontSize: 14, fontWeight: '800' },
+  summaryTotalLabel: { flex: 1, fontSize: 16, fontWeight: '800' },
+  summaryTotalValue: { fontSize: 18, fontWeight: '900' },
+  summaryMeta: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 4, marginTop: 6 },
+  summaryMetaLine: { fontSize: 13, lineHeight: 18 },
+  summaryFeeNote: { fontSize: 12, lineHeight: 17, marginTop: 4 },
   policyText: { fontSize: 12, lineHeight: 18, marginTop: 18 },
   primaryBtn: {
     marginTop: 18,

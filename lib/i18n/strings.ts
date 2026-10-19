@@ -888,6 +888,7 @@ export const EN = {
   book_customer_notes_label: 'Notes for the shop (optional)',
   book_customer_notes_placeholder: 'e.g. Pickup at 3 PM, scratch on rear bumper',
   book_summary_title: 'Booking summary',
+  book_summary_notes: 'Notes',
   book_cancellation_policy:
     'Free cancellation up to 4 hours before your appointment. Cancelling later adds a 20 EGP fee to your account.',
   book_selected_service: 'Selected service',
@@ -3053,6 +3054,7 @@ export const AR: Record<TranslationKey, string> = {
   book_customer_notes_label: 'ملاحظات للمحل (اختياري)',
   book_customer_notes_placeholder: 'مثلًا: استلام الساعة 3، خدش في الصدام الخلفي',
   book_summary_title: 'ملخص الحجز',
+  book_summary_notes: 'ملاحظات',
   book_cancellation_policy:
     'إلغاء مجاني قبل الموعد بـ ٤ ساعات. الإلغاء بعد كده بيضيف رسوم ٢٠ جنيه على حسابك.',
   book_selected_service: 'الخدمة المختارة',
