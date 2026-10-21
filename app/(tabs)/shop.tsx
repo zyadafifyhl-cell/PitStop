@@ -26,6 +26,9 @@ import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
 import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
+import { BayScheduleBoard } from '@/components/owner/BayScheduleBoard';
+import { BookingLifecycleActions } from '@/components/owner/BookingLifecycleActions';
+import { CapacitySettingsCard } from '@/components/owner/CapacitySettingsCard';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { WashOwnerPanel } from '@/components/owner/wash/WashOwnerPanel';
 import { StoreInventoryManager } from '@/components/store/owner/StoreInventoryManager';
@@ -71,15 +74,19 @@ import {
 } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import {
+  autoCompleteDueBookings,
+  completeBookingService,
   listBookingsForShop,
   markBookingNoShow,
   sortBookingsByScheduledAtDesc,
+  startBookingService,
   updateBookingStatus,
 } from '@/lib/booking/storage';
 import { registerOwnerPushToken } from '@/lib/push/shopPush';
 import { type OwnerShellTabId } from '@/lib/owner/dashboardConfig';
 import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
-import { updateShopLocationRemote } from '@/lib/booking/wash/branchRepository';
+import { saveShopCapacity } from '@/lib/booking/bayCapacity';
+import { resolveDefaultBranchIdForShop, updateShopLocationRemote } from '@/lib/booking/wash/branchRepository';
 import { patchShopCoordinates } from '@/lib/booking/catalogRepository';
 import type {
   Booking,
@@ -149,6 +156,9 @@ export default function ShopScreen() {
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [saveNotice, setSaveNotice] = useState<{ title: string; body: string } | null>(null);
   const [scheduleInlineOk, setScheduleInlineOk] = useState(false);
+  const [capacitySaving, setCapacitySaving] = useState(false);
+  const [capacityBranchId, setCapacityBranchId] = useState<string | undefined>();
+  const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null);
 
   const orderNotifier = useMerchantOrderNotifier({
     shopId: shop?.id,
@@ -185,6 +195,20 @@ export default function ShopScreen() {
 
   useEffect(() => {
     if (!shop) {
+      setCapacityBranchId(undefined);
+      return;
+    }
+    let cancelled = false;
+    void resolveDefaultBranchIdForShop(shop.id).then((id) => {
+      if (!cancelled && id) setCapacityBranchId(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shop]);
+
+  useEffect(() => {
+    if (!shop) {
       setMapPinCoords(null);
       return;
     }
@@ -196,6 +220,7 @@ export default function ShopScreen() {
   const refreshBookings = useCallback(async () => {
     if (!shop) return;
     setLoadingBookings(true);
+    await autoCompleteDueBookings();
     const rows = await listBookingsForShop(shop.id);
     setBookings(rows);
     setLoadingBookings(false);
@@ -244,6 +269,13 @@ export default function ShopScreen() {
       sortBookingsByScheduledAtDesc(bookings.filter((booking) => booking.status === 'pending')),
     [bookings],
   );
+  const inServiceBookings = useMemo(
+    () =>
+      sortBookingsByScheduledAtDesc(
+        bookings.filter((booking) => booking.status === 'confirmed' || booking.status === 'in_progress'),
+      ),
+    [bookings],
+  );
   const focusedBooking = focusBookingId
     ? bookings.find((booking) => booking.id === focusBookingId) ?? null
     : null;
@@ -285,31 +317,41 @@ export default function ShopScreen() {
             </Pressable>
           </View>
         ) : null}
-        {showActions && (item.status === 'confirmed' || item.status === 'in_progress') ? (
-          <View style={styles.actions}>
-            <Pressable
-              onPress={() => void updateBookingStatus(item.id, 'done', item).then(() => refreshBookings())}
-              style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-              <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_complete')}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() =>
-                promptMerchantNoShowOverride({
-                  title: t('merchant_noshow_override_title'),
-                  message: t('merchant_noshow_override_body'),
-                  confirmLabel: t('owner_history_noshow_action'),
-                  cancelLabel: t('alert_cancel'),
-                  onConfirm: async () => {
-                    await markBookingNoShow(item.id, item);
-                    await refreshBookings();
-                  },
-                })
-              }
-              style={[styles.chipBtn, { backgroundColor: theme.bgElevated, borderColor: theme.danger }]}>
-              <Text style={[styles.chipBtnText, { color: theme.danger }]}>{t('owner_history_noshow_action')}</Text>
-            </Pressable>
-          </View>
-        ) : null}
+        <BookingLifecycleActions
+          booking={item}
+          showActions={showActions}
+          busy={lifecycleBusyId === item.id}
+          onMarkArrived={async () => {
+            setLifecycleBusyId(item.id);
+            try {
+              await startBookingService(item);
+              await refreshBookings();
+            } finally {
+              setLifecycleBusyId(null);
+            }
+          }}
+          onComplete={async () => {
+            setLifecycleBusyId(item.id);
+            try {
+              await completeBookingService(item, 'manual');
+              await refreshBookings();
+            } finally {
+              setLifecycleBusyId(null);
+            }
+          }}
+          onNoShow={() =>
+            promptMerchantNoShowOverride({
+              title: t('merchant_noshow_override_title'),
+              message: t('merchant_noshow_override_body'),
+              confirmLabel: t('owner_history_noshow_action'),
+              cancelLabel: t('alert_cancel'),
+              onConfirm: async () => {
+                await markBookingNoShow(item.id, item);
+                await refreshBookings();
+              },
+            })
+          }
+        />
       </View>
     );
   }
@@ -698,6 +740,37 @@ export default function ShopScreen() {
     );
   }
 
+  async function onSaveCapacity(input: {
+    totalBays: number;
+    slotDurationMinutes: 30 | 45 | 60;
+    openingTime: string;
+    closingTime: string;
+  }) {
+    if (!shop) return;
+    setCapacitySaving(true);
+    try {
+      const saved = await saveShopCapacity({
+        shopId: shop.id,
+        branchId: capacityBranchId ?? shopExtras?.activeBranchId,
+        totalBays: input.totalBays,
+        slotDurationMinutes: input.slotDurationMinutes,
+        openingTime: input.openingTime,
+        closingTime: input.closingTime,
+        weeklyHours: shopExtras?.weeklyHours,
+      });
+      setShopExtras(saved);
+      setWorkOpenTime(saved.workOpenTime ?? input.openingTime);
+      setWorkCloseTime(saved.workCloseTime ?? input.closingTime);
+      setServiceDurationMinutes(String(saved.slotDurationMinutes ?? input.slotDurationMinutes));
+      if (saved.activeBranchId) setCapacityBranchId(saved.activeBranchId);
+      showSaveNotice(t('capacity_save'), t('capacity_saved'));
+    } catch {
+      showSaveNotice(t('capacity_invalid'), t('capacity_invalid'));
+    } finally {
+      setCapacitySaving(false);
+    }
+  }
+
   function hmToMinutesCloseBeforeOpen(open: string, close: string): boolean {
     const o = open.split(':').map(Number);
     const c = close.split(':').map(Number);
@@ -916,6 +989,14 @@ export default function ShopScreen() {
 
   const ownerOperationsSections = (
     <>
+      <CapacitySettingsCard
+        totalBays={shopExtras?.totalBays}
+        slotDurationMinutes={shopExtras?.slotDurationMinutes ?? shopExtras?.serviceDurationMinutes}
+        openingTime={shopExtras?.workOpenTime ?? workOpenTime}
+        closingTime={shopExtras?.workCloseTime ?? workCloseTime}
+        saving={capacitySaving}
+        onSave={onSaveCapacity}
+      />
       <OwnerSectionCard theme={theme} title={t('shop_manage_price_label')}>
         <TextInput placeholder={t('shop_manage_price_placeholder')} placeholderTextColor={theme.textDim} keyboardType="numeric" value={newServicePrice} onChangeText={setNewServicePrice} style={fieldStyle} />
         <Pressable onPress={onSaveServicePrice} style={[styles.primaryBtn, { backgroundColor: theme.accent }]}>
@@ -1335,6 +1416,16 @@ export default function ShopScreen() {
 
         {storeAdminTab === 'management' ? (
           <>
+            <BayScheduleBoard
+              shop={shop}
+              extras={shopExtras}
+              bookings={bookings}
+              services={shopExtras?.services ?? []}
+              branchId={capacityBranchId ?? shopExtras?.activeBranchId}
+              onCreated={() => {
+                void refreshBookings();
+              }}
+            />
             {focusedBooking ? (
               <OwnerSectionCard
                 theme={theme}
@@ -1351,6 +1442,15 @@ export default function ShopScreen() {
                 <Text style={[styles.empty, { color: theme.textMuted }]}>{t('shop_active_requests_empty')}</Text>
               ) : (
                 activeBookings.map((item) => renderBookingCard(item, true))
+              )}
+            </OwnerSectionCard>
+            <OwnerSectionCard theme={theme} title={t('shop_in_service_title')} subtitle={t('shop_in_service_lead')}>
+              {loadingBookings ? (
+                <ActivityIndicator color={theme.accent} />
+              ) : inServiceBookings.length === 0 ? (
+                <Text style={[styles.empty, { color: theme.textMuted }]}>{t('shop_in_service_empty')}</Text>
+              ) : (
+                inServiceBookings.map((item) => renderBookingCard(item, true))
               )}
             </OwnerSectionCard>
             <StoreOrdersPanel

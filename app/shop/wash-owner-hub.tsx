@@ -17,6 +17,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
+import { BookingLifecycleActions } from '@/components/owner/BookingLifecycleActions';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import {
@@ -27,7 +28,14 @@ import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format'
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { formatEgp } from '@/lib/booking/reporting';
 import { listShopReviews, setReviewOwnerReply, computeShopRatingSummary, formatReviewStarRow } from '@/lib/booking/reviewsStorage';
-import { listBookingsForShop, markBookingNoShow, updateBookingStatus } from '@/lib/booking/storage';
+import {
+  autoCompleteDueBookings,
+  completeBookingService,
+  listBookingsForShop,
+  markBookingNoShow,
+  startBookingService,
+  updateBookingStatus,
+} from '@/lib/booking/storage';
 import type { Booking, BookingStatus, ShopReview } from '@/lib/booking/types';
 import { filterWashNotificationsForStaff } from '@/lib/booking/wash/bookingDispatch';
 import {
@@ -104,6 +112,7 @@ export default function WashOwnerHubScreen() {
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [walkInOpen, setWalkInOpen] = useState(false);
@@ -138,6 +147,7 @@ export default function WashOwnerHubScreen() {
     }
     setLoading(true);
     try {
+      await autoCompleteDueBookings();
       const [notifRows, reviewRows, bookingRows, labels, totalBranches] = await Promise.all([
         listWashCenterNotifications(shop.id),
         listShopReviews(shop.id),
@@ -493,26 +503,37 @@ export default function WashOwnerHubScreen() {
               </Pressable>
             </>
           ) : null}
-          {booking.status === 'confirmed' || booking.status === 'in_progress' ? (
-            <>
-              <Pressable
-                onPress={() => onBookingStatusChange(booking, 'done')}
-                style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                <Text style={[styles.chipText, { color: theme.onAccent }]}>{t('wash_booking_complete')}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => onMerchantNoShowOverride(booking)}
-                style={[styles.chipBtn, { borderColor: theme.border }]}>
-                <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_no_show')}</Text>
-              </Pressable>
-            </>
-          ) : null}
           <Pressable
             onPress={() => openPhone(booking.customerPhone).catch(() => undefined)}
             style={[styles.chipBtn, { borderColor: theme.border }]}>
             <Text style={[styles.chipText, { color: theme.text }]}>{t('wash_booking_contact')}</Text>
           </Pressable>
         </View>
+        <BookingLifecycleActions
+          booking={booking}
+          showActions
+          busy={lifecycleBusyId === booking.id}
+          onMarkArrived={async () => {
+            setLifecycleBusyId(booking.id);
+            try {
+              await startBookingService(booking);
+              await refresh();
+            } finally {
+              setLifecycleBusyId(null);
+            }
+          }}
+          onComplete={async () => {
+            setLifecycleBusyId(booking.id);
+            try {
+              await completeBookingService(booking, 'manual');
+              await cancelBookingReminders(booking.id);
+              await refresh();
+            } finally {
+              setLifecycleBusyId(null);
+            }
+          }}
+          onNoShow={() => onMerchantNoShowOverride(booking)}
+        />
       </View>
     );
   }

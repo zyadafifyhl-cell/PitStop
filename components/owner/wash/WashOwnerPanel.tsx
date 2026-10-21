@@ -26,11 +26,14 @@ import { OwnerMetricsGrid } from '@/components/owner/OwnerMetricsGrid';
 import { OwnerProfileHeader } from '@/components/owner/OwnerProfileHeader';
 import { MerchantCampaignsPanel } from '@/components/merchant/MerchantCampaignsPanel';
 import { OwnerAccountSettings } from '@/components/owner/OwnerAccountSettings';
+import { BookingLifecycleActions } from '@/components/owner/BookingLifecycleActions';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { PremiumFeatureGate } from '@/components/owner/PremiumFeatureGate';
 import { PremiumUpgradeModal } from '@/components/owner/PremiumUpgradeModal';
 import { useMerchantOrderNotifier } from '@/components/merchant/OrderNotifier';
 import { MerchantNotificationsModal } from '@/components/merchant/MerchantNotificationsModal';
+import { BayScheduleBoard } from '@/components/owner/BayScheduleBoard';
+import { CapacitySettingsCard } from '@/components/owner/CapacitySettingsCard';
 import { WalkInBookingModal } from '@/components/owner/wash/WalkInBookingModal';
 import { DetailingJobBoard } from '@/components/owner/pos/DetailingJobBoard';
 import { EndShiftModal } from '@/components/owner/pos/EndShiftModal';
@@ -81,8 +84,17 @@ import { DETAILING_DURATION_DAYS, DETAILING_WARRANTY_OPTIONS, isDetailingShopTyp
 import { OwnerReviewsHistory } from '@/components/owner/reviews/OwnerReviewsHistory';
 import { listShopReviews } from '@/lib/booking/reviewsStorage';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
-import { listBookingsForShop, markBookingNoShow, updateBookingStatus } from '@/lib/booking/storage';
+import {
+  autoCompleteDueBookings,
+  completeBookingService,
+  listBookingsForShop,
+  markBookingNoShow,
+  startBookingService,
+  updateBookingStatus,
+} from '@/lib/booking/storage';
+import { applyCapacityToWeeklyHours } from '@/lib/booking/bayCapacity';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
+import { mergeWashBranchIntoExtras } from '@/lib/booking/wash/washSync';
 import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
@@ -300,6 +312,8 @@ export function WashOwnerPanel({ shop }: Props) {
   const [analytics, setAnalytics] = useState<WashAnalyticsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [pickingImage, setPickingImage] = useState(false);
+  const [capacitySaving, setCapacitySaving] = useState(false);
+  const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null);
 
   const [profileName, setProfileName] = useState('');
   const [profileNameAr, setProfileNameAr] = useState('');
@@ -484,6 +498,7 @@ export function WashOwnerPanel({ shop }: Props) {
         options?.branchId ?? branchStateRef.current?.activeBranchId ?? activeBranch?.id ?? undefined;
       if (!silent) setLoading(true);
       try {
+        await autoCompleteDueBookings();
         const [state, bookingRows, reviewRows, couponRows] = await Promise.all([
           getWashBranchState(shop, branchCtx, { preferredActiveBranchId: targetBranchId }),
           listBookingsForShop(shop.id),
@@ -703,6 +718,21 @@ export function WashOwnerPanel({ shop }: Props) {
     () => (activeBranch?.services ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
     [activeBranch?.services],
   );
+  const branchScheduleExtras = useMemo(
+    () =>
+      activeBranch
+        ? mergeWashBranchIntoExtras(
+            {
+              shopId: shop.id,
+              imageUrls: activeBranch.imageUrls ?? [],
+              offers: [],
+              updatedAt: activeBranch.updatedAt,
+            },
+            activeBranch,
+          )
+        : null,
+    [activeBranch, shop.id],
+  );
   const todayBookingRows = useMemo(
     () => selectTodayShopBookings(shopBookingRows, analyticsBranchId),
     [shopBookingRows, analyticsBranchId],
@@ -903,6 +933,44 @@ export function WashOwnerPanel({ shop }: Props) {
     setNewBranchNameAr('');
     setAddBranchModalVisible(false);
     showNotice(t('wash_branch_added_title'), t('wash_branch_added_body'));
+  }
+
+  async function onSaveCapacity(input: {
+    totalBays: number;
+    slotDurationMinutes: 30 | 45 | 60;
+    openingTime: string;
+    closingTime: string;
+  }) {
+    if (!activeBranch) return;
+    setCapacitySaving(true);
+    try {
+      const weeklyHours = applyCapacityToWeeklyHours(
+        activeBranch.weeklyHours?.length ? activeBranch.weeklyHours : defaultWeeklyHours(),
+        input.openingTime,
+        input.closingTime,
+      );
+      const { branch } = await updateActiveWashBranch(
+        shop,
+        {
+          totalBays: input.totalBays,
+          slotDurationMinutes: input.slotDurationMinutes,
+          openingTime: input.openingTime,
+          closingTime: input.closingTime,
+          workOpenTime: input.openingTime,
+          workCloseTime: input.closingTime,
+          serviceDurationMinutes: input.slotDurationMinutes,
+          weeklyHours,
+          scheduleSavedAt: new Date().toISOString(),
+        },
+        branchCtx,
+      );
+      syncBranchForms(branch);
+      showNotice(t('capacity_save'), t('capacity_saved'));
+    } catch {
+      userAlert(t('capacity_invalid'));
+    } finally {
+      setCapacitySaving(false);
+    }
   }
 
   async function onAddEmployee() {
@@ -1552,6 +1620,36 @@ export function WashOwnerPanel({ shop }: Props) {
     await refreshAll();
   }
 
+  async function applyLifecycleBooking(updated: Booking | null) {
+    if (!updated) return;
+    orderNotifier.patchBookingLocally(updated.id, updated.status);
+    if (updated.status !== 'pending') orderNotifier.removePendingLocally(updated.id);
+    setBookings((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+    setShopBookingRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+    if (updated.status === 'done') {
+      await cancelBookingReminders(updated.id);
+    }
+    await refreshAll({ silent: true });
+  }
+
+  async function onMarkArrived(booking: Booking) {
+    setLifecycleBusyId(booking.id);
+    try {
+      await applyLifecycleBooking(await startBookingService(booking));
+    } finally {
+      setLifecycleBusyId(null);
+    }
+  }
+
+  async function onCompleteService(booking: Booking) {
+    setLifecycleBusyId(booking.id);
+    try {
+      await applyLifecycleBooking(await completeBookingService(booking, 'manual'));
+    } finally {
+      setLifecycleBusyId(null);
+    }
+  }
+
   function onMerchantNoShowOverride(booking: Booking) {
     promptMerchantNoShowOverride({
       title: t('merchant_noshow_override_title'),
@@ -1681,20 +1779,6 @@ export function WashOwnerPanel({ shop }: Props) {
                 </Pressable>
               </>
             ) : null}
-            {booking.status === 'confirmed' || booking.status === 'in_progress' ? (
-              <>
-                <Pressable
-                  onPress={() => onBookingStatusChange(booking, 'done')}
-                  style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
-                  <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_complete')}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => onMerchantNoShowOverride(booking)}
-                  style={[styles.chipBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                  <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_action_no_show')}</Text>
-                </Pressable>
-              </>
-            ) : null}
             <Pressable
               onPress={() => onContactCustomer(booking.customerPhone)}
               style={[styles.chipBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
@@ -1702,6 +1786,14 @@ export function WashOwnerPanel({ shop }: Props) {
             </Pressable>
           </View>
         ) : null}
+        <BookingLifecycleActions
+          booking={booking}
+          showActions={showActions}
+          busy={lifecycleBusyId === booking.id}
+          onMarkArrived={() => void onMarkArrived(booking)}
+          onComplete={() => void onCompleteService(booking)}
+          onNoShow={() => onMerchantNoShowOverride(booking)}
+        />
       </View>
     );
   }
@@ -2061,6 +2153,21 @@ export function WashOwnerPanel({ shop }: Props) {
                     <Text style={[styles.walkInBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
                   </Pressable>
                 ) : null}
+                {activeBranch ? (
+                  <BayScheduleBoard
+                    shop={shop}
+                    extras={branchScheduleExtras}
+                    bookings={shopBookingRows}
+                    services={sortedServices}
+                    branchId={analyticsBranchId ?? activeBranch.id}
+                    onCreated={() => {
+                      void refreshAll();
+                      void refreshFinancials();
+                      setCrmRefreshKey((current) => current + 1);
+                      setJobBoardRefreshKey((current) => current + 1);
+                    }}
+                  />
+                ) : null}
                 {isDetailingShopType(shop.type) ? (
                   <DetailingJobBoard shopId={shop.id} refreshKey={jobBoardRefreshKey} />
                 ) : null}
@@ -2379,6 +2486,16 @@ export function WashOwnerPanel({ shop }: Props) {
             {renderBranchPicker()}
             {shopStatusCard}
             {weeklyHoursCard}
+            {activeBranch ? (
+              <CapacitySettingsCard
+                totalBays={activeBranch.totalBays}
+                slotDurationMinutes={activeBranch.slotDurationMinutes ?? activeBranch.serviceDurationMinutes}
+                openingTime={activeBranch.openingTime ?? activeBranch.workOpenTime}
+                closingTime={activeBranch.closingTime ?? activeBranch.workCloseTime}
+                saving={capacitySaving}
+                onSave={onSaveCapacity}
+              />
+            ) : null}
             <ShopCustomersPanel shopId={shop.id} refreshKey={crmRefreshKey} />
             {/* Branch employees */}
             {activeBranch && isUuid(activeBranch.id) ? (

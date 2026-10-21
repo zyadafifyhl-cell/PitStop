@@ -43,7 +43,11 @@ export type WashBranch = {
   servicePriceEgp?: number;
   workOpenTime?: string;
   workCloseTime?: string;
+  openingTime?: string;
+  closingTime?: string;
   serviceDurationMinutes?: number;
+  slotDurationMinutes?: number;
+  totalBays?: number;
   weeklyHours: ShopDayHours[];
   services: ShopService[];
   offers: ShopOffer[];

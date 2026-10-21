@@ -100,7 +100,13 @@ function emptyBranch(name: string, nameAr?: string): WashBranch {
     coupons: [],
     shopStatus: 'open',
     vacationMode: { enabled: false },
-    serviceDurationMinutes: 60,
+    serviceDurationMinutes: 30,
+    slotDurationMinutes: 30,
+    totalBays: 3,
+    openingTime: '09:00',
+    closingTime: '22:00',
+    workOpenTime: '09:00',
+    workCloseTime: '22:00',
     createdAt: stamp,
     updatedAt: stamp,
   };
@@ -122,7 +128,11 @@ async function branchFromExtras(shop: Shop, extras: Awaited<ReturnType<typeof ge
   branch.servicePriceEgp = extras.servicePriceEgp;
   branch.workOpenTime = extras.workOpenTime;
   branch.workCloseTime = extras.workCloseTime;
-  branch.serviceDurationMinutes = extras.serviceDurationMinutes ?? 60;
+  branch.openingTime = extras.workOpenTime;
+  branch.closingTime = extras.workCloseTime;
+  branch.serviceDurationMinutes = extras.slotDurationMinutes ?? extras.serviceDurationMinutes ?? 30;
+  branch.slotDurationMinutes = extras.slotDurationMinutes ?? extras.serviceDurationMinutes ?? 30;
+  branch.totalBays = extras.totalBays ?? 3;
   branch.weeklyHours = extras.weeklyHours?.length ? extras.weeklyHours : defaultWeeklyHours();
   branch.services = extras.services ?? [];
   branch.offers = extras.offers ?? [];
@@ -280,7 +290,11 @@ export async function updateActiveWashBranch(
       | 'servicePriceEgp'
       | 'workOpenTime'
       | 'workCloseTime'
+      | 'openingTime'
+      | 'closingTime'
       | 'serviceDurationMinutes'
+      | 'slotDurationMinutes'
+      | 'totalBays'
       | 'weeklyHours'
       | 'services'
       | 'offers'

@@ -28,6 +28,11 @@ exception when duplicate_object then null;
 end $$;
 
 do $$ begin
+  create type public.booking_completion_type as enum ('manual', 'auto');
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
   create type public.parts_order_status as enum ('pending', 'confirmed', 'cancelled', 'shipped');
 exception when duplicate_object then null;
 end $$;
@@ -141,6 +146,10 @@ create table if not exists public.shop_branches (
   image_urls jsonb not null default '[]'::jsonb,
   service_price_egp numeric(10, 2),
   service_duration_minutes integer not null default 60,
+  slot_duration_minutes integer not null default 30,
+  total_bays integer not null default 3,
+  opening_time time not null default '09:00',
+  closing_time time not null default '22:00',
   weekly_hours jsonb not null default '[]'::jsonb,
   shop_status public.shop_operating_status not null default 'open',
   vacation_mode jsonb not null default '{}'::jsonb,
@@ -256,6 +265,7 @@ create table if not exists public.bookings (
   customer_name text,
   car_type text not null,
   car_color text not null default '',
+  car_plate text,
   service_id uuid references public.branch_services(id) on delete set null,
   service_name text,
   service_name_ar text,
@@ -270,6 +280,11 @@ create table if not exists public.bookings (
   owner_rejection_note text,
   booking_type public.booking_type not null default 'app',
   scheduled_at timestamptz not null,
+  started_at timestamptz,
+  expected_completion_at timestamptz,
+  completed_at timestamptz,
+  completion_type public.booking_completion_type,
+  service_duration_minutes integer,
   status public.booking_status not null default 'pending',
   cancellation_penalty_applied_egp numeric not null default 0
     check (cancellation_penalty_applied_egp >= 0),
@@ -295,11 +310,25 @@ alter table public.bookings
   add column if not exists is_hidden_by_merchant boolean not null default false;
 alter table public.bookings
   add column if not exists is_hidden_by_customer boolean not null default false;
+alter table public.bookings
+  add column if not exists started_at timestamptz;
+alter table public.bookings
+  add column if not exists expected_completion_at timestamptz;
+alter table public.bookings
+  add column if not exists completed_at timestamptz;
+alter table public.bookings
+  add column if not exists completion_type public.booking_completion_type;
+alter table public.bookings
+  add column if not exists service_duration_minutes integer;
 
 create index if not exists bookings_shop_id_idx on public.bookings (shop_id);
 create index if not exists bookings_branch_id_idx on public.bookings (branch_id);
 create index if not exists bookings_customer_phone_idx on public.bookings (customer_phone);
 create index if not exists bookings_booking_type_idx on public.bookings (booking_type);
+create index if not exists bookings_auto_complete_due_idx
+  on public.bookings (expected_completion_at)
+  where status = 'in_progress' and expected_completion_at is not null;
+-- RPCs + pg_cron: supabase/apply-booking-auto-complete.sql
 create index if not exists bookings_offer_id_idx on public.bookings (offer_id);
 create index if not exists bookings_pending_penalty_disputes_idx
   on public.bookings (dispute_status, created_at desc)

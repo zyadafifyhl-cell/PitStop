@@ -49,9 +49,12 @@ export function mergeWashBranchIntoExtras(extras: ShopExtras, branch: WashBranch
     profileImageUrl: branch.profileImageUrl ?? extras.profileImageUrl,
     imageUrls: branch.imageUrls?.length ? branch.imageUrls : extras.imageUrls,
     servicePriceEgp: branch.servicePriceEgp ?? extras.servicePriceEgp,
-    workOpenTime: branch.workOpenTime ?? extras.workOpenTime,
-    workCloseTime: branch.workCloseTime ?? extras.workCloseTime,
-    serviceDurationMinutes: branch.serviceDurationMinutes ?? extras.serviceDurationMinutes,
+    workOpenTime: branch.workOpenTime ?? branch.openingTime ?? extras.workOpenTime,
+    workCloseTime: branch.workCloseTime ?? branch.closingTime ?? extras.workCloseTime,
+    serviceDurationMinutes:
+      branch.slotDurationMinutes ?? branch.serviceDurationMinutes ?? extras.serviceDurationMinutes,
+    slotDurationMinutes: branch.slotDurationMinutes ?? extras.slotDurationMinutes ?? extras.serviceDurationMinutes,
+    totalBays: branch.totalBays ?? extras.totalBays,
     weeklyHours: branch.weeklyHours?.length ? branch.weeklyHours : extras.weeklyHours,
     services: customerServices.length ? customerServices : extras.services,
     washShopStatus,
@@ -111,11 +114,15 @@ export async function syncWashBranchToShopExtras(shopId: string, branch: WashBra
     }
   }
 
-  if (branch.workOpenTime && branch.workCloseTime && branch.serviceDurationMinutes) {
+  const openTime = branch.workOpenTime ?? branch.openingTime;
+  const closeTime = branch.workCloseTime ?? branch.closingTime;
+  const duration = branch.slotDurationMinutes ?? branch.serviceDurationMinutes;
+  if (openTime && closeTime && duration) {
     await setShopSchedule(shopId, {
-      workOpenTime: branch.workOpenTime,
-      workCloseTime: branch.workCloseTime,
-      serviceDurationMinutes: branch.serviceDurationMinutes,
+      workOpenTime: openTime,
+      workCloseTime: closeTime,
+      serviceDurationMinutes: duration,
+      totalBays: branch.totalBays,
     });
   }
 

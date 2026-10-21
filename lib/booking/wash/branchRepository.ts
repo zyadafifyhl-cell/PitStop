@@ -7,6 +7,15 @@ import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
 import type { DbBranchEmployee, DbShopBranch } from '@/lib/supabase/database.types';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase/client';
 
+import {
+  clampSlotDuration,
+  clampTotalBays,
+  DEFAULT_CLOSING_TIME,
+  DEFAULT_OPENING_TIME,
+  DEFAULT_TOTAL_BAYS,
+  formatPgTime,
+} from '@/lib/booking/bayCapacityConfig';
+
 import type { WashBranch, WashBranchState, WashShopStatus, WashVacationMode } from './types';
 
 const ACTIVE_BRANCH_KEY = '@pitstop/wash-active-branch/v1';
@@ -101,6 +110,11 @@ function mapServiceRow(row: ServiceRow): ShopService {
 }
 
 function mapBranchRow(row: BranchRow, services: ShopService[]): WashBranch {
+  const weeklyHours = parseWeeklyHours(row.weekly_hours);
+  const openDay = weeklyHours.find((day) => !day.closed);
+  const slotDuration = clampSlotDuration(row.slot_duration_minutes ?? row.service_duration_minutes ?? 60);
+  const openingTime = formatPgTime(row.opening_time) ?? openDay?.openTime ?? DEFAULT_OPENING_TIME;
+  const closingTime = formatPgTime(row.closing_time) ?? openDay?.closeTime ?? DEFAULT_CLOSING_TIME;
   return {
     id: row.id,
     name: row.name,
@@ -116,8 +130,14 @@ function mapBranchRow(row: BranchRow, services: ShopService[]): WashBranch {
     profileImageUrl: row.profile_image_url ?? undefined,
     imageUrls: parseImages(row.image_urls),
     servicePriceEgp: row.service_price_egp != null ? Number(row.service_price_egp) : undefined,
-    serviceDurationMinutes: row.service_duration_minutes ?? 60,
-    weeklyHours: parseWeeklyHours(row.weekly_hours),
+    serviceDurationMinutes: slotDuration,
+    slotDurationMinutes: slotDuration,
+    totalBays: clampTotalBays(row.total_bays ?? DEFAULT_TOTAL_BAYS),
+    openingTime,
+    closingTime,
+    workOpenTime: openingTime,
+    workCloseTime: closingTime,
+    weeklyHours,
     services,
     offers: [],
     coupons: [],
@@ -318,6 +338,15 @@ function branchPatchToRow(patch: Partial<WashBranch>): Record<string, unknown> {
   if (patch.imageUrls != null) row.image_urls = compactStoredImageUrls(patch.imageUrls);
   if (patch.servicePriceEgp != null) row.service_price_egp = patch.servicePriceEgp;
   if (patch.serviceDurationMinutes != null) row.service_duration_minutes = patch.serviceDurationMinutes;
+  if (patch.slotDurationMinutes != null) {
+    row.slot_duration_minutes = patch.slotDurationMinutes;
+    row.service_duration_minutes = patch.slotDurationMinutes;
+  }
+  if (patch.totalBays != null) row.total_bays = patch.totalBays;
+  if (patch.openingTime != null) row.opening_time = patch.openingTime;
+  if (patch.closingTime != null) row.closing_time = patch.closingTime;
+  if (patch.workOpenTime != null) row.opening_time = patch.workOpenTime;
+  if (patch.workCloseTime != null) row.closing_time = patch.workCloseTime;
   if (patch.weeklyHours != null) row.weekly_hours = patch.weeklyHours;
   if (patch.shopStatus != null) row.shop_status = patch.shopStatus;
   if (patch.vacationMode != null) row.vacation_mode = patch.vacationMode;

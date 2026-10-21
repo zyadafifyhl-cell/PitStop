@@ -2,12 +2,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { registerCouponUsageRemote } from '@/lib/booking/couponRepository';
 import { formatBookingDateTime } from '@/lib/booking/format';
+import { deductMerchantLoyaltyPointsRemote } from '@/lib/booking/merchantLoyaltyRepository';
+import { cancelBookingReminders } from '@/lib/booking/bookingReminders';
 import {
-  deductMerchantLoyaltyPointsRemote,
-  recordMerchantLoyaltyPointsOnDone,
-} from '@/lib/booking/merchantLoyaltyRepository';
-import { recordWashBookingDone } from '@/lib/booking/loyaltyStampsStorage';
-import { handleBookingConfirmed } from '@/lib/booking/bookingLifecycle';
+  handleBookingCompleted,
+  handleBookingConfirmed,
+  notifyCustomerCarReady,
+} from '@/lib/booking/bookingLifecycle';
+import {
+  AUTO_COMPLETE_BUFFER_MINUTES,
+  computeExpectedCompletionAt,
+  isBookingDueForAutoComplete,
+  resolveBookingDurationMinutes,
+} from '@/lib/booking/bookingServiceLifecycle';
 import {
   applyCampaignPrice,
   computePlatformFee,
@@ -21,7 +28,8 @@ import {
   countDoneBookingsForCustomerAtShop,
   validateOfferForBooking,
 } from '@/lib/booking/offerRepository';
-import type { Booking, BookingStatus, BookingType } from '@/lib/booking/types';
+import { checkSlotAvailability, isSlotFullError, SlotFullError } from '@/lib/booking/bayCapacity';
+import type { Booking, BookingCompletionType, BookingStatus, BookingType } from '@/lib/booking/types';
 import {
   resolveDefaultBranchIdForShop,
   resolveRemoteBranchId,
@@ -119,15 +127,10 @@ export function isConfirmedPastAutoDoneWindow(scheduledAt: string, now = Date.no
   return now - scheduledMs > AUTO_DONE_AFTER_MS;
 }
 
-/** Virtual lifecycle: stale confirmed/in_progress slots become done at read time. */
+/** Virtual lifecycle: in-progress jobs past expected_completion_at read as done until cron persists. */
 export function resolveEffectiveBookingStatus(booking: Booking, now = Date.now()): BookingStatus {
   if (booking.status === 'suspended_by_shop') return booking.status;
-  if (
-    (booking.status === 'confirmed' || booking.status === 'in_progress') &&
-    isConfirmedPastAutoDoneWindow(booking.scheduledAt, now)
-  ) {
-    return 'done';
-  }
+  if (isBookingDueForAutoComplete(booking, now)) return 'done';
   return booking.status;
 }
 
@@ -218,6 +221,7 @@ type BookingRow = {
   customer_name?: string | null;
   car_type: string;
   car_color: string | null;
+  car_plate?: string | null;
   service_id?: string | null;
   service_name?: string | null;
   service_name_ar?: string | null;
@@ -240,6 +244,11 @@ type BookingRow = {
   owner_rejection_note?: string | null;
   booking_type?: BookingType | null;
   scheduled_at: string;
+  started_at?: string | null;
+  expected_completion_at?: string | null;
+  completed_at?: string | null;
+  completion_type?: BookingCompletionType | null;
+  service_duration_minutes?: number | null;
   status: BookingStatus;
   created_at: string;
   is_hidden_by_merchant?: boolean | null;
@@ -284,6 +293,8 @@ export type WalkInBookingInput = {
   serviceDurationMinutes?: number;
   customerNotes?: string;
   initialStatus?: BookingStatus;
+  scheduledAt?: string;
+  carPlate?: string;
 };
 
 function mapBookingRow(row: BookingRow): Booking {
@@ -297,6 +308,7 @@ function mapBookingRow(row: BookingRow): Booking {
     customerName: row.customer_name ?? undefined,
     carType: row.car_type,
     carColor: row.car_color ?? '',
+    carPlate: row.car_plate ?? undefined,
     serviceId: row.service_id ?? undefined,
     serviceName: row.service_name ?? undefined,
     serviceNameAr: row.service_name_ar ?? undefined,
@@ -321,6 +333,11 @@ function mapBookingRow(row: BookingRow): Booking {
     ownerRejectionNote: row.owner_rejection_note ?? undefined,
     bookingType: row.booking_type ?? 'app',
     scheduledAt: row.scheduled_at,
+    startedAt: row.started_at ?? undefined,
+    expectedCompletionAt: row.expected_completion_at ?? undefined,
+    completedAt: row.completed_at ?? undefined,
+    completionType: row.completion_type ?? undefined,
+    serviceDurationMinutes: row.service_duration_minutes ?? undefined,
     status: row.status,
     createdAt: row.created_at,
     isHiddenByMerchant: Boolean(row.is_hidden_by_merchant),
@@ -367,6 +384,7 @@ function buildBookingInsertRow(
     customer_name: input.customerName ?? null,
     car_type: input.carType,
     car_color: input.carColor || '',
+    car_plate: input.carPlate?.trim() || null,
     service_id: isUuid(input.serviceId) ? input.serviceId : null,
     service_name: input.serviceName ?? null,
     service_name_ar: input.serviceNameAr ?? null,
@@ -377,6 +395,16 @@ function buildBookingInsertRow(
     scheduled_at: input.scheduledAt,
     status: params.status,
   };
+  if (input.serviceDurationMinutes != null) {
+    row.service_duration_minutes = Math.max(5, Math.round(input.serviceDurationMinutes));
+  }
+  if (params.status === 'in_progress') {
+    const startedAt = new Date().toISOString();
+    const duration = resolveBookingDurationMinutes(input);
+    row.started_at = startedAt;
+    row.expected_completion_at = computeExpectedCompletionAt(startedAt, duration, AUTO_COMPLETE_BUFFER_MINUTES);
+    row.service_duration_minutes = duration;
+  }
   if (isUuid(input.offerId)) {
     row.offer_id = input.offerId;
   }
@@ -486,7 +514,7 @@ export async function createBooking(
   const bookingType = options?.bookingType ?? input.bookingType ?? 'app';
   const initialStatus = options?.initialStatus ?? 'pending';
   let branchId = input.branchId ? await resolveBranchIdForRemote(input.shopId, input.branchId) : undefined;
-  if (!branchId && (input.shopType === 'wash' || input.shopType === 'detailing_studio')) {
+  if (!branchId) {
     branchId = (await resolveDefaultBranchIdForShop(input.shopId)) ?? undefined;
   }
   const baseServicePriceEgp = Math.max(
@@ -548,6 +576,12 @@ export async function createBooking(
 
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not configured');
+  if (branchId && initialStatus !== 'cancelled' && initialStatus !== 'done' && initialStatus !== 'no_show') {
+    const availability = await checkSlotAvailability(branchId, input.scheduledAt);
+    if (!availability.is_available) {
+      throw new SlotFullError();
+    }
+  }
   const insertRow = buildBookingInsertRow(
     { ...input, offerId: resolvedOfferId },
     {
@@ -560,7 +594,10 @@ export async function createBooking(
     },
   );
   const { data, error } = await supabase.from('bookings').insert(insertRow).select('*').single();
-  if (error || !data) throw new Error(error?.message ?? 'Booking could not be saved');
+  if (error || !data) {
+    if (isSlotFullError(error)) throw new SlotFullError();
+    throw new Error(error?.message ?? 'Booking could not be saved');
+  }
 
   const created = mapBookingRow(data as BookingRow);
   if (options?.appliedCouponId && options?.couponUsageUserId) {
@@ -646,7 +683,8 @@ export async function createWalkInBooking(input: WalkInBookingInput): Promise<Bo
       customerName: input.customerName?.trim() || undefined,
       carType,
       carColor: '',
-      scheduledAt: new Date().toISOString(),
+      carPlate: input.carPlate?.trim() || undefined,
+      scheduledAt: input.scheduledAt?.trim() || new Date().toISOString(),
       serviceId: input.serviceId,
       serviceName: input.serviceName,
       serviceNameAr: input.serviceNameAr,
@@ -667,7 +705,17 @@ export async function updateBookingStatus(
   bookingId: string,
   status: BookingStatus,
   fallback?: Booking,
-  patch?: Partial<Pick<Booking, 'ownerRejectionNote'>>,
+  patch?: Partial<
+    Pick<
+      Booking,
+      | 'ownerRejectionNote'
+      | 'startedAt'
+      | 'expectedCompletionAt'
+      | 'completedAt'
+      | 'completionType'
+      | 'serviceDurationMinutes'
+    >
+  >,
 ): Promise<Booking | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
@@ -676,6 +724,27 @@ export async function updateBookingStatus(
   ).data?.status as BookingStatus | undefined;
   const updatePatch: Record<string, unknown> = { status };
   if (patch?.ownerRejectionNote !== undefined) updatePatch.owner_rejection_note = patch.ownerRejectionNote;
+  if (status === 'in_progress' && previousStatus !== 'in_progress') {
+    const startedAt = patch?.startedAt ?? new Date().toISOString();
+    const duration = resolveBookingDurationMinutes({
+      serviceDurationMinutes: patch?.serviceDurationMinutes ?? fallback?.serviceDurationMinutes,
+    });
+    updatePatch.started_at = startedAt;
+    updatePatch.expected_completion_at =
+      patch?.expectedCompletionAt ?? computeExpectedCompletionAt(startedAt, duration);
+    updatePatch.service_duration_minutes = duration;
+  }
+  if (status === 'done' && previousStatus !== 'done') {
+    updatePatch.completed_at = patch?.completedAt ?? new Date().toISOString();
+    updatePatch.completion_type = patch?.completionType ?? 'manual';
+  }
+  if (patch?.startedAt) updatePatch.started_at = patch.startedAt;
+  if (patch?.expectedCompletionAt) updatePatch.expected_completion_at = patch.expectedCompletionAt;
+  if (patch?.completedAt) updatePatch.completed_at = patch.completedAt;
+  if (patch?.completionType) updatePatch.completion_type = patch.completionType;
+  if (patch?.serviceDurationMinutes != null) {
+    updatePatch.service_duration_minutes = patch.serviceDurationMinutes;
+  }
   const { data, error } = await supabase
     .from('bookings')
     .update(updatePatch)
@@ -694,26 +763,89 @@ export async function updateBookingStatus(
   }
 
   if (updated && status === 'done' && previousStatus !== 'done') {
-    try {
-      await recordWashBookingDone(updated, previousStatus);
-    } catch (error) {
-      console.warn('Wash loyalty stamp sync failed (non-blocking):', error);
-    }
-    try {
-      await recordMerchantLoyaltyPointsOnDone(updated, previousStatus);
-    } catch (error) {
-      console.warn('Merchant loyalty points sync failed (non-blocking):', error);
-    }
-    if (updated.customerId) {
-      try {
-        await applyPenaltyPayment(updated.customerId, 0, updated.id);
-      } catch (error) {
-        console.warn('Penalty cash settlement failed (non-blocking):', error);
-      }
-    }
+    await afterBookingCompleted(updated, previousStatus);
+    await notifyCustomerCarReady(updated);
   }
 
   return updated;
+}
+
+async function afterBookingCompleted(updated: Booking, previousStatus?: BookingStatus): Promise<void> {
+  await handleBookingCompleted(updated, previousStatus);
+  await cancelBookingReminders(updated.id).catch(() => undefined);
+  if (!updated.customerId) return;
+  try {
+    await applyPenaltyPayment(updated.customerId, 0, updated.id);
+  } catch (error) {
+    console.warn('Penalty cash settlement failed (non-blocking):', error);
+  }
+}
+
+function bookingFromRpcPayload(raw: unknown): Booking | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as BookingRow;
+  if (!row.id || !row.shop_id || !row.status) return null;
+  return mapBookingRow(row);
+}
+
+export async function startBookingService(booking: Booking): Promise<Booking | null> {
+  const supabase = getSupabase();
+  if (supabase && isUuid(booking.id)) {
+    const { data, error } = await supabase.rpc('start_booking_service', { p_booking_id: booking.id });
+    if (!error) {
+      const mapped = bookingFromRpcPayload(data);
+      if (mapped) return mapped;
+    } else {
+      console.warn('startBookingService:', error.message);
+    }
+  }
+  return updateBookingStatus(booking.id, 'in_progress', booking);
+}
+
+export async function completeBookingService(
+  booking: Booking,
+  completionType: BookingCompletionType = 'manual',
+): Promise<Booking | null> {
+  const supabase = getSupabase();
+  const previousStatus = booking.status;
+  if (supabase && isUuid(booking.id)) {
+    const { data, error } = await supabase.rpc('complete_booking_service', {
+      p_booking_id: booking.id,
+      p_completion_type: completionType,
+    });
+    if (!error) {
+      const mapped = bookingFromRpcPayload(data);
+      if (mapped) {
+        if (mapped.status === 'done' && previousStatus !== 'done') {
+          await afterBookingCompleted(mapped, previousStatus);
+        }
+        return mapped;
+      }
+    } else {
+      console.warn('completeBookingService:', error.message);
+    }
+  }
+  return updateBookingStatus(booking.id, 'done', booking, { completionType });
+}
+
+export async function autoCompleteDueBookings(): Promise<number> {
+  const supabase = getSupabase();
+  if (!supabase) return 0;
+  const { data, error } = await supabase.rpc('auto_complete_due_bookings');
+  if (error) {
+    console.warn('autoCompleteDueBookings:', error.message);
+    return 0;
+  }
+  const payload = (data ?? {}) as { count?: number; booking_ids?: string[] };
+  const ids = Array.isArray(payload.booking_ids) ? payload.booking_ids.filter(isUuid) : [];
+  if (ids.length) {
+    const { data: rows } = await supabase.from('bookings').select('*').in('id', ids);
+    for (const row of rows ?? []) {
+      const booking = mapBookingRow(row as BookingRow);
+      await afterBookingCompleted(booking, 'in_progress');
+    }
+  }
+  return Number(payload.count ?? ids.length ?? 0);
 }
 
 export const LATE_CANCEL_WINDOW_HOURS = 4;

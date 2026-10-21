@@ -1,6 +1,8 @@
 import { getShopById } from '@/lib/booking/catalogRepository';
 import { pushCustomerNotification } from '@/lib/booking/commerceEvents';
 import { sendBookingConfirmationEmail } from '@/lib/booking/sendBookingConfirmationEmail';
+import { recordMerchantLoyaltyPointsOnDone } from '@/lib/booking/merchantLoyaltyRepository';
+import { recordWashBookingDone } from '@/lib/booking/loyaltyStampsStorage';
 import type { Booking, BookingStatus } from '@/lib/booking/types';
 import { getSupabase } from '@/lib/supabase/client';
 
@@ -52,4 +54,37 @@ export async function handleBookingConfirmed(params: {
     shopDisplayName,
     serviceLines,
   });
+}
+
+export async function notifyCustomerCarReady(booking: Booking): Promise<void> {
+  if (!booking.customerId && !booking.customerPhone) return;
+  const shop = getShopById(booking.shopId);
+  const shopName = shop?.name ?? booking.shopId;
+  await pushCustomerNotification({
+    customerId: booking.customerId,
+    customerPhone: booking.customerPhone || '',
+    kind: 'booking_ready',
+    shopId: booking.shopId,
+    bookingId: booking.id,
+    scheduledAt: booking.scheduledAt,
+    highPriority: true,
+    message: `Your car is ready for pickup at ${shopName}!`,
+  });
+}
+
+export async function handleBookingCompleted(
+  booking: Booking,
+  previousStatus?: BookingStatus,
+): Promise<void> {
+  if (booking.status !== 'done' || previousStatus === 'done') return;
+  try {
+    await recordWashBookingDone(booking, previousStatus);
+  } catch (error) {
+    console.warn('Wash loyalty stamp sync failed (non-blocking):', error);
+  }
+  try {
+    await recordMerchantLoyaltyPointsOnDone(booking, previousStatus);
+  } catch (error) {
+    console.warn('Merchant loyalty points sync failed (non-blocking):', error);
+  }
 }

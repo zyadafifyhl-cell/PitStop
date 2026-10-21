@@ -15,12 +15,14 @@ import {
 import { processDueBookingReminders } from '@/lib/booking/bookingReminders';
 import {
   customerNotificationIsApproved,
+  customerNotificationIsReady,
   customerNotificationIsReminder,
   customerNotificationIsRemoved,
   customerNotificationIsReviewReply,
   customerNotificationIsShopReopened,
   formatCustomerNotificationLine,
 } from '@/lib/booking/customerNotificationText';
+import { autoCompleteDueBookings } from '@/lib/booking/storage';
 import type { CustomerNotification } from '@/lib/booking/types';
 
 export function CustomerNotificationsBell({
@@ -44,6 +46,7 @@ export function CustomerNotificationsBell({
       return;
     }
     try {
+      await autoCompleteDueBookings().catch(() => {});
       await processDueBookingReminders().catch(() => {});
       const input = { customerId: customer?.id, customerPhone: customer?.phone };
       const rows = await listCustomerNotifications(input);
@@ -93,6 +96,7 @@ export function CustomerNotificationsBell({
     partsDeclined: t('customer_notification_parts_declined'),
     reviewOwnerReply: t('customer_notification_review_reply'),
     communityPostRemoved: t('customer_notification_community_post_removed'),
+    bookingReady: t('customer_notification_booking_ready'),
   };
 
   return (
@@ -124,6 +128,7 @@ export function CustomerNotificationsBell({
                   const isReviewReply = customerNotificationIsReviewReply(notification);
                   const isShopReopened = customerNotificationIsShopReopened(notification);
                   const isRemoved = customerNotificationIsRemoved(notification);
+                  const isReady = customerNotificationIsReady(notification);
                   return (
                     <View
                       key={notification.id}
@@ -150,15 +155,17 @@ export function CustomerNotificationsBell({
                               ? notification.statusLabel
                               : isRemoved
                                 ? t('customer_notification_status_removed')
-                                : isReminder
-                                  ? t('customer_notification_status_reminder')
-                                  : isReviewReply
-                                    ? t('customer_notification_status_reply')
-                                    : isShopReopened
-                                      ? t('customer_notification_status_reopened')
-                                      : approved
-                                        ? t('customer_notification_status_approved')
-                                        : t('customer_notification_status_declined')}
+                                : isReady
+                                  ? t('customer_notification_status_ready')
+                                  : isReminder
+                                    ? t('customer_notification_status_reminder')
+                                    : isReviewReply
+                                      ? t('customer_notification_status_reply')
+                                      : isShopReopened
+                                        ? t('customer_notification_status_reopened')
+                                        : approved
+                                          ? t('customer_notification_status_approved')
+                                          : t('customer_notification_status_declined')}
                           </Text>
                         </View>
                       </View>

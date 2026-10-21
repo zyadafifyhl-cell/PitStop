@@ -259,6 +259,7 @@ export function WalkInBookingModal({
         serviceNameAr: aggregated.serviceNameAr,
         servicePriceEgp: aggregated.servicePriceEgp,
         serviceDurationMinutes: aggregated.serviceDurationMinutes,
+        carPlate: plate.trim() || undefined,
         customerNotes: notes.trim() || undefined,
         initialStatus: detailing ? 'in_progress' : 'done',
       });
