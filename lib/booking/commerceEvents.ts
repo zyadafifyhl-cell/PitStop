@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { APP_BRAND_NAME } from '@/constants/Brand';
+import { getSupabase } from '@/lib/supabase/client';
 import type {
   CustomerInvoice,
   CustomerNotification,
@@ -73,6 +74,21 @@ async function readCustomerNotificationMap(): Promise<CustomerNotificationMap> {
 
 async function writeCustomerNotificationMap(map: CustomerNotificationMap): Promise<void> {
   await AsyncStorage.setItem(CUSTOMER_NOTIFICATIONS_KEY, JSON.stringify(map));
+}
+
+export async function cacheCustomerNotifications(
+  customerId: string,
+  rows: CustomerNotification[],
+): Promise<void> {
+  const id = customerId.trim();
+  if (!id || !rows.length) return;
+  const map = await readCustomerNotificationMap();
+  const key = `id:${id}`;
+  const existing = map[key] ?? [];
+  const dedup = new Map(existing.map((row) => [row.id, row]));
+  for (const row of rows) dedup.set(row.id, row);
+  map[key] = Array.from(dedup.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  await writeCustomerNotificationMap(map);
 }
 
 async function readSeenMap(): Promise<SeenMap> {
@@ -182,6 +198,84 @@ export async function pushCustomerNotification(input: {
   return row;
 }
 
+type RemoteNotificationRow = {
+  id: string;
+  customer_id: string;
+  kind: string;
+  title: string | null;
+  message: string;
+  message_ar: string | null;
+  created_at: string;
+};
+
+function mapRemoteCustomerNotifications(data: RemoteNotificationRow[]): CustomerNotification[] {
+  return data.map((row) => ({
+    id: row.id,
+    customerId: row.customer_id,
+    customerPhone: '',
+    kind: (row.kind === 'community_post_removed' ? 'community_post_removed' : row.kind) as CustomerNotification['kind'],
+    createdAt: row.created_at,
+    shopId: APP_BRAND_NAME,
+    ownerNote: row.title || undefined,
+    message: row.message,
+    messageAr: row.message_ar || undefined,
+  }));
+}
+
+async function fetchRemovedPostNotifications(customerId: string): Promise<CustomerNotification[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('community_removed_items')
+    .select('kind, target_id, author_user_id, title, message, message_ar, removed_at, removed_reason')
+    .eq('kind', 'post')
+    .eq('author_user_id', customerId);
+  if (error || !data) return [];
+  return data
+    .filter((row) => (row.removed_reason || 'rules') !== 'author')
+    .map((row) => ({
+    id: `removed-${row.kind}-${row.target_id}`,
+    customerId,
+    customerPhone: '',
+    kind: 'community_post_removed' as const,
+    createdAt: row.removed_at,
+    shopId: APP_BRAND_NAME,
+    ownerNote: row.title || undefined,
+    message:
+      row.message ||
+      `Your post "${row.title || 'Untitled'}" was removed because it violated PitStop community rules.`,
+    messageAr:
+      row.message_ar ||
+      `تم حذف منشورك "${row.title || 'بدون عنوان'}" لأنه خالف قواعد المجتمع على الموقع.`,
+  }));
+}
+
+async function fetchRemoteCustomerNotifications(customerId?: string): Promise<CustomerNotification[]> {
+  const id = customerId?.trim();
+  if (!id) return [];
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  const [rpc, table, removed] = await Promise.all([
+    supabase.rpc('list_my_in_app_notifications'),
+    supabase
+      .from('customer_in_app_notifications')
+      .select('id, customer_id, kind, title, message, message_ar, created_at')
+      .eq('customer_id', id)
+      .order('created_at', { ascending: false }),
+    fetchRemovedPostNotifications(id),
+  ]);
+
+  const rows: CustomerNotification[] = [...removed];
+  if (!rpc.error && rpc.data) {
+    rows.push(...mapRemoteCustomerNotifications(rpc.data as RemoteNotificationRow[]));
+  }
+  if (!table.error && table.data) {
+    rows.push(...mapRemoteCustomerNotifications(table.data as RemoteNotificationRow[]));
+  }
+  return rows;
+}
+
 export async function listCustomerNotifications(input: {
   customerId?: string;
   customerPhone?: string;
@@ -190,6 +284,11 @@ export async function listCustomerNotifications(input: {
   const rows: CustomerNotification[] = [];
   if (input.customerId?.trim()) rows.push(...(map[`id:${input.customerId.trim()}`] ?? []));
   if (input.customerPhone?.trim()) rows.push(...(map[`phone:${input.customerPhone.trim()}`] ?? []));
+  const remote = await fetchRemoteCustomerNotifications(input.customerId);
+  rows.push(...remote);
+  if (input.customerId?.trim() && remote.length) {
+    await cacheCustomerNotifications(input.customerId, remote);
+  }
 
   const dedup = new Map<string, CustomerNotification>();
   for (const row of rows) dedup.set(row.id, row);

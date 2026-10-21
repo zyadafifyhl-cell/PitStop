@@ -16,6 +16,7 @@ import {
 import { CreatePostCard } from '@/components/community/CreatePostCard';
 import { FeedFilterChips } from '@/components/community/FeedFilterChips';
 import { PostCard } from '@/components/community/PostCard';
+import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -99,13 +100,16 @@ export default function AssistantScreen() {
     () => (
       <View style={styles.headerBlock}>
         <View style={[styles.headerWash, { backgroundColor: 'rgba(30, 90, 230, 0.08)' }]} />
-        <Text style={[styles.screenTitle, { color: theme.text }]}>{t('driver_network_title')}</Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.screenTitle, { color: theme.text, flex: 1 }]}>{t('driver_network_title')}</Text>
+          {customer && !isGuest ? <CustomerNotificationsBell embedded /> : null}
+        </View>
         <Text style={[styles.screenLead, { color: theme.textMuted }]}>{t('feed_subtitle')}</Text>
         <FeedFilterChips value={sortMode} onChange={setSortMode} />
         <CreatePostCard onCreated={onPostCreated} />
       </View>
     ),
-    [sortMode, theme, t, onPostCreated],
+    [customer, isGuest, sortMode, theme, t, onPostCreated],
   );
 
   return (
@@ -129,8 +133,10 @@ export default function AssistantScreen() {
           renderItem={({ item }) => (
             <PostCard
               post={item}
+              viewerUserId={customer?.id}
               onLike={onLike}
               onOpenComments={onOpenComments}
+              onDeleted={(postId) => setPosts((prev) => prev.filter((row) => row.id !== postId))}
               busy={likeBusy}
             />
           )}
@@ -160,6 +166,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
   },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   screenTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.4 },
   screenLead: { fontSize: 14, lineHeight: 21 },
   empty: { fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 12 },

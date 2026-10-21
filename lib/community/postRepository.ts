@@ -7,6 +7,8 @@ import type {
   PostCategoryTag,
   UserRole,
 } from '@/lib/community/types';
+import { cacheCustomerNotifications } from '@/lib/booking/commerceEvents';
+import { APP_BRAND_NAME } from '@/constants/Brand';
 import { getSupabase } from '@/lib/supabase/client';
 
 const LOCAL_POSTS_KEY = '@pitstop/community-posts/v1';
@@ -215,6 +217,82 @@ async function writeLocalPosts(rows: CommunityPost[]): Promise<void> {
   await AsyncStorage.setItem(LOCAL_POSTS_KEY, JSON.stringify(rows));
 }
 
+async function fetchRemovedCommunityIds(): Promise<{
+  posts: Set<string>;
+  comments: Set<string>;
+  notices: Array<{
+    targetId: string;
+    authorUserId: string;
+    title: string;
+    message: string;
+    messageAr: string;
+    removedAt: string;
+    reason: string;
+  }>;
+}> {
+  const empty = { posts: new Set<string>(), comments: new Set<string>(), notices: [] };
+  const supabase = getSupabase();
+  if (!supabase) return empty;
+  let { data, error } = await supabase
+    .from('community_removed_items')
+    .select('kind, target_id, author_user_id, title, message, message_ar, removed_at, removed_reason');
+  if (error) {
+    const fallback = await supabase.from('community_removed_items').select('kind, target_id');
+    if (fallback.error || !fallback.data) return empty;
+    data = fallback.data.map((row) => ({
+      ...row,
+      author_user_id: '',
+      title: '',
+      message: '',
+      message_ar: '',
+      removed_at: new Date().toISOString(),
+      removed_reason: 'rules',
+    }));
+    error = null;
+  }
+  if (error || !data) return empty;
+  const posts = new Set<string>();
+  const comments = new Set<string>();
+  const notices: Array<{
+    targetId: string;
+    authorUserId: string;
+    title: string;
+    message: string;
+    messageAr: string;
+    removedAt: string;
+    reason: string;
+  }> = [];
+  for (const row of data) {
+    if (row.kind === 'comment') comments.add(row.target_id);
+    else {
+      posts.add(row.target_id);
+      if (row.author_user_id && (row.removed_reason || 'rules') !== 'author') {
+        notices.push({
+          targetId: row.target_id,
+          authorUserId: row.author_user_id,
+          title: row.title || '',
+          message: row.message || '',
+          messageAr: row.message_ar || '',
+          removedAt: row.removed_at,
+          reason: row.removed_reason || 'rules',
+        });
+      }
+    }
+  }
+  return { posts, comments, notices };
+}
+
+async function purgeRemovedLocalContent(removed: { posts: Set<string>; comments: Set<string> }): Promise<void> {
+  if (removed.posts.size === 0 && removed.comments.size === 0) return;
+  const [posts, comments] = await Promise.all([readLocalPosts(), readLocalComments()]);
+  const nextPosts = posts.filter((row) => !removed.posts.has(row.id));
+  const nextComments = comments.filter(
+    (row) => !removed.comments.has(row.id) && !removed.posts.has(row.postId),
+  );
+  if (nextPosts.length !== posts.length) await writeLocalPosts(nextPosts);
+  if (nextComments.length !== comments.length) await writeLocalComments(nextComments);
+}
+
 async function upsertLocalPost(post: CommunityPost): Promise<void> {
   const rows = await readLocalPosts();
   const idx = rows.findIndex((row) => row.id === post.id);
@@ -365,11 +443,37 @@ export async function listCommunityPosts(
   mode: FeedSortMode,
   viewerUserId?: string,
 ): Promise<CommunityPost[]> {
-  const [remote, local] = await Promise.all([
+  const [remote, local, removed] = await Promise.all([
     fetchPostsRemote(viewerUserId),
     hydrateLocalPosts(viewerUserId),
+    fetchRemovedCommunityIds(),
   ]);
-  return sortPosts(mergePosts(remote, local), mode);
+  await purgeRemovedLocalContent(removed);
+  if (viewerUserId) {
+    const mine = removed.notices.filter((row) => row.authorUserId === viewerUserId);
+    if (mine.length) {
+      await cacheCustomerNotifications(
+        viewerUserId,
+        mine.map((row) => ({
+          id: `removed-post-${row.targetId}`,
+          customerId: viewerUserId,
+          customerPhone: '',
+          kind: 'community_post_removed' as const,
+          createdAt: row.removedAt,
+          shopId: APP_BRAND_NAME,
+          ownerNote: row.title || undefined,
+          message:
+            row.message ||
+            `Your post "${row.title || 'Untitled'}" was removed because it violated PitStop community rules.`,
+          messageAr:
+            row.messageAr ||
+            `تم حذف منشورك "${row.title || 'بدون عنوان'}" لأنه خالف قواعد المجتمع على الموقع.`,
+        })),
+      );
+    }
+  }
+  const merged = mergePosts(remote, local).filter((row) => !removed.posts.has(row.id));
+  return sortPosts(merged, mode);
 }
 
 export async function getCommunityPost(
@@ -489,14 +593,18 @@ export async function listCommunityComments(
   postId: string,
   viewerUserId?: string,
 ): Promise<CommunityComment[]> {
-  const [remote, local, likes] = await Promise.all([
+  const [remote, local, likes, removed] = await Promise.all([
     fetchCommentsRemote(postId, viewerUserId),
     readLocalComments(),
     readLocalCommentLikes(),
+    fetchRemovedCommunityIds(),
   ]);
-  const localForPost = local.filter((row) => row.postId === postId);
+  if (removed.posts.has(postId)) return [];
+  const localForPost = local.filter((row) => row.postId === postId && !removed.comments.has(row.id));
   const byId = new Map<string, CommunityComment>();
-  for (const row of remote) byId.set(row.id, row);
+  for (const row of remote) {
+    if (!removed.comments.has(row.id)) byId.set(row.id, row);
+  }
   for (const row of localForPost) {
     const existing = byId.get(row.id);
     if (!existing) {
@@ -637,26 +745,71 @@ export function authorInitials(name: string): string {
   return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
 }
 
-export async function reportCommunityPost(postId: string): Promise<void> {
+export async function reportCommunityPost(
+  post: Pick<CommunityPost, 'id' | 'userId' | 'title' | 'content' | 'authorName'>,
+  reporterId?: string,
+): Promise<void> {
+  if (reporterId?.trim() && post.userId && reporterId.trim() === post.userId) {
+    throw new Error('cannot report own content');
+  }
   const supabase = getSupabase();
-  if (supabase && isUuid(postId)) {
-    const { error } = await supabase.from('posts').update({ reported: true }).eq('id', postId);
+  if (supabase) {
+    const { error } = await supabase.rpc('report_community_item', {
+      p_kind: 'post',
+      p_target_id: post.id,
+      p_reporter_id: reporterId?.trim() || '',
+      p_title: post.title,
+      p_body: post.content,
+      p_author_label: post.authorName,
+      p_author_user_id: post.userId,
+    });
     if (!error) return;
   }
 
   const posts = await readLocalPosts();
-  const next = posts.map((row) => (row.id === postId ? { ...row, reported: true } : row));
+  const next = posts.map((row) => (row.id === post.id ? { ...row, reported: true } : row));
   await writeLocalPosts(next);
 }
 
-export async function reportCommunityComment(commentId: string): Promise<void> {
+export async function deleteOwnCommunityPost(input: { postId: string; userId: string }): Promise<void> {
+  const postId = input.postId.trim();
+  const userId = input.userId.trim();
+  if (!postId || !userId) throw new Error('missing post');
+
   const supabase = getSupabase();
-  if (supabase && isUuid(commentId)) {
-    const { error } = await supabase.from('comments').update({ reported: true }).eq('id', commentId);
+  if (supabase) {
+    const { error } = await supabase.rpc('delete_own_community_post', { p_post_id: postId });
+    if (error) throw new Error(error.message);
+  }
+
+  const posts = await readLocalPosts();
+  await writeLocalPosts(posts.filter((row) => row.id !== postId));
+  const comments = await readLocalComments();
+  await writeLocalComments(comments.filter((row) => row.postId !== postId));
+}
+
+export async function reportCommunityComment(
+  comment: Pick<CommunityComment, 'id' | 'userId' | 'content' | 'authorName' | 'postId'>,
+  reporterId?: string,
+): Promise<void> {
+  if (reporterId?.trim() && comment.userId && reporterId.trim() === comment.userId) {
+    throw new Error('cannot report own content');
+  }
+  const supabase = getSupabase();
+  if (supabase) {
+    const { error } = await supabase.rpc('report_community_item', {
+      p_kind: 'comment',
+      p_target_id: comment.id,
+      p_reporter_id: reporterId?.trim() || '',
+      p_title: `Comment on post ${comment.postId}`,
+      p_body: comment.content,
+      p_author_label: comment.authorName,
+      p_author_user_id: comment.userId,
+    });
     if (!error) return;
   }
 
   const comments = await readLocalComments();
-  const next = comments.map((row) => (row.id === commentId ? { ...row, reported: true } : row));
+  const next = comments.map((row) => (row.id === comment.id ? { ...row, reported: true } : row));
   await writeLocalComments(next);
 }

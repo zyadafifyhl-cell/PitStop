@@ -13,6 +13,7 @@ type NotificationMessages = {
   partsConfirmed: string;
   partsDeclined: string;
   reviewOwnerReply: string;
+  communityPostRemoved: string;
 };
 
 export function formatCustomerNotificationLine(
@@ -20,11 +21,20 @@ export function formatCustomerNotificationLine(
   locale: Locale,
   messages: NotificationMessages,
 ): string {
+  const effectiveLocale = notification.locale ?? locale;
+
+  if (notification.kind === 'community_post_removed') {
+    const localized =
+      (effectiveLocale === 'ar' ? notification.messageAr : notification.message)?.trim() ||
+      notification.message?.trim() ||
+      notification.messageAr?.trim();
+    if (localized) return localized;
+    return messages.communityPostRemoved.replace('{title}', notification.ownerNote || '');
+  }
+
   if (notification.message?.trim()) {
     return notification.message;
   }
-
-  const effectiveLocale = notification.locale ?? locale;
   const shop = getShopById(notification.shopId);
   const shopName = shop
     ? effectiveLocale === 'ar'
@@ -82,4 +92,8 @@ export function customerNotificationIsReminder(notification: CustomerNotificatio
 
 export function customerNotificationIsReviewReply(notification: CustomerNotification): boolean {
   return notification.kind === 'review_owner_reply';
+}
+
+export function customerNotificationIsRemoved(notification: CustomerNotification): boolean {
+  return notification.kind === 'community_post_removed';
 }

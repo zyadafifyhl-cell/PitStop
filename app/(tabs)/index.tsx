@@ -41,7 +41,7 @@ import {
 import type { Booking, ShopOffer, ShopType } from '@/lib/booking/types';
 import { listAllActiveOffers, subscribeOffersRealtime } from '@/lib/booking/offerRepository';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
-import { listCustomerVehicles, loadVehiclePickerState } from '@/lib/booking/vehicleStorage';
+import { loadVehiclePickerState } from '@/lib/booking/vehicleStorage';
 import { formatOfferBadge, isOfferLive, buildOfferBadgeMessages } from '@/lib/booking/offerPricing';
 import { formatEgp } from '@/lib/booking/reporting';
 import type { TranslationKey } from '@/lib/i18n/strings';
@@ -679,12 +679,8 @@ export default function HomeScreen() {
       setActiveVehicleLabel(null);
       return;
     }
-    const [, picker] = await Promise.all([
-      listCustomerVehicles(customer.id),
-      loadVehiclePickerState(customer.id),
-    ]);
-    const vehicle = picker.activeVehicle ?? picker.vehicles[0] ?? null;
-    setActiveVehicleLabel(vehicle ? formatVehicleDisplay(vehicle) : null);
+    const picker = await loadVehiclePickerState(customer.id);
+    setActiveVehicleLabel(picker.activeVehicle ? formatVehicleDisplay(picker.activeVehicle) : null);
   }, [customer?.id, isGuest]);
 
   useEffect(() => {
@@ -729,10 +725,6 @@ export default function HomeScreen() {
       return;
     }
     router.push('/bookings');
-  }
-
-  function SurfaceCard({ children, style }: { children: React.ReactNode; style?: object }) {
-    return <View style={[styles.sectionCard, style]}>{children}</View>;
   }
 
   const nativeLanding = Platform.OS !== 'web';
@@ -830,7 +822,7 @@ export default function HomeScreen() {
         ) : null}
 
         {nextBooking ? (
-          <SurfaceCard style={styles.heroCard}>
+          <View style={[styles.sectionCard, styles.heroCard]}>
             <View style={styles.nextBookingTopRow}>
               <View style={styles.bookingIdentity}>
                 <View style={styles.bookingIconBadge}>
@@ -869,7 +861,7 @@ export default function HomeScreen() {
               <Text style={styles.cardMeta}>{formatBookingDateTime(nextBooking.scheduledAt, locale)}</Text>
             </View>
             <Text style={styles.cardMeta}>{shopTypeLabel(nextBooking.shopType, locale)}</Text>
-          </SurfaceCard>
+          </View>
         ) : null}
 
         <View style={styles.pillsRow}>
@@ -885,7 +877,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <SurfaceCard>
+        <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>{t('home_pick_service')}</Text>
           <Text style={styles.sectionSub}>{t('home_pick_service_lead')}</Text>
           <TextInput
@@ -952,9 +944,9 @@ export default function HomeScreen() {
               );
             })}
           </View>
-        </SurfaceCard>
+        </View>
 
-        <SurfaceCard>
+        <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>{t('home_offers_carousel')}</Text>
           <Text style={styles.sectionSub}>{t('home_offers_title')}</Text>
           {liveOffers.length === 0 ? (
@@ -994,7 +986,7 @@ export default function HomeScreen() {
               })}
             </ScrollView>
           )}
-        </SurfaceCard>
+        </View>
         </View>
         </View>
       </ScrollView>

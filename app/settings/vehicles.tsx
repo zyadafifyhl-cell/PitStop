@@ -20,6 +20,7 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import type { CustomerVehicle } from '@/lib/booking/types';
 import {
   addCustomerVehicle,
+  getActiveVehicleId,
   listCustomerVehicles,
   removeCustomerVehicle,
   setActiveVehicle,
@@ -58,6 +59,7 @@ export default function VehicleManagementScreen() {
     });
   }, [navigation, isRTL, theme.text, t]);
   const [vehicles, setVehicles] = useState<CustomerVehicle[]>([]);
+  const [activeVehicleId, setActiveVehicleId] = useState<string | null>(null);
   const [formVisible, setFormVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<VehicleForm>(emptyForm());
@@ -67,8 +69,12 @@ export default function VehicleManagementScreen() {
       setVehicles([]);
       return;
     }
-    const rows = await listCustomerVehicles(customer.id);
+    const [rows, currentId] = await Promise.all([
+      listCustomerVehicles(customer.id),
+      getActiveVehicleId(customer.id),
+    ]);
     setVehicles(rows);
+    setActiveVehicleId(currentId ?? rows.find((row) => row.isActive)?.id ?? null);
   }, [customer, isGuest]);
 
   useFocusEffect(
@@ -106,17 +112,20 @@ export default function VehicleManagementScreen() {
         makeModel,
         color,
       });
-      await setActiveVehicle(customer.id, editingId);
     } else {
-      const rows = await addCustomerVehicle(customer.id, {
+      await addCustomerVehicle(customer.id, {
         label: makeModel,
         makeModel,
         color,
       });
-      const created = rows[0];
-      if (created) await setActiveVehicle(customer.id, created.id);
     }
     setFormVisible(false);
+    await loadVehicles();
+  }
+
+  async function onSetCurrent(vehicle: CustomerVehicle) {
+    if (!customer || isGuest || vehicle.id === activeVehicleId) return;
+    await setActiveVehicle(customer.id, vehicle.id);
     await loadVehicles();
   }
 
@@ -154,7 +163,20 @@ export default function VehicleManagementScreen() {
       ) : (
         vehicles.map((vehicle) => (
           <View key={vehicle.id} style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>{formatVehicleDisplay(vehicle)}</Text>
+            <View style={styles.cardHead}>
+              <Text style={[styles.cardTitle, { color: theme.text, flex: 1 }]}>{formatVehicleDisplay(vehicle)}</Text>
+              {vehicle.id === activeVehicleId ? (
+                <View style={[styles.currentBadge, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.currentBadgeText, { color: theme.onAccent }]}>{t('vehicles_current')}</Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => void onSetCurrent(vehicle)}
+                  style={[styles.currentBtn, { borderColor: theme.accent }]}>
+                  <Text style={[styles.currentBtnText, { color: theme.accent }]}>{t('vehicles_set_current')}</Text>
+                </Pressable>
+              )}
+            </View>
             <View style={styles.cardActions}>
               <Pressable onPress={() => openEdit(vehicle)} style={[styles.actionBtn, { borderColor: theme.border }]}>
                 <Text style={[styles.actionText, { color: theme.accent }]}>{t('home_car_profile_change')}</Text>
@@ -225,7 +247,21 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
-  cardTitle: { fontSize: 17, fontWeight: '800', marginBottom: 4 },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  cardTitle: { fontSize: 17, fontWeight: '800' },
+  currentBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  currentBadgeText: { fontSize: 12, fontWeight: '800' },
+  currentBtn: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  currentBtnText: { fontSize: 12, fontWeight: '800' },
   cardActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
   actionBtn: {
     flex: 1,

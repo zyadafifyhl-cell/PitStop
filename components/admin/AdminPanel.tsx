@@ -534,6 +534,11 @@ export function AdminPanel() {
                       <Text style={{ color: theme.textMuted }}>
                         {t('admin_moderation_shop_label')}: {item.shopName}
                       </Text>
+                    ) : item.authorLabel ? (
+                      <Text style={{ color: theme.textMuted }}>{item.authorLabel}</Text>
+                    ) : null}
+                    {item.reportCount && item.reportCount > 1 ? (
+                      <Text style={{ color: theme.textMuted }}>{item.reportCount} reports</Text>
                     ) : null}
                     <Text style={{ color: theme.textMuted, marginTop: 4 }} numberOfLines={4}>
                       {item.body}

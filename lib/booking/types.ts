@@ -202,6 +202,7 @@ export type CustomerVehicle = {
   plate?: string;
   createdAt: string;
   updatedAt: string;
+  isActive?: boolean;
 };
 
 export type ShopReview = {
@@ -294,7 +295,8 @@ export type CustomerNotificationKind =
   | 'booking_shop_reopened'
   | 'parts_order_confirmed'
   | 'parts_order_cancelled'
-  | 'review_owner_reply';
+  | 'review_owner_reply'
+  | 'community_post_removed';
 
 export type CustomerNotification = {
   id: string;
@@ -316,6 +318,8 @@ export type CustomerNotification = {
   locale?: 'en' | 'ar';
   /** Pre-resolved notification body for the customer's locale. */
   message?: string;
+  /** Arabic body for community / in-app notices. */
+  messageAr?: string;
   /** Pre-resolved status pill label for the customer's locale. */
   statusLabel?: string;
 };

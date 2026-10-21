@@ -48,7 +48,7 @@ type Props = {
 const STATUS_COLORS: Record<StoreOrderStatus, string> = {
   pending: '#64748B',
   preparing: '#00255C',
-  ready: '#1A4A8C',
+  ready: '#00255C',
   completed: '#22C55E',
   cancelled: '#C62828',
 };

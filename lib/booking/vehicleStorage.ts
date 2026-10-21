@@ -178,10 +178,12 @@ export async function addCustomerVehicle(
   customerId: string,
   input: { label?: string; makeModel: string; color?: string; plate?: string },
 ): Promise<CustomerVehicle[]> {
-  const remoteCreated = await addUserVehicleRemote(customerId, { ...input, setActive: true });
+  const current = await getActiveVehicle(customerId);
+  const makeCurrent = !current;
+  const remoteCreated = await addUserVehicleRemote(customerId, { ...input, setActive: makeCurrent });
   if (remoteCreated) {
     const rows = await listCustomerVehicles(customerId);
-    await writeLocalCache(customerId, rows, remoteCreated.id);
+    await writeLocalCache(customerId, rows, makeCurrent ? remoteCreated.id : current?.id ?? null);
     return rows;
   }
 
@@ -195,13 +197,16 @@ export async function addCustomerVehicle(
     plate: input.plate?.trim() || undefined,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    isActive: makeCurrent,
   };
   map[key] = [row, ...(map[key] ?? [])];
   await writeMap(map);
-  const activeMap = await readActiveMap();
-  activeMap[key] = row.id;
-  await writeActiveMap(activeMap);
-  await AsyncStorage.setItem(`${LEGACY_PROFILE_PREFIX}${customerId}`, JSON.stringify({ carType: row.makeModel }));
+  if (makeCurrent) {
+    const activeMap = await readActiveMap();
+    activeMap[key] = row.id;
+    await writeActiveMap(activeMap);
+    await AsyncStorage.setItem(`${LEGACY_PROFILE_PREFIX}${customerId}`, JSON.stringify({ carType: row.makeModel }));
+  }
   return map[key];
 }
 
@@ -272,17 +277,8 @@ export async function getActiveVehicle(customerId: string): Promise<CustomerVehi
   if (!rows.length) return null;
 
   const activeId = await getActiveVehicleId(customerId);
-  if (activeId) {
-    const hit = rows.find((row) => row.id === activeId);
-    if (hit) return hit;
-  }
-
-  const fallback = rows[0];
-  await writeLocalCache(customerId, rows, fallback.id);
-  if (fallback.id !== activeId) {
-    await setActiveUserVehicleRemote(customerId, fallback.id);
-  }
-  return fallback;
+  if (!activeId) return rows.find((row) => row.isActive) ?? null;
+  return rows.find((row) => row.id === activeId) ?? null;
 }
 
 export async function loadVehiclePickerState(customerId: string): Promise<{
