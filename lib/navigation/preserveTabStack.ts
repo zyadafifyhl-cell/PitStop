@@ -103,6 +103,7 @@ export function noteTabPath(tabHref: string, pathname: string) {
  * Switch tabs without dropping deep screens owned by the tab you leave.
  * Service/shop routes live on the root stack above `(tabs)`, so a plain tab
  * navigate pops them — we remember each tab's last path and restore it.
+ * Home is the exception: that button always returns to the first page.
  */
 export function switchPreservedTab(
   nav: RootNav | null | undefined,
@@ -110,9 +111,31 @@ export function switchPreservedTab(
   currentPathname: string,
   target: { href: string; screen: string },
 ) {
+  const path = normalize(currentPathname);
+  const goingHome = target.href === '/' || target.href === '/index' || target.screen === 'index';
+
+  if (goingHome) {
+    if (currentHref !== '/' && currentHref !== '/index') {
+      noteTabPath(currentHref, currentPathname);
+    }
+    deepestByTab.set('/', '');
+    setActiveBrowseTab('/');
+    if (path === '/') return;
+    try {
+      router.dismissTo('/');
+    } catch {
+      try {
+        router.navigate('/');
+      } catch {
+        nav?.navigate('(tabs)', { screen: 'index' });
+      }
+    }
+    return;
+  }
+
   noteTabPath(currentHref, currentPathname);
 
-  if (currentHref === target.href) {
+  if (currentHref === target.href && (path === target.href || TAB_ROOTS.has(path))) {
     return;
   }
 

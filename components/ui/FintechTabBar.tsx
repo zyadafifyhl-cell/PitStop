@@ -1,4 +1,5 @@
-import { usePathname, useRootNavigation } from 'expo-router';
+import { usePathname, useRootNavigation, useRouter, type Href } from 'expo-router';
+import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,19 +8,13 @@ import { focusedTabHref } from '@/components/ui/CustomerBrowseTabBar';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { deepestPathForTab, switchPreservedTab } from '@/lib/navigation/preserveTabStack';
 
-type TabRoute = { key: string; name: string; params?: object };
-type TabOptions = {
+type TabOptions = BottomTabBarProps['descriptors'][string]['options'] & {
   href?: string | null;
-  title?: string;
-  tabBarLabel?: string;
-  tabBarAccessibilityLabel?: string;
-  tabBarIcon?: (props: { focused: boolean; color: string; size: number }) => React.ReactNode;
-  tabBarItemStyle?: unknown;
 };
 
 function isTabHidden(options: TabOptions) {
-  if (options.href === null) return true;
-  const itemStyle = StyleSheet.flatten(options.tabBarItemStyle as never) as { display?: string } | undefined;
+  if (options.hidden || options.href === null) return true;
+  const itemStyle = StyleSheet.flatten(options.tabBarItemStyle) as { display?: string } | undefined;
   return itemStyle?.display === 'none';
 }
 
@@ -27,18 +22,19 @@ export function FintechTabBar({
   state,
   descriptors,
   navigation,
-}: {
-  state: { index: number; routes: TabRoute[] };
-  descriptors: Record<string, { options: TabOptions }>;
-  navigation: {
-    emit: (event: { type: string; target: string; canPreventDefault: boolean }) => { defaultPrevented: boolean };
-    navigate: (name: string, params?: object) => void;
-  };
+  emitter,
+}: BottomTabBarProps & {
+  /** Legacy React Navigation prop. Expo Router 58 tab bars receive `emitter` instead. */
+  navigation?: {
+    emit?: BottomTabBarProps['emitter']['emit'];
+    navigate?: (name: string, params?: object) => void;
+  } | null;
 }) {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const rootNavigation = useRootNavigation();
+  const router = useRouter();
   const visibleRoutes = state.routes.filter((route) => !isTabHidden(descriptors[route.key].options));
 
   if (visibleRoutes.length === 0) return null;
@@ -79,11 +75,19 @@ export function FintechTabBar({
               accessibilityState={{ selected: focused }}
               accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
               onPress={() => {
-                const event = navigation.emit({
-                  type: 'tabPress',
-                  target: route.key,
-                  canPreventDefault: true,
-                });
+                const event = navigation?.emit
+                  ? navigation.emit({
+                      type: 'tabPress',
+                      target: route.key,
+                      canPreventDefault: true,
+                    })
+                  : emitter?.emit
+                    ? emitter.emit({
+                        type: 'tabPress',
+                        target: route.key,
+                        canPreventDefault: true,
+                      })
+                    : { defaultPrevented: false };
                 if (event.defaultPrevented) return;
 
                 const targetHref = route.name === 'index' ? '/' : `/${route.name}`;
@@ -93,6 +97,13 @@ export function FintechTabBar({
                 // preservation — deep Home routes can leave the tab navigator while Home
                 // still appears selected in some edge cases.
                 if (focused && currentHref === targetHref && !deepestPathForTab(targetHref)) {
+                  return;
+                }
+
+                // Mounted outside a tab navigator: there is no emit target, so go straight
+                // to the tab path. Inside Tabs, keep stack preservation.
+                if (!navigation && !emitter) {
+                  router.push(targetHref as Href);
                   return;
                 }
 
