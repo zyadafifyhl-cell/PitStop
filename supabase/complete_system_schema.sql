@@ -369,14 +369,14 @@ drop policy if exists shop_extras_public_read on public.shop_extras;
 create policy shop_extras_public_read on public.shop_extras for select using (true);
 drop policy if exists shop_extras_owner_insert on public.shop_extras;
 create policy shop_extras_owner_insert on public.shop_extras for insert to authenticated
-with check (public.is_platform_admin() or public.is_shop_owner(shop_id));
+with check (public.is_platform_admin() or public.can_manage_shop(shop_id));
 drop policy if exists shop_extras_owner_update on public.shop_extras;
 create policy shop_extras_owner_update on public.shop_extras for update to authenticated
-using (public.is_platform_admin() or public.is_shop_owner(shop_id))
-with check (public.is_platform_admin() or public.is_shop_owner(shop_id));
+using (public.is_platform_admin() or public.can_manage_shop(shop_id))
+with check (public.is_platform_admin() or public.can_manage_shop(shop_id));
 drop policy if exists shop_extras_owner_delete on public.shop_extras;
 create policy shop_extras_owner_delete on public.shop_extras for delete to authenticated
-using (public.is_platform_admin() or public.is_shop_owner(shop_id));
+using (public.is_platform_admin() or public.can_manage_shop(shop_id));
 
 drop function if exists public.place_store_order(public.store_fulfillment_method, numeric);
 drop function if exists public.place_store_order(public.store_fulfillment_method, numeric, text, text, text, text);

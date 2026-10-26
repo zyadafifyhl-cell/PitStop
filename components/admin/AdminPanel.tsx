@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -346,7 +347,6 @@ export function AdminPanel() {
               <OwnerSectionCard theme={theme} title={t('admin_dashboard_title')} subtitle={t('admin_dashboard_lead')}>
                 <DashboardStatsGrid
                   theme={theme}
-                  locale={locale}
                   isRTL={isRTL}
                   t={t}
                   stats={stats}
@@ -649,21 +649,23 @@ function PendingRequestsTab({
 
 function DashboardStatsGrid({
   theme,
-  locale,
   isRTL,
   t,
   stats,
   loading,
 }: {
   theme: ReturnType<typeof useAppTheme>;
-  locale: 'en' | 'ar';
   isRTL: boolean;
   t: (key: TranslationKey) => string;
   stats: PlatformStats | null;
   loading: boolean;
 }) {
+  const { width } = useWindowDimensions();
+  const columns = width < 720 ? 2 : 4;
+  const cardWidth = columns === 4 ? 'calc((100% - 30px) / 4)' : 'calc((100% - 10px) / 2)';
+
   if (loading && !stats) {
-    return <AdminStatsSkeleton theme={theme} />;
+    return <AdminStatsSkeleton theme={theme} cardWidth={cardWidth} />;
   }
 
   if (!stats) {
@@ -675,51 +677,70 @@ function DashboardStatsGrid({
       <DashboardStatCard
         theme={theme}
         isRTL={isRTL}
-        label={t('admin_stat_total_revenue')}
-        value={formatEgp(stats.totalRevenueEgp, locale)}
+        width={cardWidth}
+        label={t('admin_stat_gmv')}
+        subtitle={t('admin_stat_gmv_subtitle')}
+        value={formatAdminMoney(stats.grossMerchandiseValueEgp)}
         accentColor={theme.brand}
       />
       <DashboardStatCard
         theme={theme}
         isRTL={isRTL}
-        label={t('admin_stat_active_shops')}
-        value={String(stats.activeShopsCount)}
+        width={cardWidth}
+        label={t('admin_stat_platform_net')}
+        subtitle={t('admin_stat_platform_net_subtitle')}
+        value={formatAdminMoney(stats.platformNetRevenueEgp)}
         accentColor={theme.green}
       />
       <DashboardStatCard
         theme={theme}
         isRTL={isRTL}
-        label={t('admin_stat_completed_bookings')}
-        value={String(stats.completedBookingsCount)}
+        width={cardWidth}
+        label={t('admin_stat_active_shops')}
+        value={String(stats.activeShopsCount)}
         accentColor={theme.brand}
       />
       <DashboardStatCard
         theme={theme}
         isRTL={isRTL}
-        label={t('admin_stat_reported_posts')}
-        value={String(stats.reportedPostsCount)}
+        width={cardWidth}
+        label={t('admin_stat_completed_bookings')}
+        value={String(stats.completedBookingsCount)}
         accentColor={theme.textMuted}
       />
     </View>
   );
 }
 
+function formatAdminMoney(value: number): string {
+  const safe = Number.isFinite(value) ? value : 0;
+  const formatted = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(safe);
+  return `EGP ${formatted}`;
+}
+
 function DashboardStatCard({
   theme,
   label,
+  subtitle,
   value,
   accentColor,
   isRTL,
+  width,
 }: {
   theme: ReturnType<typeof useAppTheme>;
   label: string;
+  subtitle?: string;
   value: string;
   accentColor: string;
   isRTL: boolean;
+  width: string;
 }) {
   return (
     <View
-      style={[styles.dashboardStatCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+      style={[styles.dashboardStatCard, { width, borderColor: theme.border, backgroundColor: theme.card }]}>
       <Text
         style={[styles.dashboardStatValue, { color: theme.text }, isRTL && styles.textRtl]}
         numberOfLines={1}
@@ -729,14 +750,25 @@ function DashboardStatCard({
       </Text>
       <Text
         style={[styles.dashboardStatLabel, { color: accentColor }, isRTL && styles.textRtl]}
-        numberOfLines={2}>
+        numberOfLines={3}>
         {label}
       </Text>
+      {subtitle ? (
+        <Text style={[styles.dashboardStatSubtitle, { color: theme.textMuted }, isRTL && styles.textRtl]}>
+          {subtitle}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
-function AdminStatsSkeleton({ theme }: { theme: ReturnType<typeof useAppTheme> }) {
+function AdminStatsSkeleton({
+  theme,
+  cardWidth,
+}: {
+  theme: ReturnType<typeof useAppTheme>;
+  cardWidth: string;
+}) {
   return (
     <View style={styles.statsGrid}>
       {Array.from({ length: 4 }).map((_, idx) => (
@@ -745,7 +777,7 @@ function AdminStatsSkeleton({ theme }: { theme: ReturnType<typeof useAppTheme> }
           style={[
             styles.dashboardStatCard,
             styles.skeletonBlock,
-            { borderColor: theme.border, backgroundColor: theme.card },
+            { width: cardWidth, borderColor: theme.border, backgroundColor: theme.card },
           ]}
         />
       ))}
@@ -779,18 +811,17 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   dashboardStatCard: {
-    flexGrow: 1,
-    flexBasis: '47%',
-    minWidth: 148,
-    maxWidth: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    minHeight: 88,
+    minHeight: 108,
   },
   dashboardStatValue: { fontSize: 22, fontWeight: '700', lineHeight: 28 },
   dashboardStatLabel: { fontSize: 12, fontWeight: '700', marginTop: 6, lineHeight: 17 },
+  dashboardStatSubtitle: { fontSize: 11, fontWeight: '500', marginTop: 4, lineHeight: 15 },
   skeletonBlock: { opacity: 0.45 },
   feeNote: { fontSize: 11, marginTop: 12, lineHeight: 16 },
   storeLinkBtn: { borderRadius: 9, paddingVertical: 12, alignItems: 'center' },

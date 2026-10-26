@@ -25,6 +25,9 @@ export default function Root({ children }: { children: React.ReactNode }) {
         {headNodes}
       </head>
       <body {...bodyAttributes}>
+        <div id="pitstop-boot" aria-hidden="true">
+          <img src="/pitstop-logo.png" alt="" />
+        </div>
         {children}
         {bodyNodes}
       </body>
@@ -41,22 +44,24 @@ html, body {
 #root, #__next {
   min-height: 100%;
 }
-body::before {
-  content: 'PitStop';
+#pitstop-boot {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: rgba(248, 250, 252, 0.92);
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 80% at 8% 0%, #001A45 0%, transparent 55%),
+    linear-gradient(160deg, #061126 0%, #001A45 58%, #00255C 100%);
   pointer-events: none;
 }
-html[data-theme] body::before {
-  content: none;
+#pitstop-boot img {
+  width: min(280px, 72vw);
+  height: auto;
+}
+html[data-theme] #pitstop-boot {
+  display: none;
 }
 html[data-theme="dark"],
 html[data-theme="dark"] body,

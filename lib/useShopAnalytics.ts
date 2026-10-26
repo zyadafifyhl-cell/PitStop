@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { EMPTY_SHOP_ANALYTICS, type ShopAnalytics, type ShopAnalyticsTimeframe } from '@/lib/posTypes';
-import { fetchShopAnalytics, rangeForAnalyticsTimeframe } from '@/lib/posRepository';
+import { currentMonthTimeframe, fetchShopAnalytics, rangeForAnalyticsTimeframe } from '@/lib/posRepository';
 import { getSupabase } from '@/lib/supabase/client';
 
-export function useShopAnalytics(shopId: string | undefined, timeframe: ShopAnalyticsTimeframe = 'month') {
+export function useShopAnalytics(
+  shopId: string | undefined,
+  timeframe: ShopAnalyticsTimeframe = currentMonthTimeframe(),
+) {
   const range = useMemo(() => rangeForAnalyticsTimeframe(timeframe), [timeframe]);
+  const isCurrentMonth = timeframe === currentMonthTimeframe();
   const [analytics, setAnalytics] = useState<ShopAnalytics>(EMPTY_SHOP_ANALYTICS);
   const [loading, setLoading] = useState(false);
 
@@ -17,14 +21,14 @@ export function useShopAnalytics(shopId: string | undefined, timeframe: ShopAnal
     setLoading(true);
     try {
       const next = await fetchShopAnalytics(shopId, range.from.toISOString(), range.to.toISOString(), {
-        allowFallbackRange: timeframe === 'month',
-        allowDemo: true,
+        allowFallbackRange: isCurrentMonth,
+        allowDemo: timeframe === 'today' || isCurrentMonth,
       });
       setAnalytics(next);
     } finally {
       setLoading(false);
     }
-  }, [shopId, range.from, range.to, timeframe]);
+  }, [shopId, range.from, range.to, timeframe, isCurrentMonth]);
 
   useEffect(() => {
     void refresh();

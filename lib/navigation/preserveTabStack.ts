@@ -100,10 +100,10 @@ export function noteTabPath(tabHref: string, pathname: string) {
 }
 
 /**
- * Switch tabs without dropping deep screens owned by the tab you leave.
- * Service/shop routes live on the root stack above `(tabs)`, so a plain tab
- * navigate pops them — we remember each tab's last path and restore it.
- * Home is the exception: that button always returns to the first page.
+ * A tab button always opens that tab's first page.
+ * Booking details, shop profiles, and other screens sit above the tabs, so
+ * restoring the last one made "My bookings" reopen inside a booking.
+ * Pop that screen first, then select the tab root.
  */
 export function switchPreservedTab(
   nav: RootNav | null | undefined,
@@ -112,47 +112,26 @@ export function switchPreservedTab(
   target: { href: string; screen: string },
 ) {
   const path = normalize(currentPathname);
-  const goingHome = target.href === '/' || target.href === '/index' || target.screen === 'index';
+  const targetHref = target.href === '/index' || target.screen === 'index' ? '/' : target.href;
 
-  if (goingHome) {
-    if (currentHref !== '/' && currentHref !== '/index') {
-      noteTabPath(currentHref, currentPathname);
-    }
-    deepestByTab.set('/', '');
-    setActiveBrowseTab('/');
-    if (path === '/' || path === '/index') return;
-    try {
-      // The tab router only handles NAVIGATE / JUMP_TO. dismissTo() is POP_TO,
-      // which that router drops without throwing — so Home from My bookings
-      // (or any other tab) never left the page. Pop first only when a screen
-      // is stacked above the tabs, then select Home with navigate().
-      if (!TAB_ROOTS.has(path)) {
-        router.dismissTo('/');
-      }
-      router.navigate('/');
-    } catch {
-      nav?.navigate('(tabs)', { screen: 'index' });
-    }
-    return;
+  if (currentHref && currentHref !== targetHref) {
+    deepestByTab.set(currentHref, '');
   }
+  deepestByTab.set(targetHref, '');
+  setActiveBrowseTab(targetHref as BrowseTabHref);
 
-  noteTabPath(currentHref, currentPathname);
-
-  if (currentHref === target.href && (path === target.href || TAB_ROOTS.has(path))) {
-    return;
-  }
-
-  setActiveBrowseTab(target.href as BrowseTabHref);
-
-  const saved = deepestByTab.get(target.href) ?? '';
-  if (saved) {
-    router.navigate(saved as Href);
-    return;
-  }
+  if (path === targetHref || (targetHref === '/' && path === '/index')) return;
 
   try {
-    router.navigate(tabRootHref(target.href));
+    // The tab router only handles NAVIGATE / JUMP_TO. dismissTo() is POP_TO,
+    // which that router drops without throwing — so a tab press from My bookings
+    // never left the page. Pop first only when a screen is stacked above the
+    // tabs, then select the tab root with navigate().
+    if (!TAB_ROOTS.has(path)) {
+      router.dismissTo(tabRootHref(targetHref));
+    }
+    router.navigate(tabRootHref(targetHref));
   } catch {
-    nav?.navigate('(tabs)', { screen: target.screen });
+    nav?.navigate('(tabs)', { screen: targetHref === '/' ? 'index' : target.screen });
   }
 }

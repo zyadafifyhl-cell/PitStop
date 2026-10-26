@@ -144,6 +144,9 @@ export function normalizeTimeHm(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
+  const withSeconds = /^(\d{1,2}):(\d{2}):(\d{2})$/.exec(trimmed);
+  if (withSeconds) return normalizeTimeHm(`${withSeconds[1]}:${withSeconds[2]}`);
+
   const colonMatch = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
   if (colonMatch) {
     const h = Number(colonMatch[1]);
