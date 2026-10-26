@@ -1,6 +1,6 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { router, type Href } from 'expo-router';
-import React, { useState } from 'react';
+import { router, useFocusEffect, type Href } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PrivacySettingsModal } from '@/components/settings/PrivacySettingsModal';
@@ -12,6 +12,8 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
+import { formatEgp } from '@/lib/booking/reporting';
+import { getMyPenaltyBalance } from '@/lib/booking/storage';
 import {
   openSupportEmail,
   openSupportPhone,
@@ -20,7 +22,7 @@ import {
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 
 export default function SettingsScreen() {
-  const { t, locale, setLocale, isRTL } = useI18n();
+  const { t, tp, locale, setLocale, isRTL } = useI18n();
   const isArabic = locale === 'ar';
   const theme = useAppTheme();
   const { preference, setPreference } = useThemePreference();
@@ -29,6 +31,27 @@ export default function SettingsScreen() {
   const [privacyVisible, setPrivacyVisible] = React.useState(false);
   const [languageOpen, setLanguageOpen] = React.useState(false);
   const [termsVisible, setTermsVisible] = React.useState(false);
+  const [penaltyOwed, setPenaltyOwed] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!customer?.id || isGuest) {
+        setPenaltyOwed(0);
+        return;
+      }
+      let cancelled = false;
+      void getMyPenaltyBalance()
+        .then((balance) => {
+          if (!cancelled) setPenaltyOwed(balance.outstandingBalance);
+        })
+        .catch(() => {
+          if (!cancelled) setPenaltyOwed(0);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [customer?.id, isGuest]),
+  );
 
   const themeLabel = preference === 'dark' ? t('settings_theme_dark') : t('settings_theme_light');
 
@@ -61,6 +84,11 @@ export default function SettingsScreen() {
           <Text style={[styles.profileName, { color: theme.text }]}>{customer.name}</Text>
           <Text style={[styles.profileMeta, { color: theme.textMuted }]}>{customer.email}</Text>
           <Text style={[styles.profileMeta, { color: theme.textMuted }]}>{customer.phone.replace('+20', '0')}</Text>
+          {penaltyOwed > 0 ? (
+            <Text style={[styles.penaltyOwed, { color: theme.danger }, isRTL && styles.penaltyOwedRtl]}>
+              {tp('settings_penalty_balance', { amount: formatEgp(penaltyOwed, locale) })}
+            </Text>
+          ) : null}
 
           <View style={[styles.loyaltyInlineRow, isRTL && styles.loyaltyInlineRowRtl]}>
             <View style={[styles.loyaltyInlineLeft, isRTL && styles.loyaltyInlineLeftRtl]}>
@@ -285,6 +313,8 @@ const styles = StyleSheet.create({
   },
   profileName: { fontSize: 20, fontWeight: '800' },
   profileMeta: { fontSize: 14, marginTop: 4, lineHeight: 20 },
+  penaltyOwed: { fontSize: 14, marginTop: 10, lineHeight: 20, fontWeight: '700' },
+  penaltyOwedRtl: { textAlign: 'right' },
   loyaltyInlineRow: {
     flexDirection: 'row',
     alignItems: 'center',

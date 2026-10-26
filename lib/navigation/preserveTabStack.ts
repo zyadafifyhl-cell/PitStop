@@ -120,15 +120,18 @@ export function switchPreservedTab(
     }
     deepestByTab.set('/', '');
     setActiveBrowseTab('/');
-    if (path === '/') return;
+    if (path === '/' || path === '/index') return;
     try {
-      router.dismissTo('/');
-    } catch {
-      try {
-        router.navigate('/');
-      } catch {
-        nav?.navigate('(tabs)', { screen: 'index' });
+      // The tab router only handles NAVIGATE / JUMP_TO. dismissTo() is POP_TO,
+      // which that router drops without throwing — so Home from My bookings
+      // (or any other tab) never left the page. Pop first only when a screen
+      // is stacked above the tabs, then select Home with navigate().
+      if (!TAB_ROOTS.has(path)) {
+        router.dismissTo('/');
       }
+      router.navigate('/');
+    } catch {
+      nav?.navigate('(tabs)', { screen: 'index' });
     }
     return;
   }

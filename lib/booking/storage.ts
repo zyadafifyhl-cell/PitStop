@@ -990,6 +990,8 @@ export type CancelCustomerServiceBookingResult = {
   booking: Booking;
   penaltyApplied: number;
   hoursBefore: number;
+  /** Account total after this cancel. Null when the server did not return one. */
+  outstandingBalance: number | null;
 };
 
 /**
@@ -1015,9 +1017,14 @@ export async function cancelCustomerServiceBooking(
     success?: boolean;
     penalty_applied?: number | string;
     hours_before?: number | string;
+    outstanding_balance?: number | string;
   };
   const penaltyApplied = Number(payload.penalty_applied ?? 0);
   const hoursBefore = Number(payload.hours_before ?? 0);
+  const outstandingBalance =
+    payload.outstanding_balance == null || payload.outstanding_balance === ''
+      ? null
+      : Number(payload.outstanding_balance);
 
   const { data: row, error: fetchError } = await supabase
     .from('bookings')
@@ -1037,7 +1044,7 @@ export async function cancelCustomerServiceBooking(
     await notifyWashOwnerBooking(updated, 'cancelled_booking');
   }
 
-  return { booking: updated, penaltyApplied, hoursBefore };
+  return { booking: updated, penaltyApplied, hoursBefore, outstandingBalance };
 }
 
 export async function deleteBookingForShop(shopId: string, bookingId: string): Promise<boolean> {

@@ -50,7 +50,7 @@ import { formatPhoneDisplay, openPhone, openSupportEmail } from '@/lib/linking/c
 export default function OrderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const bookingId = Array.isArray(id) ? id[0] : id;
-  const { t, locale } = useI18n();
+  const { t, tp, locale } = useI18n();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const { customer, ready: authReady } = useCustomerAuth();
@@ -119,7 +119,14 @@ export default function OrderDetailsScreen() {
       setCancelVisible(false);
       setBooking(result.booking);
       if (result.penaltyApplied > 0) {
-        Alert.alert(t('book_cancel_success'), t('book_cancel_penalty_applied'));
+        Alert.alert(
+          t('book_cancel_success'),
+          result.outstandingBalance != null && result.outstandingBalance > 0
+            ? tp('book_cancel_penalty_applied', {
+                amount: formatEgp(result.outstandingBalance, locale),
+              })
+            : t('book_cancel_penalty_added'),
+        );
       }
     } finally {
       setCancelling(false);
