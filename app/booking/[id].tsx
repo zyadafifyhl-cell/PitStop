@@ -351,7 +351,11 @@ export default function OrderDetailsScreen() {
           <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>{t('book_cancel_title')}</Text>
             <Text style={[styles.modalBody, { color: theme.textMuted }]}>
-              {lateCancelPenalty ? t('book_cancel_body_late') : t('book_cancel_body')}
+              {lateCancelPenalty
+                ? t('book_cancel_body_late')
+                : booking?.status === 'pending'
+                  ? t('book_cancel_body_pending')
+                  : t('book_cancel_body')}
             </Text>
             <View style={styles.modalActions}>
               <Pressable

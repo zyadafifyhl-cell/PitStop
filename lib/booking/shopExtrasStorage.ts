@@ -167,9 +167,9 @@ export async function getShopExtras(shopId: string): Promise<ShopExtras> {
     listActiveOffersForShop(shopId),
   ]);
   const normalized = normalizeExtras(shopId, remote ?? map[shopId]);
-  if (remoteOffers.length) {
-    normalized.offers = remoteOffers;
-  }
+  // offers table is the source of truth. A stale copy in shop_extras stays
+  // "live" on the client and then fails booking validation.
+  normalized.offers = remoteOffers;
   if (JSON.stringify(map[shopId]) !== JSON.stringify(normalized)) {
     map[shopId] = normalized;
     await writeMap(map);
