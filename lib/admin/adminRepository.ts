@@ -74,10 +74,10 @@ export type ModerationQueueItem = {
 };
 
 export type PlatformStats = {
-  totalRevenueEgp: number;
+  grossMerchandiseValueEgp: number;
+  platformNetRevenueEgp: number;
   activeShopsCount: number;
   completedBookingsCount: number;
-  reportedPostsCount: number;
 };
 
 const PLATFORM_FEE_RATE = 0.12;
@@ -428,33 +428,63 @@ export async function deleteModerationContent(item: ModerationQueueItem): Promis
   if (error) throw new Error(error.message);
 }
 
+function finiteAmount(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function roundEgp(value: number): number {
+  const safe = Number.isFinite(value) ? value : 0;
+  return Math.round(safe * 100) / 100;
+}
+
+/** Customer spend on a completed booking. `total_price` is the stored gross; paid and service price are fallbacks. */
+function completedBookingGross(row: {
+  total_price?: number | string | null;
+  final_amount_paid_egp?: number | string | null;
+  service_price_egp?: number | string | null;
+}): number {
+  return (
+    finiteAmount(row.total_price) ??
+    finiteAmount(row.final_amount_paid_egp) ??
+    finiteAmount(row.service_price_egp) ??
+    0
+  );
+}
+
 export async function fetchPlatformStats(): Promise<PlatformStats> {
   const supabase = getSupabase();
   const empty: PlatformStats = {
-    totalRevenueEgp: 0,
+    grossMerchandiseValueEgp: 0,
+    platformNetRevenueEgp: 0,
     activeShopsCount: 0,
     completedBookingsCount: 0,
-    reportedPostsCount: 0,
   };
   if (!supabase) return empty;
 
-  const [shopsRes, bookingsCountRes, revenueRes, postsRes] = await Promise.all([
+  const [shopsRes, bookingsCountRes, revenueRes] = await Promise.all([
     supabase.from('shops').select('id', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('status', 'done'),
-    supabase.from('bookings').select('final_amount_paid_egp').eq('status', 'done'),
-    supabase.from('community_reports').select('id', { count: 'exact', head: true }).eq('status', 'open'),
+    supabase
+      .from('bookings')
+      .select('total_price, final_amount_paid_egp, service_price_egp, platform_fee_egp')
+      .eq('status', 'done'),
   ]);
 
-  const totalRevenueEgp = (revenueRes.data ?? []).reduce((sum, row) => {
-    const paid = Number(row.final_amount_paid_egp ?? 0);
-    return sum + (Number.isFinite(paid) ? paid : 0);
-  }, 0);
+  let grossMerchandiseValueEgp = 0;
+  let platformNetRevenueEgp = 0;
+  for (const row of revenueRes.data ?? []) {
+    const gross = completedBookingGross(row);
+    grossMerchandiseValueEgp += gross;
+    platformNetRevenueEgp += bookingPlatformFee(gross, Number(row.platform_fee_egp ?? 0));
+  }
 
   return {
-    totalRevenueEgp: Math.round(totalRevenueEgp * 100) / 100,
+    grossMerchandiseValueEgp: roundEgp(grossMerchandiseValueEgp),
+    platformNetRevenueEgp: roundEgp(platformNetRevenueEgp),
     activeShopsCount: shopsRes.count ?? 0,
     completedBookingsCount: bookingsCountRes.count ?? 0,
-    reportedPostsCount: postsRes.count ?? 0,
   };
 }
 

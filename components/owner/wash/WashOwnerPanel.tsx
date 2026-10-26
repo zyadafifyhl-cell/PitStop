@@ -99,7 +99,7 @@ import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
 import { computeWashAnalytics, selectShopAppointments, selectTodayShopBookings } from '@/lib/booking/wash/washAnalytics';
-import { fetchPeakAnalytics } from '@/lib/posRepository';
+import { currentMonthTimeframe, fetchPeakAnalytics } from '@/lib/posRepository';
 import { ShopFinanceOverview } from '@/components/owner/pos/ShopFinanceOverview';
 import { LogExpenseModal } from '@/components/owner/pos/LogExpenseModal';
 import { useShopAnalytics } from '@/lib/useShopAnalytics';
@@ -333,6 +333,7 @@ export function WashOwnerPanel({ shop }: Props) {
 
   const [weeklyHours, setWeeklyHours] = useState<ShopDayHours[]>([]);
   const [selectedHoursDay, setSelectedHoursDay] = useState<ShopDayHours['day']>(1);
+  const [hoursSaving, setHoursSaving] = useState(false);
   const [shopStatus, setShopStatus] = useState<WashShopStatus>('open');
   const [vacationMode, setVacationMode] = useState<WashVacationMode>({ enabled: false });
   const [vacationReturnDate, setVacationReturnDate] = useState('');
@@ -390,7 +391,7 @@ export function WashOwnerPanel({ shop }: Props) {
   const [crmRefreshKey, setCrmRefreshKey] = useState(0);
   const [peakHours, setPeakHours] = useState<PeakHourBucket[]>([]);
   const [peakWeekdays, setPeakWeekdays] = useState<PeakWeekdayBucket[]>([]);
-  const [financeTimeframe, setFinanceTimeframe] = useState<ShopAnalyticsTimeframe>('month');
+  const [financeTimeframe, setFinanceTimeframe] = useState<ShopAnalyticsTimeframe>(currentMonthTimeframe());
   const { analytics: posFinance, loading: financeLoading, refresh: refreshFinancials } = useShopAnalytics(
     shop.id,
     financeTimeframe,
@@ -1411,18 +1412,35 @@ export function WashOwnerPanel({ shop }: Props) {
   }
 
   async function onSaveWeeklyHours() {
-    for (const row of weeklyHours) {
+    if (hoursSaving) return;
+    const nextHours = weeklyHours.map((row) => {
+      if (row.closed) return row;
+      return {
+        ...row,
+        openTime: normalizeTimeHm(row.openTime ?? '') ?? row.openTime,
+        closeTime: normalizeTimeHm(row.closeTime ?? '') ?? row.closeTime,
+      };
+    });
+    for (const row of nextHours) {
       if (row.closed) continue;
-      const open = normalizeTimeHm(row.openTime ?? '');
-      const close = normalizeTimeHm(row.closeTime ?? '');
-      if (!open || !close) {
-        Alert.alert(t('wash_hours_invalid_title'), t('wash_hours_invalid_body'));
+      if (!normalizeTimeHm(row.openTime ?? '') || !normalizeTimeHm(row.closeTime ?? '')) {
+        userAlert(t('wash_hours_invalid_title'), t('wash_hours_invalid_body'));
         return;
       }
     }
-    const branch = await saveWashBranchWeeklyHours(shop, weeklyHours, branchCtx);
-    syncBranchForms(branch);
-    showNotice(t('wash_hours_saved_title'), t('wash_hours_saved_body'));
+    setHoursSaving(true);
+    try {
+      const branch = await saveWashBranchWeeklyHours(shop, nextHours, branchCtx);
+      syncBranchForms(branch);
+      showNotice(t('wash_hours_saved_title'), t('wash_hours_saved_body'));
+    } catch (error) {
+      userAlert(
+        t('wash_hours_invalid_title'),
+        error instanceof Error && error.message ? error.message : t('wash_hours_invalid_body'),
+      );
+    } finally {
+      setHoursSaving(false);
+    }
   }
 
   async function onSaveShopStatus(nextStatus: WashShopStatus) {
@@ -1982,8 +2000,15 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         ) : null}
       </View>
-      <Pressable onPress={onSaveWeeklyHours} style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12 }]}>
-        <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>{t('wash_hours_save')}</Text>
+      <Pressable
+        disabled={hoursSaving}
+        onPress={() => {
+          void onSaveWeeklyHours();
+        }}
+        style={[styles.primaryBtn, { backgroundColor: theme.accent, marginTop: 12, opacity: hoursSaving ? 0.7 : 1 }]}>
+        <Text style={[styles.primaryBtnText, { color: theme.onAccent }]}>
+          {hoursSaving ? t('merchant_hours_saving') : t('wash_hours_save')}
+        </Text>
       </Pressable>
     </OwnerSectionCard>
   );
@@ -2255,7 +2280,6 @@ export function WashOwnerPanel({ shop }: Props) {
               loading={financeLoading}
               timeframe={financeTimeframe}
               onTimeframeChange={setFinanceTimeframe}
-              onRecordSale={() => setWalkInModalVisible(true)}
               onLogExpense={() => setExpenseModalVisible(true)}
               onLogPayroll={() => setGroup('shop')}
               onEndShift={canUseWalkInPos ? () => setEndShiftVisible(true) : undefined}

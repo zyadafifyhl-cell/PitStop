@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { patchShopCoordinates, updateShopContactPhoneRemote } from '@/lib/booking/catalogRepository';
-import { getShopExtras } from '@/lib/booking/shopExtrasStorage';
+import { getShopExtras, setShopWeeklyHours } from '@/lib/booking/shopExtrasStorage';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import type { Shop, ShopDayHours, ShopOffer, ShopService } from '@/lib/booking/types';
 import type { ShopStaffUser } from '@/lib/shop/shopStaffUser';
@@ -307,6 +307,7 @@ export async function updateActiveWashBranch(
     >
   >,
   ctx?: WashBranchContext,
+  options?: { syncExtras?: boolean },
 ): Promise<WashBranchUpdateResult> {
   const normalizedPatch = { ...patch };
   if (patch.profileImageUrl) {
@@ -357,7 +358,9 @@ export async function updateActiveWashBranch(
     remoteSaved = remoteSaved || shopPhoneSaved;
   }
 
-  await syncWashBranchToShopExtras(shop.id, active);
+  if (options?.syncExtras !== false) {
+    await syncWashBranchToShopExtras(shop.id, active);
+  }
   return { branch: active, remoteSaved };
 }
 
@@ -401,14 +404,19 @@ export async function saveWashBranchWeeklyHours(
   weeklyHours: ShopDayHours[],
   ctx?: WashBranchContext,
 ): Promise<WashBranch> {
-  const { branch } = await updateActiveWashBranch(
+  const { branch, remoteSaved } = await updateActiveWashBranch(
     shop,
     {
       weeklyHours,
       scheduleSavedAt: nowIso(),
     },
     ctx,
+    { syncExtras: false },
   );
+  await setShopWeeklyHours(shop.id, weeklyHours);
+  if (ctx?.staff && !remoteSaved) {
+    throw new Error('Could not save hours for this branch.');
+  }
   return branch;
 }
 

@@ -16,7 +16,8 @@ export type ShopExpenseCategory =
   | 'maintenance'
   | 'other';
 
-export type ShopAnalyticsTimeframe = 'today' | 'month';
+/** `today`, or a calendar month such as `month:2026-10`. */
+export type ShopAnalyticsTimeframe = 'today' | `month:${number}-${string}`;
 
 export type FinanceCardId = 'sales' | 'expenses' | 'payroll' | 'profit' | 'uncollected';
 

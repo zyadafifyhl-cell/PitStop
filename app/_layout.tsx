@@ -4,7 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
-import { Platform, View } from 'react-native';
+import { View } from 'react-native';
 import 'react-native-reanimated';
 
 import { AppBootstrap } from '@/components/AppBootstrap';
@@ -40,7 +40,7 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
-  const [showAnimatedSplash, setShowAnimatedSplash] = useState(Platform.OS !== 'web');
+  const [showAnimatedSplash, setShowAnimatedSplash] = useState(true);
 
   useEffect(() => {
     if (error) throw error;

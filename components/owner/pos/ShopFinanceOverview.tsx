@@ -8,11 +8,32 @@ import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
 import type { TranslationKey } from '@/lib/i18n/strings';
-import { deleteShopExpense, fetchFinanceCardDetails, rangeForAnalyticsTimeframe } from '@/lib/posRepository';
+import {
+  deleteShopExpense,
+  fetchFinanceCardDetails,
+  monthTimeframeDate,
+  rangeForAnalyticsTimeframe,
+  recentMonthTimeframes,
+} from '@/lib/posRepository';
 import type { FinanceCardId, FinanceDetailLine, ShopAnalytics, ShopAnalyticsTimeframe } from '@/lib/posTypes';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { OverlayPortal } from '@/lib/ui/overlayPortal';
 import { userAlert } from '@/lib/ui/userAlert';
+
+function financePeriodLabel(
+  timeframe: ShopAnalyticsTimeframe,
+  locale: 'en' | 'ar',
+  todayLabel: string,
+  thisMonthLabel: string,
+) {
+  if (timeframe === 'today') return todayLabel;
+  const date = monthTimeframeDate(timeframe);
+  if (!date) return thisMonthLabel;
+  return new Intl.DateTimeFormat(locale === 'ar' ? 'ar-EG' : 'en-US', {
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+}
 
 type Props = {
   shopId?: string;
@@ -43,6 +64,7 @@ export function ShopFinanceOverview({
   const { t, locale, isRTL } = useI18n();
   const profitPositive = analytics.netProfit >= 0;
   const [openCard, setOpenCard] = useState<FinanceCardId | null>(null);
+  const monthChoices = useMemo(() => recentMonthTimeframes(12), []);
 
   return (
     <OwnerSectionCard
@@ -57,12 +79,31 @@ export function ShopFinanceOverview({
       }
       icon="calculator">
       <View style={[styles.timeRow, isRTL && styles.rowRtl]}>
-        {(['today', 'month'] as const).map((item) => {
-          const active = timeframe === item;
+        <Pressable
+          onPress={() => onTimeframeChange('today')}
+          style={[
+            styles.timePill,
+            {
+              backgroundColor: timeframe === 'today' ? theme.accent : theme.bgElevated,
+              borderColor: timeframe === 'today' ? theme.accent : theme.border,
+            },
+          ]}>
+          <Text style={[styles.timePillText, { color: timeframe === 'today' ? theme.onAccent : theme.text }]}>
+            {t('pos_finance_today')}
+          </Text>
+        </Pressable>
+        {loading ? <ActivityIndicator size="small" color={theme.accent} /> : null}
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={[styles.monthRow, isRTL && styles.rowRtl]}>
+        {monthChoices.map((month) => {
+          const active = timeframe === month;
           return (
             <Pressable
-              key={item}
-              onPress={() => onTimeframeChange(item)}
+              key={month}
+              onPress={() => onTimeframeChange(month)}
               style={[
                 styles.timePill,
                 {
@@ -71,13 +112,12 @@ export function ShopFinanceOverview({
                 },
               ]}>
               <Text style={[styles.timePillText, { color: active ? theme.onAccent : theme.text }]}>
-                {item === 'today' ? t('pos_finance_today') : t('pos_finance_month')}
+                {financePeriodLabel(month, locale, t('pos_finance_today'), t('pos_finance_month'))}
               </Text>
             </Pressable>
           );
         })}
-        {loading ? <ActivityIndicator size="small" color={theme.accent} /> : null}
-      </View>
+      </ScrollView>
 
       <Pressable
         onPress={() => setOpenCard('profit')}
@@ -255,7 +295,7 @@ function FinanceCardDetailModal({
           <View style={[styles.detailHeader, isRTL && styles.detailHeaderRtl]}>
             <Text style={[styles.detailTitle, { color: theme.text }, isRTL && styles.rtl]}>{title}</Text>
             <Text style={[styles.detailPeriod, { color: theme.textMuted }]}>
-              {timeframe === 'today' ? t('pos_finance_today') : t('pos_finance_month')}
+              {financePeriodLabel(timeframe, locale, t('pos_finance_today'), t('pos_finance_month'))}
             </Text>
           </View>
 
@@ -470,7 +510,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   actionText: { flexShrink: 1, fontSize: 13, fontWeight: '800' },
-  timeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 },
   timePill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   timePillText: { fontSize: 12, fontWeight: '800' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
@@ -482,7 +521,8 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: '800' },
   value: { fontSize: 22, fontWeight: '900' },
   label: { marginTop: 4, fontSize: 13, fontWeight: '800' },
-  hint: { marginTop: 6, fontSize: 11, lineHeight: 16, fontWeight: '600' },
+  timeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 },
+  monthRow: { gap: 8, paddingBottom: 12 },
   openHint: { marginTop: 8, fontSize: 11, fontWeight: '800' },
   sectionTitle: { marginTop: 18, fontSize: 15, fontWeight: '800' },
   sectionLead: { marginTop: 4, marginBottom: 10, fontSize: 12, lineHeight: 17 },

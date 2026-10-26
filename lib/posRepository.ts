@@ -14,6 +14,7 @@ import {
     type PosShift,
     type PosWorkflowStage,
     type ShopAnalytics,
+    type ShopAnalyticsTimeframe,
     type ShopExpenseCategory,
     type ShopFinancials,
     type ShopPosCustomer
@@ -334,8 +335,29 @@ function isEmptyAnalytics(row: ShopAnalytics): boolean {
   );
 }
 
+export function currentMonthTimeframe(now = new Date()): ShopAnalyticsTimeframe {
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `month:${now.getFullYear()}-${month}` as ShopAnalyticsTimeframe;
+}
+
+export function recentMonthTimeframes(count = 12, now = new Date()): ShopAnalyticsTimeframe[] {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
+    return currentMonthTimeframe(date);
+  });
+}
+
+export function monthTimeframeDate(timeframe: ShopAnalyticsTimeframe): Date | null {
+  if (!timeframe.startsWith('month:')) return null;
+  const [yearText, monthText] = timeframe.slice('month:'.length).split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  return new Date(year, month - 1, 1);
+}
+
 export function rangeForAnalyticsTimeframe(
-  timeframe: 'today' | 'month',
+  timeframe: ShopAnalyticsTimeframe,
   now = new Date(),
 ): { from: Date; to: Date } {
   if (timeframe === 'today') {
@@ -344,9 +366,10 @@ export function rangeForAnalyticsTimeframe(
     to.setDate(to.getDate() + 1);
     return { from, to };
   }
+  const monthStart = monthTimeframeDate(timeframe) ?? new Date(now.getFullYear(), now.getMonth(), 1);
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), 1),
-    to: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+    from: monthStart,
+    to: new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1),
   };
 }
 
