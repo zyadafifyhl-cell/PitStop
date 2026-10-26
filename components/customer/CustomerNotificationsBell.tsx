@@ -1,6 +1,6 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BOXED_OVERLAY } from '@/constants/Theme';
@@ -15,11 +15,14 @@ import {
 import { processDueBookingReminders } from '@/lib/booking/bookingReminders';
 import {
   customerNotificationIsApproved,
+  customerNotificationIsReady,
   customerNotificationIsReminder,
+  customerNotificationIsRemoved,
   customerNotificationIsReviewReply,
   customerNotificationIsShopReopened,
   formatCustomerNotificationLine,
 } from '@/lib/booking/customerNotificationText';
+import { autoCompleteDueBookings } from '@/lib/booking/storage';
 import type { CustomerNotification } from '@/lib/booking/types';
 
 export function CustomerNotificationsBell({
@@ -37,29 +40,41 @@ export function CustomerNotificationsBell({
   const [unreadCount, setUnreadCount] = useState(0);
 
   const refresh = useCallback(async () => {
-    await processDueBookingReminders();
     if (!customer?.phone && !customer?.id) {
       setNotifications([]);
       setUnreadCount(0);
       return;
     }
-    const input = { customerId: customer?.id, customerPhone: customer?.phone };
-    const [rows, unread] = await Promise.all([
-      listCustomerNotifications(input),
-      countUnreadCustomerNotifications(input),
-    ]);
-    setNotifications(rows);
-    setUnreadCount(unread);
+    try {
+      await autoCompleteDueBookings().catch(() => {});
+      await processDueBookingReminders().catch(() => {});
+      const input = { customerId: customer?.id, customerPhone: customer?.phone };
+      const rows = await listCustomerNotifications(input);
+      const unread = await countUnreadCustomerNotifications(input);
+      setNotifications(rows);
+      setUnreadCount(unread);
+    } catch {
+      /* keep last known rows */
+    }
   }, [customer?.id, customer?.phone]);
+
+  useEffect(() => {
+    void refresh();
+    const timer = setInterval(() => {
+      void refresh();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [refresh]);
 
   useFocusEffect(
     useCallback(() => {
-      refresh();
+      void refresh();
     }, [refresh]),
   );
 
   async function openModal() {
     setVisible(true);
+    await refresh();
     if (customer) {
       await markCustomerNotificationsSeen({
         customerId: customer.id,
@@ -80,6 +95,8 @@ export function CustomerNotificationsBell({
     partsConfirmed: t('customer_notification_parts_confirmed'),
     partsDeclined: t('customer_notification_parts_declined'),
     reviewOwnerReply: t('customer_notification_review_reply'),
+    communityPostRemoved: t('customer_notification_community_post_removed'),
+    bookingReady: t('customer_notification_booking_ready'),
   };
 
   return (
@@ -110,6 +127,8 @@ export function CustomerNotificationsBell({
                   const isReminder = customerNotificationIsReminder(notification);
                   const isReviewReply = customerNotificationIsReviewReply(notification);
                   const isShopReopened = customerNotificationIsShopReopened(notification);
+                  const isRemoved = customerNotificationIsRemoved(notification);
+                  const isReady = customerNotificationIsReady(notification);
                   return (
                     <View
                       key={notification.id}
@@ -134,19 +153,23 @@ export function CustomerNotificationsBell({
                             }}>
                             {notification.statusLabel
                               ? notification.statusLabel
-                              : isReminder
-                                ? t('customer_notification_status_reminder')
-                                : isReviewReply
-                                  ? t('customer_notification_status_reply')
-                                  : isShopReopened
-                                    ? t('customer_notification_status_reopened')
-                                    : approved
-                                      ? t('customer_notification_status_approved')
-                                      : t('customer_notification_status_declined')}
+                              : isRemoved
+                                ? t('customer_notification_status_removed')
+                                : isReady
+                                  ? t('customer_notification_status_ready')
+                                  : isReminder
+                                    ? t('customer_notification_status_reminder')
+                                    : isReviewReply
+                                      ? t('customer_notification_status_reply')
+                                      : isShopReopened
+                                        ? t('customer_notification_status_reopened')
+                                        : approved
+                                          ? t('customer_notification_status_approved')
+                                          : t('customer_notification_status_declined')}
                           </Text>
                         </View>
                       </View>
-                      {notification.ownerNote ? (
+                      {notification.ownerNote && !isRemoved ? (
                         <Text style={[styles.meta, { color: theme.textMuted }]}>
                           {isReviewReply
                             ? tp('customer_notification_review_reply_body', { reply: notification.ownerNote })

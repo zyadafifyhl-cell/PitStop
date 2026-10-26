@@ -22,6 +22,7 @@ import {
   addCommunityComment,
   authorInitials,
   categoryFlairLabel,
+  deleteOwnCommunityPost,
   getCommunityPost,
   listCommunityComments,
   toggleCommunityCommentLike,
@@ -138,6 +139,28 @@ export default function DriverNetworkPostScreen() {
     }
   }
 
+  function onDeletePost() {
+    if (!post || !customer?.id) return;
+    Alert.alert(t('driver_network_delete_confirm_title'), t('driver_network_delete_confirm_body'), [
+      { text: t('alert_cancel'), style: 'cancel' },
+      {
+        text: t('driver_network_delete'),
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await deleteOwnCommunityPost({ postId: post.id, userId: customer.id });
+              Alert.alert(t('driver_network_delete'), t('driver_network_delete_done'));
+              router.back();
+            } catch {
+              Alert.alert(t('settings_link_fail_title'), t('driver_network_delete_fail'));
+            }
+          })();
+        },
+      },
+    ]);
+  }
+
   function renderComment(comment: CommunityComment, nested = false) {
     const replies = comments.filter((row) => row.parentId === comment.id);
     const isOwner = comment.authorRole === 'owner';
@@ -218,9 +241,16 @@ export default function DriverNetworkPostScreen() {
                 {categoryFlairLabel(post.categoryTag, locale)}
               </Text>
             </View>
-            <Pressable onPress={onSharePost} style={[styles.shareBtn, { borderColor: theme.border }]}>
-              <FontAwesome name="share-alt" size={16} color={theme.textMuted} />
-            </Pressable>
+            <View style={styles.postHeadActions}>
+              {customer?.id && post.userId === customer.id ? (
+                <Pressable onPress={onDeletePost} style={[styles.shareBtn, { borderColor: theme.danger }]}>
+                  <FontAwesome name="trash-o" size={16} color={theme.danger} />
+                </Pressable>
+              ) : null}
+              <Pressable onPress={onSharePost} style={[styles.shareBtn, { borderColor: theme.border }]}>
+                <FontAwesome name="share-alt" size={16} color={theme.textMuted} />
+              </Pressable>
+            </View>
           </View>
           <Text style={[styles.postTitle, { color: theme.text }]}>{post.title}</Text>
           <Text style={[styles.postBody, { color: theme.textMuted }]}>{post.content}</Text>
@@ -292,6 +322,7 @@ const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 },
   postShell: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 16, gap: 10 },
   postHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  postHeadActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   flair: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   flairText: { fontSize: 11, fontWeight: '800' },
   shareBtn: {

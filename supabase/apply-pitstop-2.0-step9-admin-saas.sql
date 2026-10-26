@@ -48,17 +48,10 @@ create policy "Platform admins delete shop reviews"
   on public.shop_reviews for delete
   using (public.is_platform_admin());
 
+-- Reporting goes through report_community_item (security definer).
+-- A blanket update policy let any signed-in user edit any post or comment.
 drop policy if exists "Users can report posts" on public.posts;
-create policy "Users can report posts"
-  on public.posts for update
-  using (auth.uid() is not null)
-  with check (auth.uid() is not null);
-
 drop policy if exists "Users can report comments" on public.comments;
-create policy "Users can report comments"
-  on public.comments for update
-  using (auth.uid() is not null)
-  with check (auth.uid() is not null);
 
 drop policy if exists "Platform admins delete posts" on public.posts;
 create policy "Platform admins delete posts"

@@ -59,6 +59,7 @@ import {
   type SlotAvailability,
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
+import { isSlotFullError } from '@/lib/booking/bayCapacity';
 import {
   createBooking,
   getMyPenaltyBalance,
@@ -489,8 +490,9 @@ export default function BookShopScreen() {
       dateYmd,
       bookings: shopBookings,
       now: new Date(slotNowMs),
+      branchId: bookingBranchId,
     });
-  }, [hasOwnerSchedule, slotExtras, dateYmd, shopBookings, slotNowMs]);
+  }, [hasOwnerSchedule, slotExtras, dateYmd, shopBookings, slotNowMs, bookingBranchId]);
 
   useEffect(() => {
     const available = timeSlots.filter((s) => s.status !== 'booked');
@@ -637,6 +639,11 @@ export default function BookShopScreen() {
       });
       setSuccessVisible(true);
     } catch (error) {
+      if (isSlotFullError(error)) {
+        userAlert(t('book_submit_fail_title'), t('book_slot_full_error'));
+        void refreshShopExtras();
+        return;
+      }
       const message = logAndGetSafeErrorMessage(error, t, 'booking.createBooking');
       userAlert(t('book_submit_fail_title'), message);
     } finally {
@@ -1001,7 +1008,7 @@ export default function BookShopScreen() {
                     {
                       backgroundColor: slotColors.backgroundColor,
                       borderColor: slotColors.borderColor,
-                      opacity: disabled ? 0.5 : 1,
+                      opacity: disabled ? 0.45 : 1,
                     },
                   ]}>
                   <Text
@@ -1011,15 +1018,25 @@ export default function BookShopScreen() {
                     }}>
                     {slot.time}
                   </Text>
-                  {slot.status !== 'available' ? (
+                  {slot.status === 'booked' ? (
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: '800',
+                        color: theme.textDim,
+                        marginTop: 2,
+                      }}>
+                      {t('slot_fully_booked')}
+                    </Text>
+                  ) : slot.status === 'almost_full' ? (
                     <Text
                       style={{
                         fontSize: 10,
                         fontWeight: '700',
-                        color: disabled ? theme.textDim : active ? theme.onAccent : theme.warm,
+                        color: active ? theme.onAccent : theme.warm,
                         marginTop: 2,
                       }}>
-                      {slot.status === 'booked' ? t('slot_booked') : t('slot_almost_full')}
+                      {t('slot_bays_left').replace('{n}', String(slot.remainingBays))}
                     </Text>
                   ) : null}
                 </Pressable>

@@ -115,6 +115,8 @@ function normalizeExtras(shopId: string, row?: ShopExtras): ShopExtras {
     workOpenTime: row?.workOpenTime?.trim() || undefined,
     workCloseTime: row?.workCloseTime?.trim() || undefined,
     serviceDurationMinutes: row?.serviceDurationMinutes,
+    slotDurationMinutes: row?.slotDurationMinutes ?? row?.serviceDurationMinutes,
+    totalBays: row?.totalBays,
     scheduleSavedAt: row?.scheduleSavedAt,
     weeklyHours: row?.weeklyHours,
     services: (row?.services ?? []).filter((service) => service.active !== false),
@@ -302,6 +304,7 @@ export async function setShopSchedule(
     workOpenTime: string;
     workCloseTime: string;
     serviceDurationMinutes: number;
+    totalBays?: number;
   },
 ): Promise<ShopExtras> {
   const map = await readMap();
@@ -309,7 +312,35 @@ export async function setShopSchedule(
   row.workOpenTime = input.workOpenTime.trim();
   row.workCloseTime = input.workCloseTime.trim();
   row.serviceDurationMinutes = Math.max(15, Math.min(240, Math.round(input.serviceDurationMinutes)));
+  row.slotDurationMinutes = row.serviceDurationMinutes;
+  if (input.totalBays != null) {
+    row.totalBays = Math.max(1, Math.min(50, Math.round(input.totalBays)));
+  }
   row.scheduleSavedAt = nowIso();
+  return persistExtrasRow(shopId, row);
+}
+
+export async function persistShopCapacityLocal(
+  shopId: string,
+  input: {
+    totalBays: number;
+    slotDurationMinutes: number;
+    workOpenTime: string;
+    workCloseTime: string;
+    weeklyHours?: ShopDayHours[];
+    activeBranchId?: string;
+  },
+): Promise<ShopExtras> {
+  const map = await readMap();
+  const row = normalizeExtras(shopId, map[shopId]);
+  row.totalBays = Math.max(1, Math.min(50, Math.round(input.totalBays)));
+  row.slotDurationMinutes = input.slotDurationMinutes;
+  row.serviceDurationMinutes = input.slotDurationMinutes;
+  row.workOpenTime = input.workOpenTime.trim();
+  row.workCloseTime = input.workCloseTime.trim();
+  row.scheduleSavedAt = nowIso();
+  if (input.weeklyHours?.length) row.weeklyHours = input.weeklyHours;
+  if (input.activeBranchId) row.activeBranchId = input.activeBranchId;
   return persistExtrasRow(shopId, row);
 }
 

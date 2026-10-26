@@ -11,6 +11,8 @@ export type DbBookingStatus =
   | 'no_show'
   | 'suspended_by_shop';
 
+export type DbBookingCompletionType = 'manual' | 'auto';
+
 /** App identity row — public.users (mirrors auth.users). */
 export type DbUser = {
   id: string;
@@ -76,6 +78,10 @@ export type DbShopBranch = {
   image_urls: string[];
   service_price_egp?: number | null;
   service_duration_minutes: number;
+  slot_duration_minutes?: number;
+  total_bays?: number;
+  opening_time?: string | null;
+  closing_time?: string | null;
   weekly_hours: unknown[];
   shop_status: DbShopOperatingStatus;
   vacation_mode: Record<string, unknown>;

@@ -26,6 +26,7 @@ function mapRow(row: UserVehicleRow): CustomerVehicle {
     plate: row.plate ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isActive: row.is_active,
   };
 }
 

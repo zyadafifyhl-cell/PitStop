@@ -426,7 +426,7 @@ export default function WelcomeScreen() {
                     <Pressable
                       onPress={() => setRegisterVehicles((rows) => [...rows, newVehicleDraft()])}
                       style={styles.addVehicleBtn}>
-                      <Text style={[styles.addVehicleText, { color: theme.warm }]}>{t('auth_register_add_vehicle')}</Text>
+                      <Text style={[styles.addVehicleText, { color: theme.accent }]}>{t('auth_register_add_vehicle')}</Text>
                     </Pressable>
                   </View>
                 ) : null}
@@ -448,10 +448,10 @@ export default function WelcomeScreen() {
                   </View>
                 </Pressable>
                 {formMessage ? (
-                  <Text style={[styles.formMessage, { color: passwordInvalid ? AUTH_ERROR_BORDER : theme.warm }]}>{formMessage}</Text>
+                  <Text style={[styles.formMessage, { color: passwordInvalid ? AUTH_ERROR_BORDER : theme.accent }]}>{formMessage}</Text>
                 ) : null}
                 <Pressable onPress={toggleCustomerRegister} hitSlop={10} style={styles.switchLink}>
-                  <Text style={[styles.switchText, { color: theme.warm }]}>
+                  <Text style={[styles.switchText, { color: theme.accent }]}>
                     {isRegister ? t('customer_have_account') : t('customer_create_account')}
                   </Text>
                 </Pressable>
@@ -466,7 +466,7 @@ export default function WelcomeScreen() {
                     style={styles.switchLink}
                     accessibilityRole="button"
                     {...(Platform.OS === 'web' ? ({ type: 'button' } as object) : {})}>
-                    <Text style={[styles.switchText, { color: theme.warm }]}>{t('owner_register_link')}</Text>
+                    <Text style={[styles.switchText, { color: theme.accent }]}>{t('owner_register_link')}</Text>
                   </Pressable>
                 ) : null}
               </>

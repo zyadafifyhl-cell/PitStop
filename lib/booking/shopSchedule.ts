@@ -1,11 +1,47 @@
-import type { Booking, ShopDayHours, ShopExtras, ShopService } from '@/lib/booking/types';
+import type { Booking, BookingStatus, ShopDayHours, ShopExtras, ShopService } from '@/lib/booking/types';
+import { clampSlotDuration, clampTotalBays, DEFAULT_TOTAL_BAYS } from '@/lib/booking/bayCapacityConfig';
 import { slotStartLocalMs, toDateYmd } from '@/lib/booking/format';
+
+const OCCUPYING_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'in_progress'];
+
+function occupancyForSlot(input: {
+  bookings: Booking[];
+  dateYmd: string;
+  timeHm: string;
+  durationMinutes: number;
+  totalBays: number;
+  branchId?: string;
+}) {
+  const total = clampTotalBays(input.totalBays);
+  const slotMs = slotStartLocalMs(input.dateYmd, input.timeHm);
+  const occupied =
+    slotMs == null
+      ? 0
+      : input.bookings.filter((booking) => {
+          if (!OCCUPYING_STATUSES.includes(booking.status)) return false;
+          if (input.branchId && booking.branchId && booking.branchId !== input.branchId) return false;
+          const bookedMs = new Date(booking.scheduledAt).getTime();
+          if (Number.isNaN(bookedMs)) return false;
+          return bookedMs >= slotMs && bookedMs < slotMs + Math.max(1, input.durationMinutes) * 60_000;
+        }).length;
+  const remaining = Math.max(total - occupied, 0);
+  return {
+    is_available: remaining > 0,
+    remaining_bays: remaining,
+    total_bays: total,
+    occupied_bays: Math.min(occupied, total),
+  };
+}
 
 export type SlotAvailability = 'available' | 'almost_full' | 'booked';
 
 export type TimeSlotOption = {
   time: string;
   status: SlotAvailability;
+  occupiedBays: number;
+  totalBays: number;
+  remainingBays: number;
+  isPast?: boolean;
 };
 
 function hmToMinutes(hm: string): number | null {
@@ -43,7 +79,7 @@ export function getDayHoursForDate(extras: ShopExtras | null | undefined, dateYm
   const d = new Date(`${dateYmd}T12:00:00`);
   const day = d.getDay() as ShopDayHours['day'];
   const weekly = extras?.weeklyHours?.find((row) => row.day === day);
-  const durationMinutes = extras?.serviceDurationMinutes ?? 60;
+  const durationMinutes = clampSlotDuration(extras?.slotDurationMinutes ?? extras?.serviceDurationMinutes);
 
   if (weekly) {
     return {
@@ -81,6 +117,8 @@ export function buildSlotsForShopDate(input: {
   dateYmd: string;
   bookings: Booking[];
   now?: Date;
+  branchId?: string;
+  includePast?: boolean;
 }): TimeSlotOption[] {
   if (input.extras?.washShopStatus === 'vacation' || input.extras?.washShopStatus === 'closed') {
     return [];
@@ -103,35 +141,41 @@ export function buildSlotsForShopDate(input: {
   if (end <= open) end += 24 * 60;
 
   const now = input.now ?? new Date();
-
-  const bookedTimes = new Set(
-    input.bookings
-      .filter((b) => b.status !== 'cancelled' && b.scheduledAt.startsWith(input.dateYmd))
-      .map((b) => {
-        const slotDate = new Date(b.scheduledAt);
-        return `${String(slotDate.getHours()).padStart(2, '0')}:${String(slotDate.getMinutes()).padStart(2, '0')}`;
-      }),
-  );
+  const totalBays = clampTotalBays(input.extras?.totalBays ?? DEFAULT_TOTAL_BAYS);
 
   const slots: TimeSlotOption[] = [];
   for (let start = open; start + durationMinutes <= end; start += durationMinutes) {
     const normalizedStart = start >= 24 * 60 ? start - 24 * 60 : start;
     const time = minutesToHm(normalizedStart);
     const slotMs = slotStartLocalMs(input.dateYmd, time);
-    if (slotMs == null || slotMs <= now.getTime()) continue;
+    if (slotMs == null) continue;
+    const isPast = slotMs <= now.getTime();
+    if (isPast && !input.includePast) continue;
     if (breakStart != null && breakEnd != null && normalizedStart >= breakStart && normalizedStart < breakEnd) {
       continue;
     }
 
-    let status: SlotAvailability = 'available';
-    if (bookedTimes.has(time)) {
-      status = 'booked';
-    } else {
-      const nextSlot = minutesToHm(normalizedStart + durationMinutes);
-      if (bookedTimes.has(nextSlot)) status = 'almost_full';
-    }
+    const occupancy = occupancyForSlot({
+      bookings: input.bookings,
+      dateYmd: input.dateYmd,
+      timeHm: time,
+      durationMinutes,
+      totalBays,
+      branchId: input.branchId,
+    });
 
-    slots.push({ time, status });
+    let status: SlotAvailability = 'available';
+    if (!occupancy.is_available) status = 'booked';
+    else if (occupancy.remaining_bays === 1) status = 'almost_full';
+
+    slots.push({
+      time,
+      status,
+      occupiedBays: occupancy.occupied_bays,
+      totalBays: occupancy.total_bays,
+      remainingBays: occupancy.remaining_bays,
+      isPast,
+    });
   }
 
   return slots;

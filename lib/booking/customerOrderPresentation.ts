@@ -1,5 +1,6 @@
 import type { Locale } from '@/lib/i18n/strings';
 import type { AppThemeTokens } from '@/constants/Theme';
+import { isBookingDueForAutoComplete } from '@/lib/booking/bookingServiceLifecycle';
 import type { Booking, Shop, ShopType } from '@/lib/booking/types';
 import { bookingStatusLabel, shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
@@ -92,26 +93,21 @@ export function orderStatusLabel(status: Booking['status'], locale: Locale): str
   return bookingStatusLabel(normalizeCustomerOrderStatus(status), locale);
 }
 
-/** Customer order cards treat legacy in_progress as confirmed in the wash lifecycle. */
+/** Keep arrived/in-progress visible to the customer until the job is actually done. */
 export function normalizeCustomerOrderStatus(status: Booking['status']): Booking['status'] {
-  if (status === 'suspended_by_shop') return status;
-  if (status === 'in_progress') return 'confirmed';
   return status;
 }
 
-const CUSTOMER_PAST_BOOKING_ACTIVE_STATUSES: Booking['status'][] = ['pending', 'confirmed', 'in_progress'];
-
 /**
- * Virtual status for customer-facing booking UI. Past pending/confirmed/in_progress rows render as done
- * unless the merchant finalized them as cancelled or no_show.
+ * Customer-facing status. In-progress jobs stay visible until complete, then fall back to
+ * auto-complete once expected_completion_at is due.
  */
 export function resolveCustomerDisplayStatus(booking: Booking, now = Date.now()): Booking['status'] {
   const raw = booking.status;
   if (raw === 'cancelled' || raw === 'no_show' || raw === 'suspended_by_shop' || raw === 'done') {
     return normalizeCustomerOrderStatus(raw);
   }
-  const scheduledMs = new Date(booking.scheduledAt).getTime();
-  if (!Number.isNaN(scheduledMs) && now > scheduledMs && CUSTOMER_PAST_BOOKING_ACTIVE_STATUSES.includes(raw)) {
+  if (raw === 'in_progress' && isBookingDueForAutoComplete(booking, now)) {
     return 'done';
   }
   return normalizeCustomerOrderStatus(raw);
@@ -163,6 +159,12 @@ export function orderStatusBadgeTone(
         backgroundColor: theme.accentSoft,
         color: theme.text,
         borderColor: theme.chipBorder,
+      };
+    case 'in_progress':
+      return {
+        backgroundColor: theme.successSoft,
+        color: theme.success,
+        borderColor: theme.success,
       };
     case 'done':
       return {

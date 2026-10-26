@@ -6,29 +6,67 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LikeButton } from '@/components/community/LikeButton';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
-import { authorInitials, categoryFlairLabel, reportCommunityPost } from '@/lib/community/postRepository';
+import {
+  authorInitials,
+  categoryFlairLabel,
+  deleteOwnCommunityPost,
+  reportCommunityPost,
+} from '@/lib/community/postRepository';
 import type { CommunityPost } from '@/lib/community/types';
 import { shareDriverNetworkPost } from '@/lib/linking/share';
 
 type Props = {
   post: CommunityPost;
+  viewerUserId?: string;
   onLike: (postId: string) => void;
   onOpenComments: (postId: string) => void;
+  onDeleted?: (postId: string) => void;
   busy?: boolean;
 };
 
-export function PostCard({ post, onLike, onOpenComments, busy }: Props) {
+export function PostCard({ post, viewerUserId, onLike, onOpenComments, onDeleted, busy }: Props) {
   const { t, locale } = useI18n();
   const theme = useAppTheme();
   const isOwner = post.authorRole === 'owner';
+  const isOwnPost = Boolean(viewerUserId && post.userId && viewerUserId === post.userId);
 
   async function onReport() {
+    if (isOwnPost) {
+      Alert.alert(t('wash_review_reported_title'), t('driver_network_report_own_blocked'));
+      return;
+    }
     try {
-      await reportCommunityPost(post.id);
+      await reportCommunityPost(post, viewerUserId);
       Alert.alert(t('wash_review_reported_title'), t('driver_network_report_done'));
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('cannot report own')) {
+        Alert.alert(t('wash_review_reported_title'), t('driver_network_report_own_blocked'));
+        return;
+      }
       Alert.alert(t('settings_link_fail_title'), t('settings_link_fail_body'));
     }
+  }
+
+  function onDelete() {
+    Alert.alert(t('driver_network_delete_confirm_title'), t('driver_network_delete_confirm_body'), [
+      { text: t('alert_cancel'), style: 'cancel' },
+      {
+        text: t('driver_network_delete'),
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await deleteOwnCommunityPost({ postId: post.id, userId: viewerUserId || post.userId });
+              onDeleted?.(post.id);
+              Alert.alert(t('driver_network_delete'), t('driver_network_delete_done'));
+            } catch {
+              Alert.alert(t('settings_link_fail_title'), t('driver_network_delete_fail'));
+            }
+          })();
+        },
+      },
+    ]);
   }
 
   async function onShare() {
@@ -96,9 +134,21 @@ export function PostCard({ post, onLike, onOpenComments, busy }: Props) {
         <Pressable onPress={onShare} style={[styles.shareBtn, { borderColor: theme.border }]}>
           <FontAwesome name="share-alt" size={15} color={theme.textMuted} />
         </Pressable>
-        <Pressable onPress={onReport} style={[styles.shareBtn, { borderColor: theme.border }]}>
-          <FontAwesome name="flag-o" size={15} color={theme.textMuted} />
-        </Pressable>
+        {isOwnPost ? (
+          <Pressable
+            onPress={onDelete}
+            style={[styles.shareBtn, { borderColor: theme.danger }]}
+            accessibilityLabel={t('driver_network_delete')}>
+            <FontAwesome name="trash-o" size={15} color={theme.danger} />
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={onReport}
+            style={[styles.shareBtn, { borderColor: theme.border }]}
+            accessibilityLabel={t('driver_network_report')}>
+            <FontAwesome name="flag-o" size={15} color={theme.textMuted} />
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -130,7 +180,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 4,
   },
   badgeText: { fontSize: 10, fontWeight: '800' },
   meta: { fontSize: 11, marginTop: 2 },

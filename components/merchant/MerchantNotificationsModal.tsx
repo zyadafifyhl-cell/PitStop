@@ -101,7 +101,7 @@ export function MerchantNotificationsModal({
           const shortId = order.id.replace(/-/g, '').slice(0, 8).toUpperCase();
           return {
             id: order.id,
-            title: locale === 'ar' ? `طلب جديد #${shortId}` : `New Order Received / طلب جديد #${shortId}`,
+            title: locale === 'ar' ? `طلب جديد #${shortId}` : `New Order Received #${shortId}`,
             message: storeMetaLine(order, locale),
             timestamp: order.createdAt,
             type: 'store_order' as const,

@@ -7,6 +7,7 @@ export type StoreOperatingStatus = 'open' | 'closed' | 'maintenance';
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'done' | 'in_progress' | 'no_show' | 'suspended_by_shop';
 
 export type BookingType = 'app' | 'walk_in';
+export type BookingCompletionType = 'manual' | 'auto';
 export type PenaltyDisputeStatus = 'none' | 'pending' | 'waived' | 'rejected';
 
 export type Shop = {
@@ -45,6 +46,8 @@ export type Booking = {
   customerNotes?: string;
   ownerRejectionNote?: string;
   customerName?: string;
+  /** Walk-in / quick register plate. */
+  carPlate?: string;
   branchId?: string;
   /** app = mobile booking; walk_in = branch POS / offline customer. */
   bookingType?: BookingType;
@@ -73,6 +76,10 @@ export type Booking = {
   disputeResolvedBy?: string;
   noShowMarkedAt?: string;
   scheduledAt: string;
+  startedAt?: string;
+  expectedCompletionAt?: string;
+  completedAt?: string;
+  completionType?: BookingCompletionType;
   status: BookingStatus;
   createdAt: string;
   /** Read-time flag when confirmed slot aged past auto-done window (not persisted). */
@@ -202,6 +209,7 @@ export type CustomerVehicle = {
   plate?: string;
   createdAt: string;
   updatedAt: string;
+  isActive?: boolean;
 };
 
 export type ShopReview = {
@@ -245,6 +253,10 @@ export type ShopExtras = {
   workCloseTime?: string;
   /** Minutes per booking slot (e.g. 30 for car wash). */
   serviceDurationMinutes?: number;
+  /** Concurrent working bays / slots for this branch. */
+  totalBays?: number;
+  /** Slot grid interval; kept in sync with serviceDurationMinutes. */
+  slotDurationMinutes?: number;
   /** Set when owner saves working hours — customer booking uses these slots. */
   scheduleSavedAt?: string;
   /** Per-day hours controlled from owner dashboard. */
@@ -294,7 +306,9 @@ export type CustomerNotificationKind =
   | 'booking_shop_reopened'
   | 'parts_order_confirmed'
   | 'parts_order_cancelled'
-  | 'review_owner_reply';
+  | 'review_owner_reply'
+  | 'community_post_removed'
+  | 'booking_ready';
 
 export type CustomerNotification = {
   id: string;
@@ -316,6 +330,8 @@ export type CustomerNotification = {
   locale?: 'en' | 'ar';
   /** Pre-resolved notification body for the customer's locale. */
   message?: string;
+  /** Arabic body for community / in-app notices. */
+  messageAr?: string;
   /** Pre-resolved status pill label for the customer's locale. */
   statusLabel?: string;
 };

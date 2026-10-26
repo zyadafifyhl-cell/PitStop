@@ -46,6 +46,8 @@ export function shopExtrasFingerprint(extras: ShopExtras): string {
     workOpenTime: extras.workOpenTime,
     workCloseTime: extras.workCloseTime,
     serviceDurationMinutes: extras.serviceDurationMinutes,
+    slotDurationMinutes: extras.slotDurationMinutes,
+    totalBays: extras.totalBays,
     weeklyHours: extras.weeklyHours,
     services: extras.services,
     offers: extras.offers,

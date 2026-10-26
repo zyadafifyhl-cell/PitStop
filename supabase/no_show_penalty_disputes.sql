@@ -96,8 +96,12 @@ begin
   if not public.can_manage_shop(v_booking.shop_id) and not public.is_platform_admin() then
     raise exception 'Not authorized';
   end if;
-  if v_booking.shop_type not in ('wash'::public.shop_type, 'maintenance'::public.shop_type) then
-    raise exception 'No-show penalties apply to wash and maintenance only';
+  if v_booking.shop_type not in (
+    'wash'::public.shop_type,
+    'maintenance'::public.shop_type,
+    'detailing_studio'::public.shop_type
+  ) then
+    raise exception 'No-show penalties apply to wash, detailing, and maintenance only';
   end if;
   if v_booking.customer_id is null then
     raise exception 'Booking has no registered customer';
@@ -111,7 +115,8 @@ begin
   end if;
   if v_booking.status not in (
     'confirmed'::public.booking_status,
-    'in_progress'::public.booking_status
+    'in_progress'::public.booking_status,
+    'done'::public.booking_status
   ) then
     raise exception 'Booking cannot be marked no-show in status: %', v_booking.status;
   end if;

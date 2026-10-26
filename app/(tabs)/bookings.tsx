@@ -21,6 +21,7 @@ import { addShopReview, getCustomerShopReview } from '@/lib/booking/reviewsStora
 import { orderHistoryReviewBody } from '@/lib/booking/reviewConstants';
 import { clearCustomerInvoices } from '@/lib/booking/commerceEvents';
 import {
+  autoCompleteDueBookings,
   clearCustomerBookingHistory,
   listBookingsForPhone,
   sortBookingsByScheduledAtDesc,
@@ -58,6 +59,7 @@ export default function MyBookingsScreen() {
       setBusy(false);
       return;
     }
+    await autoCompleteDueBookings();
     const rows = sortBookingsByScheduledAtDesc(await listBookingsForPhone(customer.phone, customer.id));
     setBookings(rows);
     if (customer.id) {

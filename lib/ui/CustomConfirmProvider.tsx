@@ -36,6 +36,7 @@ export function showCustomConfirm(request: CustomConfirmRequest): void {
 export function CustomConfirmProvider({ children }: { children: React.ReactNode }) {
   const [request, setRequest] = useState<CustomConfirmRequest | null>(null);
   const [busy, setBusy] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
   const close = useCallback(() => {
     setBusy(false);
@@ -44,6 +45,7 @@ export function CustomConfirmProvider({ children }: { children: React.ReactNode 
 
   const show = useCallback((next: CustomConfirmRequest) => {
     setBusy(false);
+    setErrorText(null);
     setRequest(next);
   }, []);
 
@@ -62,12 +64,14 @@ export function CustomConfirmProvider({ children }: { children: React.ReactNode 
 
   const onConfirm = useCallback(async () => {
     if (!request || busy) return;
+    setErrorText(null);
     setBusy(true);
     try {
       await request.onConfirm();
       close();
-    } catch {
+    } catch (error) {
       setBusy(false);
+      setErrorText(error instanceof Error && error.message ? error.message : 'Something went wrong. Please try again.');
     }
   }, [busy, close, request]);
 
@@ -78,6 +82,7 @@ export function CustomConfirmProvider({ children }: { children: React.ReactNode 
         visible={!!request}
         title={request?.title ?? ''}
         message={request?.message ?? ''}
+        errorText={errorText}
         confirmLabel={request?.confirmLabel ?? ''}
         cancelLabel={request?.cancelLabel ?? ''}
         destructive={request?.destructive ?? false}

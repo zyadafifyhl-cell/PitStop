@@ -62,6 +62,7 @@ export type ModerationItemKind = 'post' | 'comment' | 'review';
 
 export type ModerationQueueItem = {
   id: string;
+  targetId?: string;
   kind: ModerationItemKind;
   title: string;
   body: string;
@@ -69,6 +70,7 @@ export type ModerationQueueItem = {
   shopId?: string;
   shopName?: string;
   createdAt: string;
+  reportCount?: number;
 };
 
 export type PlatformStats = {
@@ -272,17 +274,8 @@ export async function listModerationQueue(): Promise<ModerationQueueItem[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
 
-  const [postsRes, commentsRes, reviewsRes, shopsRes] = await Promise.all([
-    supabase
-      .from('posts')
-      .select('id, title, content, user_id, created_at')
-      .eq('reported', true)
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('comments')
-      .select('id, post_id, content, user_id, created_at')
-      .eq('reported', true)
-      .order('created_at', { ascending: false }),
+  const [feedRes, reviewsRes, shopsRes] = await Promise.all([
+    supabase.rpc('list_community_moderation'),
     supabase
       .from('shop_reviews')
       .select('id, shop_id, customer_name, body, rating, created_at')
@@ -293,32 +286,79 @@ export async function listModerationQueue(): Promise<ModerationQueueItem[]> {
 
   const shopNames = new Map((shopsRes.data ?? []).map((row) => [row.id, row.name]));
   const items: ModerationQueueItem[] = [];
+  const seenFeed = new Set<string>();
 
-  for (const row of postsRes.data ?? []) {
+  for (const row of (feedRes.data ?? []) as Array<{
+    id: string;
+    kind: 'post' | 'comment';
+    target_id: string;
+    title: string;
+    body: string;
+    author_label: string;
+    created_at: string;
+    report_count: number;
+  }>) {
+    const key = `${row.kind}:${row.target_id}`;
+    seenFeed.add(key);
     items.push({
       id: row.id,
-      kind: 'post',
-      title: row.title,
-      body: row.content,
-      authorLabel: row.user_id,
+      targetId: row.target_id,
+      kind: row.kind,
+      title: row.title || (row.kind === 'comment' ? 'Comment' : 'Post'),
+      body: row.body,
+      authorLabel: row.author_label,
       createdAt: row.created_at,
+      reportCount: row.report_count,
     });
   }
 
-  for (const row of commentsRes.data ?? []) {
-    items.push({
-      id: row.id,
-      kind: 'comment',
-      title: `Comment on post ${row.post_id}`,
-      body: row.content,
-      authorLabel: row.user_id,
-      createdAt: row.created_at,
-    });
+  if (feedRes.error) {
+    const [postsRes, commentsRes] = await Promise.all([
+      supabase
+        .from('posts')
+        .select('id, title, content, user_id, created_at')
+        .eq('reported', true)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('comments')
+        .select('id, post_id, content, user_id, created_at')
+        .eq('reported', true)
+        .order('created_at', { ascending: false }),
+    ]);
+
+    for (const row of postsRes.data ?? []) {
+      const key = `post:${row.id}`;
+      if (seenFeed.has(key)) continue;
+      items.push({
+        id: row.id,
+        targetId: row.id,
+        kind: 'post',
+        title: row.title,
+        body: row.content,
+        authorLabel: row.user_id,
+        createdAt: row.created_at,
+      });
+    }
+
+    for (const row of commentsRes.data ?? []) {
+      const key = `comment:${row.id}`;
+      if (seenFeed.has(key)) continue;
+      items.push({
+        id: row.id,
+        targetId: row.id,
+        kind: 'comment',
+        title: `Comment on post ${row.post_id}`,
+        body: row.content,
+        authorLabel: row.user_id,
+        createdAt: row.created_at,
+      });
+    }
   }
 
   for (const row of reviewsRes.data ?? []) {
     items.push({
       id: row.id,
+      targetId: row.id,
       kind: 'review',
       title: `${'★'.repeat(row.rating)} ${row.customer_name}`,
       body: row.body,
@@ -353,14 +393,12 @@ export async function dismissModerationReport(item: ModerationQueueItem): Promis
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase not configured');
 
-  if (item.kind === 'post') {
-    const { error } = await supabase.from('posts').update({ reported: false }).eq('id', item.id);
-    if (error) throw new Error(error.message);
-    return;
-  }
-
-  if (item.kind === 'comment') {
-    const { error } = await supabase.from('comments').update({ reported: false }).eq('id', item.id);
+  if (item.kind === 'post' || item.kind === 'comment') {
+    const { error } = await supabase.rpc('admin_resolve_community_report', {
+      p_kind: item.kind,
+      p_target_id: item.targetId || item.id,
+      p_action: 'dismiss',
+    });
     if (error) throw new Error(error.message);
     return;
   }
@@ -376,14 +414,12 @@ export async function deleteModerationContent(item: ModerationQueueItem): Promis
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase not configured');
 
-  if (item.kind === 'post') {
-    const { error } = await supabase.from('posts').delete().eq('id', item.id);
-    if (error) throw new Error(error.message);
-    return;
-  }
-
-  if (item.kind === 'comment') {
-    const { error } = await supabase.from('comments').delete().eq('id', item.id);
+  if (item.kind === 'post' || item.kind === 'comment') {
+    const { error } = await supabase.rpc('admin_resolve_community_report', {
+      p_kind: item.kind,
+      p_target_id: item.targetId || item.id,
+      p_action: 'delete',
+    });
     if (error) throw new Error(error.message);
     return;
   }
@@ -406,7 +442,7 @@ export async function fetchPlatformStats(): Promise<PlatformStats> {
     supabase.from('shops').select('id', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('status', 'done'),
     supabase.from('bookings').select('final_amount_paid_egp').eq('status', 'done'),
-    supabase.from('posts').select('id', { count: 'exact', head: true }).eq('reported', true),
+    supabase.from('community_reports').select('id', { count: 'exact', head: true }).eq('status', 'open'),
   ]);
 
   const totalRevenueEgp = (revenueRes.data ?? []).reduce((sum, row) => {

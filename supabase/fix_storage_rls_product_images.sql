@@ -29,23 +29,27 @@ drop policy if exists "Store owners delete product images" on storage.objects;
 drop policy if exists "Allow Uploads to Product Images" on storage.objects;
 drop policy if exists "Allow Updates to Product Images" on storage.objects;
 drop policy if exists "Allow Deletes to Product Images" on storage.objects;
+drop policy if exists "Shop managers upload product images" on storage.objects;
+drop policy if exists "Shop managers update product images" on storage.objects;
+drop policy if exists "Shop managers delete product images" on storage.objects;
 
--- 3. Create permissive policies for 'product-images' bucket
+-- 3. Public read stays. Writes are limited to the shop manager for that folder.
 create policy "Public Read Product Images"
 on storage.objects for select
 using (bucket_id = 'product-images');
 
-create policy "Allow Uploads to Product Images"
+create policy "Shop managers upload product images"
 on storage.objects for insert
 to authenticated
-with check (bucket_id = 'product-images');
+with check (bucket_id = 'product-images' and public.can_write_shop_object(name));
 
-create policy "Allow Updates to Product Images"
+create policy "Shop managers update product images"
 on storage.objects for update
 to authenticated
-using (bucket_id = 'product-images');
+using (bucket_id = 'product-images' and public.can_write_shop_object(name))
+with check (bucket_id = 'product-images' and public.can_write_shop_object(name));
 
-create policy "Allow Deletes to Product Images"
+create policy "Shop managers delete product images"
 on storage.objects for delete
 to authenticated
-using (bucket_id = 'product-images');
+using (bucket_id = 'product-images' and public.can_write_shop_object(name));

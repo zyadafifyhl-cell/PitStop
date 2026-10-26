@@ -66,7 +66,7 @@ export function bookingStatusLabel(status: BookingStatus, locale: Locale): strin
   const map: Record<BookingStatus, { en: string; ar: string }> = {
     pending: { en: 'Pending', ar: 'قيد الانتظار' },
     confirmed: { en: 'Confirmed', ar: 'مؤكد' },
-    in_progress: { en: 'Confirmed', ar: 'مؤكد' },
+    in_progress: { en: 'In progress', ar: 'جاري التنفيذ' },
     done: { en: 'Completed', ar: 'مكتمل' },
     cancelled: { en: 'Cancelled', ar: 'ملغي' },
     no_show: { en: 'No show', ar: 'لم يحضر' },

@@ -13,6 +13,8 @@ type NotificationMessages = {
   partsConfirmed: string;
   partsDeclined: string;
   reviewOwnerReply: string;
+  communityPostRemoved: string;
+  bookingReady: string;
 };
 
 export function formatCustomerNotificationLine(
@@ -20,11 +22,35 @@ export function formatCustomerNotificationLine(
   locale: Locale,
   messages: NotificationMessages,
 ): string {
+  const effectiveLocale = notification.locale ?? locale;
+
+  if (notification.kind === 'booking_ready') {
+    const localized =
+      (effectiveLocale === 'ar' ? notification.messageAr : notification.message)?.trim() ||
+      notification.message?.trim() ||
+      notification.messageAr?.trim();
+    if (localized) return localized;
+    const readyShop = getShopById(notification.shopId);
+    const readyShopName = readyShop
+      ? effectiveLocale === 'ar'
+        ? readyShop.nameAr
+        : readyShop.name
+      : notification.shopId;
+    return messages.bookingReady.replace('{shop}', readyShopName);
+  }
+
+  if (notification.kind === 'community_post_removed') {
+    const localized =
+      (effectiveLocale === 'ar' ? notification.messageAr : notification.message)?.trim() ||
+      notification.message?.trim() ||
+      notification.messageAr?.trim();
+    if (localized) return localized;
+    return messages.communityPostRemoved.replace('{title}', notification.ownerNote || '');
+  }
+
   if (notification.message?.trim()) {
     return notification.message;
   }
-
-  const effectiveLocale = notification.locale ?? locale;
   const shop = getShopById(notification.shopId);
   const shopName = shop
     ? effectiveLocale === 'ar'
@@ -72,8 +98,13 @@ export function customerNotificationIsApproved(notification: CustomerNotificatio
     notification.kind === 'booking_shop_reopened' ||
     notification.kind === 'parts_order_confirmed' ||
     notification.kind === 'booking_reminder' ||
-    notification.kind === 'review_owner_reply'
+    notification.kind === 'review_owner_reply' ||
+    notification.kind === 'booking_ready'
   );
+}
+
+export function customerNotificationIsReady(notification: CustomerNotification): boolean {
+  return notification.kind === 'booking_ready';
 }
 
 export function customerNotificationIsReminder(notification: CustomerNotification): boolean {
@@ -82,4 +113,8 @@ export function customerNotificationIsReminder(notification: CustomerNotificatio
 
 export function customerNotificationIsReviewReply(notification: CustomerNotification): boolean {
   return notification.kind === 'review_owner_reply';
+}
+
+export function customerNotificationIsRemoved(notification: CustomerNotification): boolean {
+  return notification.kind === 'community_post_removed';
 }

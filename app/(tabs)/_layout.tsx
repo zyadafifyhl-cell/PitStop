@@ -1,7 +1,7 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { StyleSheet, View, type ColorValue } from 'react-native';
+import { Platform, StyleSheet, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
@@ -31,7 +31,7 @@ export default function TabLayout() {
   return (
     <Tabs
       key={locale}
-      tabBar={(props) => (hideTabBar ? null : <FintechTabBar {...(props as any)} />)}
+      tabBar={(props) => (hideTabBar ? null : <FintechTabBar {...props} />)}
       // Keep inactive tab scenes mounted so switching back does not remount / wipe UI state.
       detachInactiveScreens={false}
       screenOptions={{
@@ -48,7 +48,9 @@ export default function TabLayout() {
         headerShown: useClientOnlyValue(false, true),
         popToTopOnBlur: false,
         freezeOnBlur: false,
-        lazy: false,
+        // On web, compile the open tab only. Native still mounts every tab up front
+        // so the first switch does not rebuild the screen.
+        lazy: Platform.OS === 'web',
       }}>
       <Tabs.Screen
         name="index"
