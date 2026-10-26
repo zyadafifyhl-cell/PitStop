@@ -20,6 +20,7 @@ import { LogExpenseModal } from '@/components/owner/pos/LogExpenseModal';
 import { AddProductModal } from '@/components/store/owner/AddProductModal';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { storeProductCategoryForShopType } from '@/lib/booking/storeCatalog';
 import type { Shop } from '@/lib/booking/types';
 import { FREE_ACTIVE_PRODUCT_CAP } from '@/lib/shop/subscription';
@@ -104,6 +105,10 @@ export function StoreInventoryManager({ shop, onRefresh, stockFilter, onStockFil
     setDrafts(Object.fromEntries(rows.map((product) => [product.id, draftFor(product)])));
     setLoading(false);
   }, [shop.id]);
+
+  useDataChanges(['catalog'], () => {
+    void loadProducts();
+  });
 
   useEffect(() => {
     void loadProducts();

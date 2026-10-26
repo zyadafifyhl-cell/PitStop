@@ -125,15 +125,19 @@ export function buildShopTimeSlots(
   const open = hmToMinutes(openHm);
   const close = hmToMinutes(closeHm);
   if (open == null || close == null) return [];
-  const duration = Math.max(15, Math.min(240, durationMinutes));
+  const duration = Math.max(1, Math.round(durationMinutes));
   if (close <= open) return [];
 
   const now = new Date();
   const isToday = dateYmd === toDateYmd(now);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const grid = 30;
+  let start = open;
+  const remainder = start % grid;
+  if (remainder !== 0) start += grid - remainder;
 
   const slots: string[] = [];
-  for (let start = open; start + duration <= close; start += duration) {
+  for (; start + duration <= close; start += grid) {
     if (isToday && start <= nowMinutes) continue;
     slots.push(minutesToHm(start));
   }

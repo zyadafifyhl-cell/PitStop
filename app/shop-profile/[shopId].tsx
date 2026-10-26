@@ -18,6 +18,7 @@ import { ShopProfileStoreSection } from '@/components/shop/ShopProfileStoreSecti
 import { WorkingHoursTable } from '@/components/ui/WorkingHoursTable';
 import { ShopMediaImage } from '@/components/ui/ShopMediaImage';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { useI18n } from '@/context/I18nContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { shopTypeLabel } from '@/lib/booking/format';
@@ -163,6 +164,10 @@ export default function ShopProfileScreen() {
     const remote = await fetchShopProfileRemote(shopId, customer?.id);
     applyRemoteSnapshot(remote);
   }, [shopId, customer?.id, applyRemoteSnapshot]);
+
+  useDataChanges(['reviews', 'offers'], () => {
+    void refreshRemote();
+  });
 
   useFocusEffect(
     useCallback(() => {

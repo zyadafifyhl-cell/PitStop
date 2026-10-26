@@ -11,6 +11,7 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { STORE_PRODUCTS_RELEASED } from '@/lib/features/releaseHold';
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
@@ -80,7 +81,7 @@ export default function TabLayout() {
             </View>
           ),
           headerRight: customerHeaderRight,
-          href: hasCustomerArea || !shop ? undefined : null,
+          href: !STORE_PRODUCTS_RELEASED ? null : hasCustomerArea || !shop ? undefined : null,
         }}
       />
       <Tabs.Screen

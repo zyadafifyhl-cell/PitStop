@@ -1,5 +1,6 @@
 import type { ShopType } from '@/lib/booking/types';
 import { refreshCatalog } from '@/lib/booking/catalogRepository';
+import { emitDataChange } from '@/lib/data/dataChanges';
 import { getSupabase } from '@/lib/supabase/client';
 
 export type PendingOwnerRequest = {
@@ -268,6 +269,7 @@ export async function resolvePenaltyDispute(
     p_action: action,
   });
   if (error) throw new Error(error.message);
+  emitDataChange('admin', 'bookings');
 }
 
 export async function listModerationQueue(): Promise<ModerationQueueItem[]> {
@@ -380,6 +382,7 @@ export async function toggleShopPremium(shopId: string, isPremium: boolean): Pro
     p_is_premium: isPremium,
   });
   if (error) throw new Error(error.message);
+  emitDataChange('admin');
 }
 
 export async function settleMerchantPlatformFees(shopId: string): Promise<void> {
@@ -387,6 +390,7 @@ export async function settleMerchantPlatformFees(shopId: string): Promise<void> 
   if (!supabase) throw new Error('Supabase not configured');
   const { error } = await supabase.rpc('admin_settle_shop_platform_fees', { p_shop_id: shopId });
   if (error) throw new Error(error.message);
+  emitDataChange('admin', 'finance');
 }
 
 export async function dismissModerationReport(item: ModerationQueueItem): Promise<void> {
@@ -400,6 +404,7 @@ export async function dismissModerationReport(item: ModerationQueueItem): Promis
       p_action: 'dismiss',
     });
     if (error) throw new Error(error.message);
+    emitDataChange('admin', 'reviews');
     return;
   }
 
@@ -408,6 +413,7 @@ export async function dismissModerationReport(item: ModerationQueueItem): Promis
     .update({ reported: false, updated_at: new Date().toISOString() })
     .eq('id', item.id);
   if (error) throw new Error(error.message);
+  emitDataChange('admin', 'reviews');
 }
 
 export async function deleteModerationContent(item: ModerationQueueItem): Promise<void> {
@@ -421,11 +427,13 @@ export async function deleteModerationContent(item: ModerationQueueItem): Promis
       p_action: 'delete',
     });
     if (error) throw new Error(error.message);
+    emitDataChange('admin', 'community');
     return;
   }
 
   const { error } = await supabase.from('shop_reviews').delete().eq('id', item.id);
   if (error) throw new Error(error.message);
+  emitDataChange('admin', 'reviews');
 }
 
 function finiteAmount(value: unknown): number | null {
@@ -593,6 +601,7 @@ export async function approveShopOwner(userId: string, shopId: string): Promise<
     throw new Error('Shop was approved but is not queryable yet. Try again in a moment.');
   }
   await refreshCatalog();
+  emitDataChange('admin');
 }
 
 export async function rejectShopOwner(userId: string, shopId: string): Promise<void> {
@@ -621,6 +630,7 @@ export async function rejectShopOwner(userId: string, shopId: string): Promise<v
     if (!error && data?.success) {
       console.log('[rejectShopOwner] Edge Function succeeded');
       edgeFunctionSuccess = true;
+      emitDataChange('admin');
       return;
     }
 
@@ -654,6 +664,7 @@ export async function rejectShopOwner(userId: string, shopId: string): Promise<v
 
     console.log('[rejectShopOwner] RPC fallback succeeded');
   }
+  emitDataChange('admin');
 }
 
 export async function deleteMerchant(shopId: string): Promise<void> {
@@ -717,4 +728,5 @@ export async function deleteMerchant(shopId: string): Promise<void> {
     console.error('[deleteMerchant] Failed to update user:', userError);
     // Don't throw - shop is already deleted
   }
+  emitDataChange('admin');
 }

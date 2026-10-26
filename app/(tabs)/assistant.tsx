@@ -18,6 +18,7 @@ import { FeedFilterChips } from '@/components/community/FeedFilterChips';
 import { PostCard } from '@/components/community/PostCard';
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
@@ -55,6 +56,10 @@ export default function AssistantScreen() {
     },
     [loadPosts, sortMode],
   );
+
+  useDataChanges(['community'], () => {
+    void loadPosts();
+  });
 
   useFocusEffect(
     useCallback(() => {

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { STORE_PRODUCTS_RELEASED } from '@/lib/features/releaseHold';
 import {
   getActiveBrowseTab,
   isSharedBrowseDeepPath,
@@ -36,7 +37,7 @@ const CUSTOMER_TABS: CustomerTab[] = [
   { href: '/favorites', screen: 'favorites', labelKey: 'tab_favorites', icon: 'heart' },
   { href: '/assistant', screen: 'assistant', labelKey: 'tab_driver_network', icon: 'comments' },
   { href: '/settings', screen: 'settings', labelKey: 'tab_account', icon: 'user' },
-];
+].filter((tab) => STORE_PRODUCTS_RELEASED || tab.href !== '/orders');
 
 export function normalizeAppPath(pathname: string): string {
   if (!pathname || pathname === '/(tabs)' || pathname === '/(tabs)/index') return '/';

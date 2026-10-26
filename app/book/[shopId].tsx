@@ -42,7 +42,7 @@ import {
   resolveOfferType,
   buildOfferBadgeMessages,
 } from '@/lib/booking/offerPricing';
-import { countDoneBookingsForCustomerAtShop } from '@/lib/booking/offerRepository';
+import { countDoneBookingsForCustomerAtShop, OfferValidationError } from '@/lib/booking/offerRepository';
 import {
   buildScheduledIso,
   defaultBookingDateYmd,
@@ -60,6 +60,7 @@ import {
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
 import { isSlotFullError } from '@/lib/booking/bayCapacity';
+import { SLOT_GRID_MINUTES, toServiceDurationMinutes } from '@/lib/booking/bayCapacityConfig';
 import {
   createBooking,
   getMyPenaltyBalance,
@@ -166,6 +167,7 @@ export default function BookShopScreen() {
   const [doneBookingCount, setDoneBookingCount] = useState(0);
   const [collectiblePenaltyBalance, setCollectiblePenaltyBalance] = useState(0);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(offerIdParam ?? null);
+  const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [offerPickerOpen, setOfferPickerOpen] = useState(false);
   const [bookingBranchId, setBookingBranchId] = useState<string | undefined>(branchIdParam);
   const userPickedOfferRef = useRef(false);
@@ -312,8 +314,11 @@ export default function BookShopScreen() {
   );
 
   const liveOffers = useMemo(
-    () => (shopExtras?.offers ?? []).filter((offer) => isOfferLive(offer)),
-    [shopExtras?.offers],
+    () =>
+      (shopExtras?.offers ?? []).filter(
+        (offer) => isOfferLive(offer) && !dismissedOfferIds.includes(offer.id),
+      ),
+    [shopExtras?.offers, dismissedOfferIds],
   );
 
   useEffect(() => {
@@ -464,13 +469,13 @@ export default function BookShopScreen() {
 
   const hasOwnerSchedule = shopHasCustomerSchedule(shopExtras) || shopHasSavedSchedule(shopExtras);
 
-  const slotExtras = useMemo(() => {
-    if (!shopExtras) return shopExtras;
-    const duration =
-      selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0) ||
-      shopExtras.serviceDurationMinutes;
-    return { ...shopExtras, serviceDurationMinutes: duration };
-  }, [shopExtras, selectedServices]);
+  const selectedDurationMinutes = useMemo(() => {
+    const total = selectedServices.reduce(
+      (sum, service) => sum + toServiceDurationMinutes(service.durationMinutes, service.durationUnit),
+      0,
+    );
+    return total > 0 ? total : SLOT_GRID_MINUTES;
+  }, [selectedServices]);
 
   useEffect(() => {
     const timer = setInterval(() => setSlotNowMs(Date.now()), 30_000);
@@ -486,13 +491,14 @@ export default function BookShopScreen() {
   const timeSlots = useMemo((): TimeSlotOption[] => {
     if (!hasOwnerSchedule) return [];
     return buildSlotsForShopDate({
-      extras: slotExtras,
+      extras: shopExtras,
       dateYmd,
       bookings: shopBookings,
       now: new Date(slotNowMs),
       branchId: bookingBranchId,
+      serviceDurationMinutes: selectedDurationMinutes,
     });
-  }, [hasOwnerSchedule, slotExtras, dateYmd, shopBookings, slotNowMs, bookingBranchId]);
+  }, [hasOwnerSchedule, shopExtras, dateYmd, shopBookings, slotNowMs, bookingBranchId, selectedDurationMinutes]);
 
   useEffect(() => {
     const available = timeSlots.filter((s) => s.status !== 'booked');
@@ -550,8 +556,7 @@ export default function BookShopScreen() {
     const serviceName = selectedServices.map((s) => s.name).join(' + ') || undefined;
     const serviceNameAr =
       selectedServices.map((s) => s.nameAr || s.name).join(' + ') || undefined;
-    const serviceDurationMinutes =
-      selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0) || undefined;
+    const serviceDurationMinutes = selectedDurationMinutes;
     const baseServicePriceEgp = campaignAdjustedTotal;
     let loyaltyCheckout:
       | {
@@ -644,6 +649,16 @@ export default function BookShopScreen() {
         void refreshShopExtras();
         return;
       }
+      if (error instanceof OfferValidationError) {
+        if (activeCampaignOffer?.id) {
+          setDismissedOfferIds((current) =>
+            current.includes(activeCampaignOffer.id) ? current : [...current, activeCampaignOffer.id],
+          );
+        }
+        setSelectedOfferId(null);
+        userAlert(t('book_offer_expired_title'), t('book_offer_expired_body'));
+        return;
+      }
       const message = logAndGetSafeErrorMessage(error, t, 'booking.createBooking');
       userAlert(t('book_submit_fail_title'), message);
     } finally {
@@ -687,7 +702,7 @@ export default function BookShopScreen() {
   );
   const baseTotalPrice = rawServiceTotal;
   const discountedTotalPrice = checkoutOriginalPriceEgp;
-  const totalMinutes = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
+  const totalMinutes = selectedDurationMinutes;
   const campaignSavingsEgp = Math.max(0, Math.round((rawServiceTotal - campaignAdjustedTotal) * 100) / 100);
   const qualifiesForFreeWash =
     !!activeCampaignOffer && isBuyXGetYFreeNext(activeCampaignOffer, doneBookingCount);
@@ -974,14 +989,9 @@ export default function BookShopScreen() {
           textColor={theme.text}
         />
 
-        {hasOwnerSchedule && shopExtras?.workOpenTime && shopExtras.workCloseTime && shopExtras.serviceDurationMinutes ? (
+        {hasOwnerSchedule && shopExtras?.workOpenTime && shopExtras.workCloseTime ? (
           <Text style={[styles.scheduleHint, { color: theme.textMuted }]}>
-            {formatShopScheduleLine(
-              shopExtras.workOpenTime,
-              shopExtras.workCloseTime,
-              selectedServices[0]?.durationMinutes ?? shopExtras.serviceDurationMinutes,
-              locale,
-            )}
+            {formatShopScheduleLine(shopExtras.workOpenTime, shopExtras.workCloseTime, locale)}
           </Text>
         ) : hasOwnerSchedule ? null : (
           <Text style={[styles.scheduleHint, { color: theme.textMuted }]}>{t('book_no_shop_hours')}</Text>

@@ -13,6 +13,7 @@ import {
 import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { toServiceDurationMinutes } from '@/lib/booking/bayCapacityConfig';
 import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
 import type { ShopService } from '@/lib/booking/types';
 

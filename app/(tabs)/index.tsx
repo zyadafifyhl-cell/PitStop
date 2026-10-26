@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatVehicleDisplay } from '@/components/customer/ActiveVehiclePicker';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { CustomerNotificationsBell } from '@/components/customer/CustomerNotificationsBell';
 import { PitStopEgWordmark } from '@/components/ui/PitStopEgWordmark';
 import { BRAND_COBALT } from '@/constants/Brand';
@@ -706,6 +707,10 @@ export default function HomeScreen() {
     });
     return unsubscribe;
   }, [loadLiveOffers]);
+
+  useDataChanges(['offers'], () => {
+    void loadLiveOffers();
+  });
 
   const greetingName = customer
     ? customer.name.split(' ')[0]?.trim() || customer.name

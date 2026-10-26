@@ -1,4 +1,5 @@
 import type { ShopReview } from '@/lib/booking/types';
+import { emitDataChange } from '@/lib/data/dataChanges';
 import {
   addShopReviewSynced,
   fetchShopRatingSummariesRemote,
@@ -30,7 +31,9 @@ export async function addShopReview(input: {
   body: string;
   branchId?: string;
 }): Promise<ShopReview> {
-  return addShopReviewSynced(input);
+  const review = await addShopReviewSynced(input);
+  emitDataChange('reviews');
+  return review;
 }
 
 export async function toggleReviewLike(shopId: string, reviewId: string, customerId: string): Promise<void> {
@@ -38,15 +41,18 @@ export async function toggleReviewLike(shopId: string, reviewId: string, custome
 }
 
 export async function setReviewOwnerReply(shopId: string, reviewId: string, ownerReply: string): Promise<void> {
-  return setReviewOwnerReplySynced(shopId, reviewId, ownerReply);
+  await setReviewOwnerReplySynced(shopId, reviewId, ownerReply);
+  emitDataChange('reviews');
 }
 
 export async function setReviewHidden(shopId: string, reviewId: string, hidden: boolean): Promise<void> {
-  return setReviewHiddenSynced(shopId, reviewId, hidden);
+  await setReviewHiddenSynced(shopId, reviewId, hidden);
+  emitDataChange('reviews');
 }
 
 export async function setReviewReported(shopId: string, reviewId: string, reported: boolean): Promise<void> {
-  return setReviewReportedSynced(shopId, reviewId, reported);
+  await setReviewReportedSynced(shopId, reviewId, reported);
+  emitDataChange('reviews');
 }
 
 export type ShopRatingSummary = { average: number | null; count: number };

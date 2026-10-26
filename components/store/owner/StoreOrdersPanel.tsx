@@ -13,6 +13,7 @@ import {
 
 import { BOXED_OVERLAY } from '@/constants/Theme';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { HistoryCardMenu } from '@/components/owner/HistoryOverflowMenu';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
@@ -127,6 +128,10 @@ export function StoreOrdersPanel({
       setLoading(false);
     }
   }, [shop.id]);
+
+  useDataChanges(['orders'], () => {
+    void loadOrders();
+  });
 
   function isFinalizedStoreOrder(status: StoreOrderStatus) {
     return status === 'completed' || status === 'cancelled';

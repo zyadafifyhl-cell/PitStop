@@ -16,6 +16,7 @@ import {
 
 import { LikeButton } from '@/components/community/LikeButton';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -54,6 +55,10 @@ export default function DriverNetworkPostScreen() {
     setPost(postRow);
     setComments(commentRows);
   }, [postId, customer?.id]);
+
+  useDataChanges(['community'], () => {
+    void refresh();
+  });
 
   useFocusEffect(
     useCallback(() => {

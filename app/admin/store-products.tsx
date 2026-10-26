@@ -8,6 +8,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { listStoreProducts, setStoreProductActive } from '@/lib/store/productRepository';
 import type { StoreProduct } from '@/lib/store/types';
 
@@ -27,6 +28,10 @@ export default function AdminStoreProductsScreen() {
       setLoading(false);
     }
   }, []);
+
+  useDataChanges(['catalog'], () => {
+    void refresh();
+  });
 
   useEffect(() => {
     if (!isAdmin) {

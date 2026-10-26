@@ -8,10 +8,12 @@ import {
   DEFAULT_TOTAL_BAYS,
   formatPgTime,
   SLOT_DURATION_OPTIONS,
+  SLOT_GRID_MINUTES,
+  toServiceDurationMinutes,
   type SlotDurationOption,
 } from '@/lib/booking/bayCapacityConfig';
-import { slotStartLocalMs } from '@/lib/booking/format';
 import { getShopExtras, persistShopCapacityLocal } from '@/lib/booking/shopExtrasStorage';
+import { peakOccupancy } from '@/lib/booking/slotOccupancy';
 import { getSupabase } from '@/lib/supabase/client';
 import {
   resolveDefaultBranchIdForShop,
@@ -28,6 +30,8 @@ export {
   DEFAULT_TOTAL_BAYS,
   formatPgTime,
   SLOT_DURATION_OPTIONS,
+  SLOT_GRID_MINUTES,
+  toServiceDurationMinutes,
 };
 export type { SlotDurationOption };
 
@@ -101,39 +105,7 @@ export function slotDurationFromExtras(extras: ShopExtras | null | undefined): S
   return clampSlotDuration(extras?.slotDurationMinutes ?? extras?.serviceDurationMinutes);
 }
 
-export function countBookingsInSlot(input: {
-  bookings: Booking[];
-  dateYmd: string;
-  timeHm: string;
-  durationMinutes: number;
-  branchId?: string;
-}): number {
-  const slotMs = slotStartLocalMs(input.dateYmd, input.timeHm);
-  if (slotMs == null) return 0;
-  const slotEndMs = slotMs + Math.max(1, input.durationMinutes) * 60_000;
-
-  return input.bookings.filter((booking) => {
-    if (!isOccupyingBookingStatus(booking.status)) return false;
-    if (input.branchId) {
-      if (booking.branchId && booking.branchId !== input.branchId) return false;
-    }
-    const bookedMs = new Date(booking.scheduledAt).getTime();
-    if (Number.isNaN(bookedMs)) return false;
-    return bookedMs >= slotMs && bookedMs < slotEndMs;
-  }).length;
-}
-
-export function occupancyForSlot(input: {
-  bookings: Booking[];
-  dateYmd: string;
-  timeHm: string;
-  durationMinutes: number;
-  totalBays: number;
-  branchId?: string;
-}): SlotAvailabilityResult {
-  const occupied = countBookingsInSlot(input);
-  return occupancyFromCounts(occupied, input.totalBays);
-}
+export { appointmentBlockStarts, countBookingsInSlot, occupancyForSlot, peakOccupancy } from '@/lib/booking/slotOccupancy';
 
 function parseAvailabilityPayload(raw: unknown): SlotAvailabilityResult | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -153,9 +125,11 @@ function parseAvailabilityPayload(raw: unknown): SlotAvailabilityResult | null {
 export async function checkSlotAvailability(
   branchId: string,
   targetTime: Date | string,
+  durationMinutes = SLOT_GRID_MINUTES,
 ): Promise<SlotAvailabilityResult> {
   const supabase = getSupabase();
   const iso = typeof targetTime === 'string' ? targetTime : targetTime.toISOString();
+  const duration = Math.max(1, Math.round(durationMinutes) || SLOT_GRID_MINUTES);
   if (!branchId.trim()) {
     return occupancyFromCounts(0, DEFAULT_TOTAL_BAYS);
   }
@@ -164,52 +138,57 @@ export async function checkSlotAvailability(
     const { data, error } = await supabase.rpc('check_slot_availability', {
       p_branch_id: branchId,
       p_target_time: iso,
+      p_duration_minutes: duration,
     });
     const parsed = !error ? parseAvailabilityPayload(data) : null;
     if (parsed) return parsed;
     if (error) console.warn('checkSlotAvailability:', error.message);
   }
 
-  return fallbackCheckSlotAvailability(branchId, iso);
+  return fallbackCheckSlotAvailability(branchId, iso, duration);
 }
 
 async function fallbackCheckSlotAvailability(
   branchId: string,
   targetIso: string,
+  durationMinutes: number,
 ): Promise<SlotAvailabilityResult> {
   const supabase = getSupabase();
   if (!supabase || !isUuid(branchId)) {
     return occupancyFromCounts(0, DEFAULT_TOTAL_BAYS);
   }
 
+  const startMs = new Date(targetIso).getTime();
+  if (Number.isNaN(startMs)) return occupancyFromCounts(0, DEFAULT_TOTAL_BAYS);
+  const lookbackMs = startMs - 14 * 24 * 60 * 60_000;
+  const horizonMs = startMs + Math.max(1, durationMinutes) * 60_000;
+
   const [{ data: branch, error: branchError }, { data: bookings, error: bookingError }] = await Promise.all([
-    supabase
-      .from('shop_branches')
-      .select('total_bays, slot_duration_minutes, service_duration_minutes')
-      .eq('id', branchId)
-      .maybeSingle(),
+    supabase.from('shop_branches').select('total_bays').eq('id', branchId).maybeSingle(),
     supabase
       .from('bookings')
-      .select('scheduled_at, status')
+      .select('scheduled_at, status, service_duration_minutes, branch_id')
       .eq('branch_id', branchId)
-      .in('status', OCCUPYING_STATUSES),
+      .in('status', OCCUPYING_STATUSES)
+      .gte('scheduled_at', new Date(lookbackMs).toISOString())
+      .lt('scheduled_at', new Date(horizonMs).toISOString()),
   ]);
 
   if (branchError) console.warn('checkSlotAvailability branch:', branchError.message);
   if (bookingError) console.warn('checkSlotAvailability bookings:', bookingError.message);
 
   const totalBays = clampTotalBays(Number(branch?.total_bays ?? DEFAULT_TOTAL_BAYS));
-  const duration = clampSlotDuration(
-    Number(branch?.slot_duration_minutes ?? branch?.service_duration_minutes ?? DEFAULT_SLOT_DURATION_MINUTES),
+  const rows = (bookings ?? []).map((row) => ({
+    scheduledAt: String(row.scheduled_at),
+    status: row.status as Booking['status'],
+    serviceDurationMinutes:
+      row.service_duration_minutes != null ? Number(row.service_duration_minutes) : undefined,
+    branchId: row.branch_id ? String(row.branch_id) : undefined,
+  }));
+  return occupancyFromCounts(
+    peakOccupancy({ bookings: rows, startMs, durationMinutes, branchId }),
+    totalBays,
   );
-  const startMs = new Date(targetIso).getTime();
-  if (Number.isNaN(startMs)) return occupancyFromCounts(0, totalBays);
-  const endMs = startMs + duration * 60_000;
-  const occupied = (bookings ?? []).filter((row) => {
-    const bookedMs = new Date(String(row.scheduled_at)).getTime();
-    return !Number.isNaN(bookedMs) && bookedMs >= startMs && bookedMs < endMs;
-  }).length;
-  return occupancyFromCounts(occupied, totalBays);
 }
 
 export function applyCapacityToWeeklyHours(
@@ -233,13 +212,11 @@ export async function saveShopCapacity(input: {
   shopId: string;
   branchId?: string;
   totalBays: number;
-  slotDurationMinutes: number;
   openingTime: string;
   closingTime: string;
   weeklyHours?: ShopDayHours[];
 }): Promise<ShopExtras> {
   const totalBays = clampTotalBays(input.totalBays);
-  const slotDurationMinutes = clampSlotDuration(input.slotDurationMinutes);
   const weeklyHours = applyCapacityToWeeklyHours(
     input.weeklyHours,
     input.openingTime,
@@ -259,12 +236,10 @@ export async function saveShopCapacity(input: {
       branchId,
       {
         totalBays,
-        slotDurationMinutes,
         openingTime: input.openingTime,
         closingTime: input.closingTime,
         workOpenTime: input.openingTime,
         workCloseTime: input.closingTime,
-        serviceDurationMinutes: slotDurationMinutes,
         weeklyHours: weeklyHours.length ? weeklyHours : undefined,
       },
       input.shopId,
@@ -273,7 +248,6 @@ export async function saveShopCapacity(input: {
 
   return persistShopCapacityLocal(input.shopId, {
     totalBays,
-    slotDurationMinutes,
     workOpenTime: input.openingTime,
     workCloseTime: input.closingTime,
     weeklyHours: weeklyHours.length ? weeklyHours : undefined,
@@ -288,7 +262,7 @@ export async function loadShopCapacitySnapshot(shopId: string): Promise<ShopExtr
 export function capacityConfigFromExtras(extras: ShopExtras | null | undefined): BranchCapacityConfig {
   return {
     totalBays: totalBaysFromExtras(extras),
-    slotDurationMinutes: slotDurationFromExtras(extras),
+    slotDurationMinutes: SLOT_GRID_MINUTES,
     openingTime: extras?.workOpenTime?.trim() || DEFAULT_OPENING_TIME,
     closingTime: extras?.workCloseTime?.trim() || DEFAULT_CLOSING_TIME,
   };

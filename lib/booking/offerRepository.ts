@@ -10,6 +10,7 @@ import {
 import { listBookingsForPhone } from '@/lib/booking/storage';
 import type { OfferType, ShopOffer } from '@/lib/booking/types';
 import { phoneLookupVariants } from '@/lib/phone';
+import { emitDataChange } from '@/lib/data/dataChanges';
 import { getSupabase } from '@/lib/supabase/client';
 
 const OFFERS_CACHE_KEY = '@pitstop/offers/v1';
@@ -347,6 +348,7 @@ export async function deployShopCampaign(input: {
     const offer = mapDbOfferRow(data as DbOfferRow);
     const existing = await listActiveOffersForShop(input.shopId);
     await writeShopOffersCache(input.shopId, [offer, ...existing.filter((row) => row.id !== offer.id)]);
+    emitDataChange('offers');
     return offer;
   }
 
@@ -372,6 +374,7 @@ export async function deployShopCampaign(input: {
   };
   const existing = await listActiveOffersForShop(input.shopId);
   await writeShopOffersCache(input.shopId, [offer, ...existing]);
+  emitDataChange('offers');
   return offer;
 }
 
@@ -415,6 +418,7 @@ export async function deactivateShopOffer(shopId: string, offerId: string): Prom
   );
   map[shopId] = rows.filter((offer) => offer.active && isOfferLive(offer));
   await writeCache(map);
+  emitDataChange('offers');
 }
 
 export class OfferValidationError extends Error {

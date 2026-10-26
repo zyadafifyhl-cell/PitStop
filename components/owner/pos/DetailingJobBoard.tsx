@@ -6,6 +6,7 @@ import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { listPosJobOrders, updatePosOrderWorkflow } from '@/lib/posRepository';
 import { POS_WORKFLOW_STAGES, type PosJobOrder, type PosWorkflowStage } from '@/lib/posTypes';
 import type { TranslationKey } from '@/lib/i18n/strings';
@@ -47,6 +48,10 @@ export function DetailingJobBoard({ shopId, refreshKey = 0 }: Props) {
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
+
+  useDataChanges(['orders'], () => {
+    void load();
+  });
 
   const grouped = useMemo(
     () =>

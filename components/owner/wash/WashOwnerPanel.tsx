@@ -93,6 +93,7 @@ import {
   updateBookingStatus,
 } from '@/lib/booking/storage';
 import { applyCapacityToWeeklyHours } from '@/lib/booking/bayCapacity';
+import { STORE_PRODUCTS_RELEASED } from '@/lib/features/releaseHold';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { mergeWashBranchIntoExtras } from '@/lib/booking/wash/washSync';
 import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
@@ -103,6 +104,7 @@ import { currentMonthTimeframe, fetchPeakAnalytics } from '@/lib/posRepository';
 import { ShopFinanceOverview } from '@/components/owner/pos/ShopFinanceOverview';
 import { LogExpenseModal } from '@/components/owner/pos/LogExpenseModal';
 import { useShopAnalytics } from '@/lib/useShopAnalytics';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import type { PeakHourBucket, PeakWeekdayBucket, ShopAnalyticsTimeframe } from '@/lib/posTypes';
 import {
   getBranchWorkspaceCache,
@@ -644,6 +646,10 @@ export function WashOwnerPanel({ shop }: Props) {
     };
   }, [refreshAll, shop.id]);
 
+  useDataChanges(['bookings', 'reviews', 'offers'], () => {
+    void refreshAll({ silent: true });
+  });
+
   useEffect(() => {
     if (!pendingBranchSyncId) return;
     if (
@@ -938,7 +944,6 @@ export function WashOwnerPanel({ shop }: Props) {
 
   async function onSaveCapacity(input: {
     totalBays: number;
-    slotDurationMinutes: 30 | 45 | 60;
     openingTime: string;
     closingTime: string;
   }) {
@@ -954,12 +959,10 @@ export function WashOwnerPanel({ shop }: Props) {
         shop,
         {
           totalBays: input.totalBays,
-          slotDurationMinutes: input.slotDurationMinutes,
           openingTime: input.openingTime,
           closingTime: input.closingTime,
           workOpenTime: input.openingTime,
           workCloseTime: input.closingTime,
-          serviceDurationMinutes: input.slotDurationMinutes,
           weeklyHours,
           scheduleSavedAt: new Date().toISOString(),
         },
@@ -1819,7 +1822,8 @@ export function WashOwnerPanel({ shop }: Props) {
   const canUseWalkInPos = isOwner || isBranchManager;
   const showCoupons = false;
 
-  const sellsProducts = shop.type === 'wash' || isDetailingShopType(shop.type);
+  const sellsProducts =
+    STORE_PRODUCTS_RELEASED && (shop.type === 'wash' || isDetailingShopType(shop.type));
   const ownerGroups = [
     {
       id: 'bookings',
@@ -2491,7 +2495,7 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         )}
 
-        {group === 'products' && (
+        {sellsProducts && group === 'products' && (
           <>
             <StoreOrdersPanel
               shop={shop}
@@ -2513,7 +2517,6 @@ export function WashOwnerPanel({ shop }: Props) {
             {activeBranch ? (
               <CapacitySettingsCard
                 totalBays={activeBranch.totalBays}
-                slotDurationMinutes={activeBranch.slotDurationMinutes ?? activeBranch.serviceDurationMinutes}
                 openingTime={activeBranch.openingTime ?? activeBranch.workOpenTime}
                 closingTime={activeBranch.closingTime ?? activeBranch.workCloseTime}
                 saving={capacitySaving}
@@ -2638,6 +2641,7 @@ export function WashOwnerPanel({ shop }: Props) {
         pendingStoreOrders={orderNotifier.pendingStoreOrders}
         pendingBookings={orderNotifier.pendingBookings}
         onSelectStoreOrder={(order) => {
+          if (!sellsProducts) return;
           setStoreOrderFilter('pending');
           setFocusStoreOrderId(order.id);
           setGroup('products');

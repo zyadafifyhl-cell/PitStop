@@ -51,12 +51,14 @@ import { useShopAuth } from '@/context/ShopAuthContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
 import { showCustomConfirm } from '@/lib/ui/CustomConfirmProvider';
 import { userAlert } from '@/lib/ui/userAlert';
-import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, DEFAULT_SERVICE_DURATION_MINUTES, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
+import { bookingStatusLabel, DEFAULT_WORK_CLOSE, DEFAULT_WORK_OPEN, formatBookingDateTime, formatShopScheduleLine, normalizeTimeHm, shopTypeLabel } from '@/lib/booking/format';
 import {
   cancelBookingReminders,
   scheduleBookingReminders,
 } from '@/lib/booking/bookingReminders';
 import { isStoreShopType } from '@/lib/booking/storeCatalog';
+import { STORE_PRODUCTS_RELEASED } from '@/lib/features/releaseHold';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { SHOP_ASSETS_BUCKET, uploadImageToBucket } from '@/lib/supabase/storageUpload';
 import { isQuotaExceededError } from '@/lib/media/persistImageUri';
 import {
@@ -146,7 +148,6 @@ export default function ShopScreen() {
   const [newServicePrice, setNewServicePrice] = useState('');
   const [workOpenTime, setWorkOpenTime] = useState(DEFAULT_WORK_OPEN);
   const [workCloseTime, setWorkCloseTime] = useState(DEFAULT_WORK_CLOSE);
-  const [serviceDurationMinutes, setServiceDurationMinutes] = useState(String(DEFAULT_SERVICE_DURATION_MINUTES));
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
   const [decisionTarget, setDecisionTarget] = useState<{
     notification: OwnerNotification;
@@ -190,7 +191,6 @@ export default function ShopScreen() {
     setWinchPhone(row.winchPhone ?? '');
     setWorkOpenTime(row.workOpenTime ?? DEFAULT_WORK_OPEN);
     setWorkCloseTime(row.workCloseTime ?? DEFAULT_WORK_CLOSE);
-    setServiceDurationMinutes(String(row.serviceDurationMinutes ?? DEFAULT_SERVICE_DURATION_MINUTES));
   }, [shop]);
 
   useEffect(() => {
@@ -217,14 +217,18 @@ export default function ShopScreen() {
     }
   }, [shop]);
 
-  const refreshBookings = useCallback(async () => {
+  const refreshBookings = useCallback(async (options?: { silent?: boolean }) => {
     if (!shop) return;
-    setLoadingBookings(true);
+    if (!options?.silent) setLoadingBookings(true);
     await autoCompleteDueBookings();
     const rows = await listBookingsForShop(shop.id);
     setBookings(rows);
     setLoadingBookings(false);
   }, [shop]);
+
+  useDataChanges(['bookings'], () => {
+    void refreshBookings({ silent: true });
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -706,8 +710,7 @@ export default function ShopScreen() {
     if (!shop) return;
     const open = normalizeTimeHm(workOpenTime);
     const close = normalizeTimeHm(workCloseTime);
-    const duration = Number(serviceDurationMinutes);
-    if (!open || !close || Number.isNaN(duration) || duration < 15) {
+    if (!open || !close) {
       setScheduleInlineOk(false);
       showSaveNotice(t('shop_schedule_invalid_title'), t('shop_schedule_invalid_body'));
       return;
@@ -720,7 +723,6 @@ export default function ShopScreen() {
     const saved = await setShopSchedule(shop.id, {
       workOpenTime: open,
       workCloseTime: close,
-      serviceDurationMinutes: duration,
     });
     const weeklyHours = defaultWeeklyHours().map((row) => ({
       ...row,
@@ -731,18 +733,16 @@ export default function ShopScreen() {
     const withWeekly = await setShopWeeklyHours(shop.id, weeklyHours);
     setWorkOpenTime(saved.workOpenTime ?? open);
     setWorkCloseTime(saved.workCloseTime ?? close);
-    setServiceDurationMinutes(String(saved.serviceDurationMinutes ?? duration));
     setShopExtras(withWeekly);
     setScheduleInlineOk(true);
     showSaveNotice(
       t('shop_schedule_saved_title'),
-      `${t('shop_schedule_saved_body')}\n\n${formatShopScheduleLine(open, close, duration, locale)}`,
+      `${t('shop_schedule_saved_body')}\n\n${formatShopScheduleLine(open, close, locale)}`,
     );
   }
 
   async function onSaveCapacity(input: {
     totalBays: number;
-    slotDurationMinutes: 30 | 45 | 60;
     openingTime: string;
     closingTime: string;
   }) {
@@ -753,7 +753,6 @@ export default function ShopScreen() {
         shopId: shop.id,
         branchId: capacityBranchId ?? shopExtras?.activeBranchId,
         totalBays: input.totalBays,
-        slotDurationMinutes: input.slotDurationMinutes,
         openingTime: input.openingTime,
         closingTime: input.closingTime,
         weeklyHours: shopExtras?.weeklyHours,
@@ -761,7 +760,6 @@ export default function ShopScreen() {
       setShopExtras(saved);
       setWorkOpenTime(saved.workOpenTime ?? input.openingTime);
       setWorkCloseTime(saved.workCloseTime ?? input.closingTime);
-      setServiceDurationMinutes(String(saved.slotDurationMinutes ?? input.slotDurationMinutes));
       if (saved.activeBranchId) setCapacityBranchId(saved.activeBranchId);
       showSaveNotice(t('capacity_save'), t('capacity_saved'));
     } catch {
@@ -991,7 +989,6 @@ export default function ShopScreen() {
     <>
       <CapacitySettingsCard
         totalBays={shopExtras?.totalBays}
-        slotDurationMinutes={shopExtras?.slotDurationMinutes ?? shopExtras?.serviceDurationMinutes}
         openingTime={shopExtras?.workOpenTime ?? workOpenTime}
         closingTime={shopExtras?.workCloseTime ?? workCloseTime}
         saving={capacitySaving}
@@ -1021,7 +1018,7 @@ export default function ShopScreen() {
         </OwnerSectionCard>
       </PremiumFeatureGate>
 
-      <StoreInventoryManager shop={shop} />
+      {STORE_PRODUCTS_RELEASED ? <StoreInventoryManager shop={shop} /> : null}
     </>
   );
 
@@ -1067,16 +1064,9 @@ export default function ShopScreen() {
         <TextInput placeholder="12:00" placeholderTextColor={theme.textDim} value={workOpenTime} onChangeText={(v) => { setWorkOpenTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
         <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_work_close_label')}</Text>
         <TextInput placeholder="22:00" placeholderTextColor={theme.textDim} value={workCloseTime} onChangeText={(v) => { setWorkCloseTime(v); setScheduleInlineOk(false); }} style={fieldStyle} />
-        <Text style={[styles.label, { color: theme.text }]}>{t('shop_manage_duration_label')}</Text>
-        <TextInput placeholder="30" placeholderTextColor={theme.textDim} keyboardType="numeric" value={serviceDurationMinutes} onChangeText={(v) => { setServiceDurationMinutes(v); setScheduleInlineOk(false); }} style={fieldStyle} />
-        {shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime && shopExtras.serviceDurationMinutes ? (
+        {shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime ? (
           <Text style={[styles.meta, { color: theme.accent, marginBottom: 8 }]}>
-            {formatShopScheduleLine(
-              shopExtras.workOpenTime,
-              shopExtras.workCloseTime,
-              shopExtras.serviceDurationMinutes,
-              locale,
-            )}
+            {formatShopScheduleLine(shopExtras.workOpenTime, shopExtras.workCloseTime, locale)}
           </Text>
         ) : null}
         {scheduleInlineOk ? (
@@ -1209,12 +1199,7 @@ export default function ShopScreen() {
   if (isStoreShopType(shop.type)) {
     const storeScheduleHint =
       shopHasSavedSchedule(shopExtras) && shopExtras?.workOpenTime && shopExtras.workCloseTime
-        ? formatShopScheduleLine(
-            shopExtras.workOpenTime,
-            shopExtras.workCloseTime,
-            shopExtras.serviceDurationMinutes ?? DEFAULT_SERVICE_DURATION_MINUTES,
-            locale,
-          )
+        ? formatShopScheduleLine(shopExtras.workOpenTime, shopExtras.workCloseTime, locale)
         : undefined;
 
     const onStoreTabChange = (tab: OwnerShellTabId) => {
@@ -1223,19 +1208,23 @@ export default function ShopScreen() {
       if (tab === 'operations') setStoreInventoryFilter('all');
     };
     const storeGroups = [
-      {
-        id: 'management',
-        icon: 'clipboard-list-outline' as const,
-        title: t('owner_group_orders'),
-        lead: t('owner_group_orders_lead'),
-        badge: orderNotifier.pendingStoreOrderCount,
-      },
-      {
-        id: 'operations',
-        icon: 'layers-outline' as const,
-        title: t('owner_group_inventory'),
-        lead: t('owner_group_inventory_lead'),
-      },
+      ...(STORE_PRODUCTS_RELEASED
+        ? [
+            {
+              id: 'management',
+              icon: 'clipboard-list-outline' as const,
+              title: t('owner_group_orders'),
+              lead: t('owner_group_orders_lead'),
+              badge: orderNotifier.pendingStoreOrderCount,
+            },
+            {
+              id: 'operations',
+              icon: 'layers-outline' as const,
+              title: t('owner_group_inventory'),
+              lead: t('owner_group_inventory_lead'),
+            },
+          ]
+        : []),
       {
         id: 'profile',
         icon: 'account-cog-outline' as const,
@@ -1327,7 +1316,7 @@ export default function ShopScreen() {
             </>
           ) : null}
 
-          {storeAdminTab === 'operations' ? (
+          {STORE_PRODUCTS_RELEASED && storeAdminTab === 'operations' ? (
             <StoreInventoryManager
               shop={shop}
               stockFilter={storeInventoryFilter}
@@ -1338,13 +1327,15 @@ export default function ShopScreen() {
           {storeAdminTab === 'management' ? (
             <>
               {shopOperatingStatusCard}
-              <StoreOrdersPanel
-                shop={shop}
-                statusFilter={storeOrderFilter}
-                onStatusFilterChange={setStoreOrderFilter}
-                focusOrderId={focusStoreOrderId}
-                onFocusOrderHandled={() => setFocusStoreOrderId(null)}
-              />
+              {STORE_PRODUCTS_RELEASED ? (
+                <StoreOrdersPanel
+                  shop={shop}
+                  statusFilter={storeOrderFilter}
+                  onStatusFilterChange={setStoreOrderFilter}
+                  focusOrderId={focusStoreOrderId}
+                  onFocusOrderHandled={() => setFocusStoreOrderId(null)}
+                />
+              ) : null}
               <OwnerReviewsHistory shopId={shop.id} />
             </>
           ) : null}
@@ -1453,13 +1444,15 @@ export default function ShopScreen() {
                 inServiceBookings.map((item) => renderBookingCard(item, true))
               )}
             </OwnerSectionCard>
-            <StoreOrdersPanel
-              shop={shop}
-              statusFilter={storeOrderFilter}
-              onStatusFilterChange={setStoreOrderFilter}
-              focusOrderId={focusStoreOrderId}
-              onFocusOrderHandled={() => setFocusStoreOrderId(null)}
-            />
+            {STORE_PRODUCTS_RELEASED ? (
+              <StoreOrdersPanel
+                shop={shop}
+                statusFilter={storeOrderFilter}
+                onStatusFilterChange={setStoreOrderFilter}
+                focusOrderId={focusStoreOrderId}
+                onFocusOrderHandled={() => setFocusStoreOrderId(null)}
+              />
+            ) : null}
             <OwnerReviewsHistory shopId={shop.id} />
             <OwnerHistoryPanel shop={shop} staff={shopStaff} variant="shop" />
           </>

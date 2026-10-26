@@ -9,6 +9,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useStoreCart } from '@/context/StoreCartContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { getShopById } from '@/lib/booking/catalogRepository';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { openPhone, openWhatsAppTo } from '@/lib/linking/contact';
 import { normalizePhoneE164 } from '@/lib/phone';
 import { cancelOwnStoreOrder, getStoreProductById, listStoreOrdersForUser } from '@/lib/store/productRepository';
@@ -89,6 +90,10 @@ export function CustomerStoreOrdersList({ userId }: Props) {
       setBusy(false);
     }
   }, [userId]);
+
+  useDataChanges(['orders'], () => {
+    void refresh();
+  });
 
   useFocusEffect(
     useCallback(() => {

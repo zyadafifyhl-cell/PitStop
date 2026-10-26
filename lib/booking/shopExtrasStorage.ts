@@ -303,7 +303,7 @@ export async function setShopSchedule(
   input: {
     workOpenTime: string;
     workCloseTime: string;
-    serviceDurationMinutes: number;
+    serviceDurationMinutes?: number;
     totalBays?: number;
   },
 ): Promise<ShopExtras> {
@@ -311,8 +311,10 @@ export async function setShopSchedule(
   const row = normalizeExtras(shopId, map[shopId]);
   row.workOpenTime = input.workOpenTime.trim();
   row.workCloseTime = input.workCloseTime.trim();
-  row.serviceDurationMinutes = Math.max(15, Math.min(240, Math.round(input.serviceDurationMinutes)));
-  row.slotDurationMinutes = row.serviceDurationMinutes;
+  if (input.serviceDurationMinutes != null) {
+    row.serviceDurationMinutes = Math.max(1, Math.round(input.serviceDurationMinutes));
+  }
+  row.slotDurationMinutes = 30;
   if (input.totalBays != null) {
     row.totalBays = Math.max(1, Math.min(50, Math.round(input.totalBays)));
   }
@@ -334,8 +336,6 @@ export async function persistShopCapacityLocal(
   const map = await readMap();
   const row = normalizeExtras(shopId, map[shopId]);
   row.totalBays = Math.max(1, Math.min(50, Math.round(input.totalBays)));
-  row.slotDurationMinutes = input.slotDurationMinutes;
-  row.serviceDurationMinutes = input.slotDurationMinutes;
   row.workOpenTime = input.workOpenTime.trim();
   row.workCloseTime = input.workCloseTime.trim();
   row.scheduleSavedAt = nowIso();

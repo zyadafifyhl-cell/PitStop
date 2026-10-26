@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { EMPTY_SHOP_ANALYTICS, type ShopAnalytics, type ShopAnalyticsTimeframe } from '@/lib/posTypes';
 import { currentMonthTimeframe, fetchShopAnalytics, rangeForAnalyticsTimeframe } from '@/lib/posRepository';
 import { getSupabase } from '@/lib/supabase/client';
@@ -29,6 +30,10 @@ export function useShopAnalytics(
       setLoading(false);
     }
   }, [shopId, range.from, range.to, timeframe, isCurrentMonth]);
+
+  useDataChanges(['finance', 'bookings'], () => {
+    void refresh();
+  });
 
   useEffect(() => {
     void refresh();

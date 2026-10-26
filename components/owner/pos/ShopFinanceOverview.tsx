@@ -7,6 +7,7 @@ import { BOXED_OVERLAY, type AppThemeTokens } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { formatEgp } from '@/lib/booking/reporting';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import type { TranslationKey } from '@/lib/i18n/strings';
 import {
   deleteShopExpense,
@@ -242,6 +243,10 @@ function FinanceCardDetailModal({
       setLoading(false);
     }
   }
+
+  useDataChanges(['finance'], () => {
+    if (visible) void reloadLines();
+  });
 
   function onDeleteExpense(line: FinanceDetailLine) {
     const expenseId = line.id.startsWith('exp:') ? line.id.slice(4) : line.id;

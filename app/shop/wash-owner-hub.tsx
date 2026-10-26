@@ -28,6 +28,7 @@ import { bookingStatusLabel, formatBookingDateTime } from '@/lib/booking/format'
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { formatEgp } from '@/lib/booking/reporting';
 import { listShopReviews, setReviewOwnerReply, computeShopRatingSummary, formatReviewStarRow } from '@/lib/booking/reviewsStorage';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import {
   autoCompleteDueBookings,
   completeBookingService,
@@ -138,14 +139,14 @@ export default function WashOwnerHubScreen() {
     setTab(resolveHubTab(rawTab, rawStream));
   }, [rawTab, rawStream]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!shop) {
       setNotifications([]);
       setReviews([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!options?.silent) setLoading(true);
     try {
       await autoCompleteDueBookings();
       const [notifRows, reviewRows, bookingRows, labels, totalBranches] = await Promise.all([
@@ -177,6 +178,10 @@ export default function WashOwnerHubScreen() {
       setLoading(false);
     }
   }, [shop, shopStaff, branchId, orderNotifier.refresh]);
+
+  useDataChanges(['bookings', 'reviews'], () => {
+    void refresh({ silent: true });
+  });
 
   useFocusEffect(
     useCallback(() => {

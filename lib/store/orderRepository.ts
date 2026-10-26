@@ -1,3 +1,4 @@
+import { emitDataChange } from '@/lib/data/dataChanges';
 import { getSupabase } from '@/lib/supabase/client';
 import type { StoreOrder, StoreOrderItem, StoreOrderStatus } from './types';
 
@@ -108,6 +109,7 @@ export async function updateStoreOrderStatus(
     return false;
   }
 
+  emitDataChange('orders');
   return true;
 }
 

@@ -11,6 +11,7 @@ import type {
   StoreProductDraft,
 } from '@/lib/store/types';
 import { normalizeProductImageUrls } from '@/lib/store/productImages';
+import { emitDataChange } from '@/lib/data/dataChanges';
 import { getSupabase } from '@/lib/supabase/client';
 
 type ProductRow = {
@@ -164,6 +165,7 @@ export async function createStoreProduct(draft: StoreProductDraft): Promise<Stor
     }
   }
 
+  emitDataChange('catalog');
   return getStoreProductById(productRow.id);
 }
 
@@ -238,6 +240,7 @@ export async function updateStoreProductFields(
   if (patch.inventoryKind != null) payload.inventory_kind = patch.inventoryKind;
 
   const { error } = await supabase.from('products').update(payload).eq('id', productId);
+  if (!error) emitDataChange('catalog');
   return !error;
 }
 
@@ -258,6 +261,7 @@ export async function deleteStoreProduct(productId: string, shopId: string): Pro
     .eq('id', productId)
     .eq('shop_id', shopId);
   if (error) console.warn('deleteStoreProduct:', error.message);
+  if (!error) emitDataChange('catalog');
   return !error;
 }
 
@@ -472,6 +476,7 @@ export async function cancelOwnStoreOrder(orderId: string): Promise<boolean> {
     console.error('cancelOwnStoreOrder:', error.message);
     return false;
   }
+  emitDataChange('orders');
   return true;
 }
 
@@ -484,6 +489,7 @@ export async function updateStoreOrderStatus(orderId: string, status: StoreOrder
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', orderId);
 
+  if (!error) emitDataChange('orders');
   return !error;
 }
 

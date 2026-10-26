@@ -1,37 +1,7 @@
-import type { Booking, BookingStatus, ShopDayHours, ShopExtras, ShopService } from '@/lib/booking/types';
-import { clampSlotDuration, clampTotalBays, DEFAULT_TOTAL_BAYS } from '@/lib/booking/bayCapacityConfig';
+import type { Booking, ShopDayHours, ShopExtras, ShopService } from '@/lib/booking/types';
+import { clampTotalBays, DEFAULT_TOTAL_BAYS, SLOT_GRID_MINUTES } from '@/lib/booking/bayCapacityConfig';
+import { occupancyForSlot } from '@/lib/booking/slotOccupancy';
 import { slotStartLocalMs, toDateYmd } from '@/lib/booking/format';
-
-const OCCUPYING_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'in_progress'];
-
-function occupancyForSlot(input: {
-  bookings: Booking[];
-  dateYmd: string;
-  timeHm: string;
-  durationMinutes: number;
-  totalBays: number;
-  branchId?: string;
-}) {
-  const total = clampTotalBays(input.totalBays);
-  const slotMs = slotStartLocalMs(input.dateYmd, input.timeHm);
-  const occupied =
-    slotMs == null
-      ? 0
-      : input.bookings.filter((booking) => {
-          if (!OCCUPYING_STATUSES.includes(booking.status)) return false;
-          if (input.branchId && booking.branchId && booking.branchId !== input.branchId) return false;
-          const bookedMs = new Date(booking.scheduledAt).getTime();
-          if (Number.isNaN(bookedMs)) return false;
-          return bookedMs >= slotMs && bookedMs < slotMs + Math.max(1, input.durationMinutes) * 60_000;
-        }).length;
-  const remaining = Math.max(total - occupied, 0);
-  return {
-    is_available: remaining > 0,
-    remaining_bays: remaining,
-    total_bays: total,
-    occupied_bays: Math.min(occupied, total),
-  };
-}
 
 export type SlotAvailability = 'available' | 'almost_full' | 'booked';
 
@@ -57,6 +27,20 @@ function minutesToHm(total: number): string {
   const h = Math.floor(total / 60) % 24;
   const m = total % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function appointmentHitsBreak(
+  startMinutes: number,
+  durationMinutes: number,
+  breakStart: number | null,
+  breakEnd: number | null,
+): boolean {
+  if (breakStart == null || breakEnd == null || breakEnd <= breakStart) return false;
+  for (let cursor = startMinutes; cursor < startMinutes + durationMinutes; cursor += SLOT_GRID_MINUTES) {
+    const clock = ((cursor % (24 * 60)) + 24 * 60) % (24 * 60);
+    if (clock >= breakStart && clock < breakEnd) return true;
+  }
+  return false;
 }
 
 const DAY_KEYS = [0, 1, 2, 3, 4, 5, 6] as const;
@@ -119,13 +103,23 @@ export function buildSlotsForShopDate(input: {
   now?: Date;
   branchId?: string;
   includePast?: boolean;
+  /** Minutes the chosen service occupies. Defaults to one 30-minute block. */
+  serviceDurationMinutes?: number;
 }): TimeSlotOption[] {
   if (input.extras?.washShopStatus === 'vacation' || input.extras?.washShopStatus === 'closed') {
     return [];
   }
 
-  const { openTime, closeTime, closed, durationMinutes } = getDayHoursForDate(input.extras, input.dateYmd);
+  const { openTime, closeTime, closed } = getDayHoursForDate(input.extras, input.dateYmd);
   if (closed || !openTime || !closeTime) return [];
+  const serviceDuration = Math.max(
+    1,
+    Math.round(
+      input.serviceDurationMinutes && input.serviceDurationMinutes > 0
+        ? input.serviceDurationMinutes
+        : SLOT_GRID_MINUTES,
+    ),
+  );
 
   const d = new Date(`${input.dateYmd}T12:00:00`);
   const day = d.getDay() as ShopDayHours['day'];
@@ -144,22 +138,24 @@ export function buildSlotsForShopDate(input: {
   const totalBays = clampTotalBays(input.extras?.totalBays ?? DEFAULT_TOTAL_BAYS);
 
   const slots: TimeSlotOption[] = [];
-  for (let start = open; start + durationMinutes <= end; start += durationMinutes) {
+  let gridStart = open;
+  const gridRemainder = gridStart % SLOT_GRID_MINUTES;
+  if (gridRemainder !== 0) gridStart += SLOT_GRID_MINUTES - gridRemainder;
+
+  for (let start = gridStart; start + serviceDuration <= end; start += SLOT_GRID_MINUTES) {
     const normalizedStart = start >= 24 * 60 ? start - 24 * 60 : start;
     const time = minutesToHm(normalizedStart);
     const slotMs = slotStartLocalMs(input.dateYmd, time);
     if (slotMs == null) continue;
     const isPast = slotMs <= now.getTime();
     if (isPast && !input.includePast) continue;
-    if (breakStart != null && breakEnd != null && normalizedStart >= breakStart && normalizedStart < breakEnd) {
-      continue;
-    }
+    if (appointmentHitsBreak(start, serviceDuration, breakStart, breakEnd)) continue;
 
     const occupancy = occupancyForSlot({
       bookings: input.bookings,
       dateYmd: input.dateYmd,
       timeHm: time,
-      durationMinutes,
+      durationMinutes: serviceDuration,
       totalBays,
       branchId: input.branchId,
     });

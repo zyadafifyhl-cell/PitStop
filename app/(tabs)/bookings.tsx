@@ -18,6 +18,7 @@ import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { addShopReview, getCustomerShopReview } from '@/lib/booking/reviewsStorage';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { orderHistoryReviewBody } from '@/lib/booking/reviewConstants';
 import { clearCustomerInvoices } from '@/lib/booking/commerceEvents';
 import {
@@ -83,6 +84,10 @@ export default function MyBookingsScreen() {
     }
     setBusy(false);
   }, [customer?.id, customer?.phone]);
+
+  useDataChanges(['bookings'], () => {
+    void refreshBookings();
+  });
 
   useFocusEffect(
     useCallback(() => {

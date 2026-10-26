@@ -9,6 +9,7 @@ import type {
 } from '@/lib/community/types';
 import { cacheCustomerNotifications } from '@/lib/booking/commerceEvents';
 import { APP_BRAND_NAME } from '@/constants/Brand';
+import { emitDataChange } from '@/lib/data/dataChanges';
 import { getSupabase } from '@/lib/supabase/client';
 
 const LOCAL_POSTS_KEY = '@pitstop/community-posts/v1';
@@ -531,12 +532,14 @@ export async function createCommunityPost(input: {
     if (!error && data) {
       const row = mapPostRow(data as PostRow, input.userId, { authorName, authorRole });
       await upsertLocalPost(row);
+      emitDataChange('community');
       return row;
     }
   }
 
   const row = buildLocal(id('post'), new Date().toISOString());
   await upsertLocalPost(row);
+  emitDataChange('community');
   return row;
 }
 
@@ -706,6 +709,7 @@ export async function addCommunityComment(input: {
       const row = mapCommentRow(data as CommentRow, input.userId, { authorName, authorRole });
       const comments = await readLocalComments();
       await writeLocalComments([...comments, row]);
+      emitDataChange('community');
       return row;
     }
   }
@@ -725,6 +729,7 @@ export async function addCommunityComment(input: {
   };
   const comments = await readLocalComments();
   await writeLocalComments([...comments, row]);
+  emitDataChange('community');
   return row;
 }
 
@@ -786,6 +791,7 @@ export async function deleteOwnCommunityPost(input: { postId: string; userId: st
   await writeLocalPosts(posts.filter((row) => row.id !== postId));
   const comments = await readLocalComments();
   await writeLocalComments(comments.filter((row) => row.postId !== postId));
+  emitDataChange('community');
 }
 
 export async function reportCommunityComment(

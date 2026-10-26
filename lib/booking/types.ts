@@ -251,11 +251,11 @@ export type ShopExtras = {
   workOpenTime?: string;
   /** Daily closing time HH:mm (e.g. 22:00). */
   workCloseTime?: string;
-  /** Minutes per booking slot (e.g. 30 for car wash). */
+  /** Legacy shop-level duration. Slot generation uses each service's own duration. */
   serviceDurationMinutes?: number;
   /** Concurrent working bays / slots for this branch. */
   totalBays?: number;
-  /** Slot grid interval; kept in sync with serviceDurationMinutes. */
+  /** Legacy slot gap. The bookable grid is always 30 minutes. */
   slotDurationMinutes?: number;
   /** Set when owner saves working hours — customer booking uses these slots. */
   scheduleSavedAt?: string;

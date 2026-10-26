@@ -1,5 +1,5 @@
 import { router, type Href } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -37,6 +37,7 @@ import {
 import { shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp } from '@/lib/booking/reporting';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 
@@ -48,6 +49,8 @@ export function AdminPanel() {
   const { staff } = useShopAuth();
   const { signOut } = useAppSignOut();
   const [tab, setTab] = useState<AdminTab>('dashboard');
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
   const [busyId, setBusyId] = useState<string | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [pendingLoading, setPendingLoading] = useState(false);
@@ -115,6 +118,15 @@ export function AdminPanel() {
     if (scope === 'all' || scope === 'moderation') tasks.push(loadModeration());
     await Promise.all(tasks);
   }, [loadDashboard, loadPending, loadMerchants, loadModeration]);
+
+  useDataChanges(['admin', 'bookings', 'finance'], (scopes) => {
+    const current = tabRef.current;
+    if (scopes.includes('admin')) {
+      void reload(current);
+      return;
+    }
+    if (current === 'dashboard') void reload('dashboard');
+  });
 
   useEffect(() => {
     void reload('dashboard');

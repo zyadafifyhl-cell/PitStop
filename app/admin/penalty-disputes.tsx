@@ -12,6 +12,7 @@ import {
   type PendingPenaltyDispute,
 } from '@/lib/admin/adminRepository';
 import { formatEgp } from '@/lib/booking/reporting';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
 
 export default function AdminPenaltyDisputesScreen() {
@@ -32,6 +33,10 @@ export default function AdminPenaltyDisputesScreen() {
       setLoading(false);
     }
   }, [t]);
+
+  useDataChanges(['admin', 'bookings'], () => {
+    void refresh();
+  });
 
   useEffect(() => {
     if (!isAdmin) {

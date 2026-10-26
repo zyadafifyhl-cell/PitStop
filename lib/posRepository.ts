@@ -1,5 +1,6 @@
 /** Car-wash POS queries and RPCs. */
 import type { Booking } from '@/lib/booking/types';
+import { emitDataChange } from '@/lib/data/dataChanges';
 import {
     DEMO_SHOP_ANALYTICS,
     EMPTY_SHOP_ANALYTICS,
@@ -116,6 +117,7 @@ export async function closePosShift(shiftId: string, actualCash: number): Promis
     p_actual_cash: actualCash,
   });
   if (error || !data) throw error ?? new Error('Could not close shift');
+  emitDataChange('finance');
   return mapShift(data as Record<string, unknown>);
 }
 
@@ -172,6 +174,7 @@ export async function createWalkInPosOrder(input: {
       p_workflow_stage: input.workflowStage ?? (remaining > 0 ? 'in_progress' : 'ready_for_delivery'),
     });
   }
+  emitDataChange('finance');
   return data;
 }
 
@@ -222,6 +225,7 @@ export async function updatePosOrderWorkflow(orderId: string, stage: PosWorkflow
     p_workflow_stage: stage,
   });
   if (error) throw error;
+  emitDataChange('finance', 'orders');
 }
 
 export async function logShopExpense(input: {
@@ -243,6 +247,7 @@ export async function logShopExpense(input: {
     p_deduct_cash: input.deductCash ?? true,
   });
   if (error) throw error;
+  emitDataChange('finance');
 }
 
 export async function deleteShopExpense(expenseId: string): Promise<void> {
@@ -250,6 +255,7 @@ export async function deleteShopExpense(expenseId: string): Promise<void> {
   if (!supabase) throw new Error('Supabase is not configured');
   const { error } = await supabase.from('shop_expenses').delete().eq('id', expenseId);
   if (error) throw error;
+  emitDataChange('finance');
 }
 
 export async function logEmployeePayroll(input: {
@@ -279,6 +285,7 @@ export async function logEmployeePayroll(input: {
       deductCash: true,
     });
   }
+  emitDataChange('finance');
 }
 
 export async function updateEmployeePayRates(input: {
@@ -298,6 +305,7 @@ export async function updateEmployeePayRates(input: {
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.employeeId);
+  if (!error) emitDataChange('finance');
   return !error;
 }
 

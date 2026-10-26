@@ -38,6 +38,7 @@ import {
   notifyMerchantBookingCancelled,
   notifyMerchantBookingCreated,
 } from '@/lib/booking/wash/merchantNotifications';
+import { emitDataChange } from '@/lib/data/dataChanges';
 import { normalizePhoneE164, phoneLookupVariants } from '@/lib/phone';
 import { getSupabase } from '@/lib/supabase/client';
 
@@ -577,7 +578,13 @@ export async function createBooking(
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not configured');
   if (branchId && initialStatus !== 'cancelled' && initialStatus !== 'done' && initialStatus !== 'no_show') {
-    const availability = await checkSlotAvailability(branchId, input.scheduledAt);
+    const availability = await checkSlotAvailability(
+      branchId,
+      input.scheduledAt,
+      input.serviceDurationMinutes && input.serviceDurationMinutes > 0
+        ? input.serviceDurationMinutes
+        : undefined,
+    );
     if (!availability.is_available) {
       throw new SlotFullError();
     }
@@ -634,6 +641,7 @@ export async function createBooking(
     try {
       const attached = await attachOutstandingPenaltyToBooking(created.id);
       if (attached > 0) {
+        emitDataChange('bookings', 'finance');
         return {
           ...created,
           collectedPenaltyEgp: attached,
@@ -644,6 +652,7 @@ export async function createBooking(
       console.warn('Penalty attach on booking create failed (non-blocking):', error);
     }
   }
+  emitDataChange('bookings', 'finance');
   return created;
 }
 
@@ -753,6 +762,7 @@ export async function updateBookingStatus(
     .maybeSingle();
   if (error || !data) return null;
   const updated = mapBookingRow(data as BookingRow);
+  emitDataChange('bookings', 'finance');
 
   if (updated && status === 'cancelled' && previousStatus !== 'cancelled') {
     await notifyWashOwnerBooking(updated, 'cancelled_booking');
@@ -794,7 +804,10 @@ export async function startBookingService(booking: Booking): Promise<Booking | n
     const { data, error } = await supabase.rpc('start_booking_service', { p_booking_id: booking.id });
     if (!error) {
       const mapped = bookingFromRpcPayload(data);
-      if (mapped) return mapped;
+      if (mapped) {
+        emitDataChange('bookings', 'finance');
+        return mapped;
+      }
     } else {
       console.warn('startBookingService:', error.message);
     }
@@ -819,6 +832,7 @@ export async function completeBookingService(
         if (mapped.status === 'done' && previousStatus !== 'done') {
           await afterBookingCompleted(mapped, previousStatus);
         }
+        emitDataChange('bookings', 'finance');
         return mapped;
       }
     } else {
@@ -844,6 +858,7 @@ export async function autoCompleteDueBookings(): Promise<number> {
       const booking = mapBookingRow(row as BookingRow);
       await afterBookingCompleted(booking, 'in_progress');
     }
+    emitDataChange('bookings', 'finance');
   }
   return Number(payload.count ?? ids.length ?? 0);
 }
@@ -943,13 +958,15 @@ export async function markBookingNoShow(
     .eq('id', bookingId)
     .maybeSingle();
   if (fetchError) throw new Error(fetchError.message);
-  return data ? mapBookingRow(data as BookingRow) : fallback ? {
+  const mapped = data ? mapBookingRow(data as BookingRow) : fallback ? {
     ...fallback,
     status: 'no_show',
     penaltyFee: NO_SHOW_PENALTY_EGP,
     penaltyPaid: false,
     disputeStatus: 'none',
   } : null;
+  if (mapped) emitDataChange('bookings', 'finance');
+  return mapped;
 }
 
 export async function submitPenaltyDispute(bookingId: string, reason: string): Promise<void> {
@@ -960,6 +977,7 @@ export async function submitPenaltyDispute(bookingId: string, reason: string): P
     p_reason: reason.trim(),
   });
   if (error) throw new Error(error.message);
+  emitDataChange('bookings', 'admin');
 }
 
 export async function applyPenaltyPayment(
@@ -1044,6 +1062,7 @@ export async function cancelCustomerServiceBooking(
     await notifyWashOwnerBooking(updated, 'cancelled_booking');
   }
 
+  emitDataChange('bookings', 'finance');
   return { booking: updated, penaltyApplied, hoursBefore, outstandingBalance };
 }
 
@@ -1051,6 +1070,7 @@ export async function deleteBookingForShop(shopId: string, bookingId: string): P
   const supabase = getSupabase();
   if (!supabase || !isUuid(bookingId)) return false;
   const { error } = await supabase.from('bookings').delete().eq('id', bookingId).eq('shop_id', shopId);
+  if (!error) emitDataChange('bookings', 'finance');
   return !error;
 }
 
@@ -1058,7 +1078,9 @@ export async function clearShopBookingHistory(shopId: string): Promise<number> {
   const supabase = getSupabase();
   if (!supabase) return 0;
   const { data, error } = await supabase.from('bookings').delete().eq('shop_id', shopId).select('id');
-  return error ? 0 : (data?.length ?? 0);
+  const removed = error ? 0 : (data?.length ?? 0);
+  if (removed > 0) emitDataChange('bookings', 'finance');
+  return removed;
 }
 
 export async function getSavedCustomerPhone(): Promise<string | null> {
@@ -1092,6 +1114,7 @@ export async function clearCustomerBookingHistory(input: {
     .map((row) => row.id);
 
   await persistHiddenCustomerBookingIds(input.phone, input.customerId, historyIds);
+  emitDataChange('bookings');
 
   const supabase = getSupabase();
   if (!supabase) return;

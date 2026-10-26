@@ -19,6 +19,7 @@ import { useI18n } from '@/context/I18nContext';
 import { useStoreCart } from '@/context/StoreCartContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { shopSupportsInShopStore } from '@/lib/booking/storeCatalog';
+import { STORE_PRODUCTS_RELEASED } from '@/lib/features/releaseHold';
 import type { ShopType } from '@/lib/booking/types';
 import { listStoreProductsByShop } from '@/lib/store/productRepository';
 import type { StoreProduct } from '@/lib/store/types';
@@ -63,7 +64,7 @@ export function ShopProfileStoreSection({ shopId, shopType, shopName }: Props) {
   const cellStyle = useCssGrid ? styles.gridCell : styles.flexCell;
 
   const loadProducts = useCallback(async () => {
-    if (!supported || !shopId) {
+    if (!STORE_PRODUCTS_RELEASED || !supported || !shopId) {
       setProducts([]);
       setLoading(false);
       return;
@@ -81,7 +82,7 @@ export function ShopProfileStoreSection({ shopId, shopType, shopName }: Props) {
     }, [loadProducts, refreshCart]),
   );
 
-  if (!supported) return null;
+  if (!STORE_PRODUCTS_RELEASED || !supported) return null;
 
   async function onAddToCart(product: StoreProduct) {
     if (!customer?.id || isGuest) {

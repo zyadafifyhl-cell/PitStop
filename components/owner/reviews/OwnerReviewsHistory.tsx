@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import {
@@ -87,6 +88,10 @@ export function OwnerReviewsHistory({ shopId, leadVariant = 'owner' }: Props) {
       setLoading(false);
     }
   }, [shopId]);
+
+  useDataChanges(['reviews'], () => {
+    void loadReviews();
+  });
 
   useFocusEffect(
     useCallback(() => {

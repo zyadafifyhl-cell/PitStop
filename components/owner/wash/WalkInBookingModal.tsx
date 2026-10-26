@@ -15,6 +15,7 @@ import {
 import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
+import { toServiceDurationMinutes } from '@/lib/booking/bayCapacityConfig';
 import { formatBookingDateTime } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
 import { formatShopServicePrice } from '@/lib/booking/shopServicePrice';
@@ -52,7 +53,13 @@ function buildWalkInMultiServicePayload(services: ShopService[], locale: 'en' | 
     serviceName: names.join(', '),
     serviceNameAr: namesAr.join(locale === 'ar' ? '، ' : ', '),
     servicePriceEgp: services.reduce((sum, service) => sum + service.priceEgp, 0),
-    serviceDurationMinutes: services.reduce((sum, service) => sum + service.durationMinutes, 0),
+    serviceDurationMinutes: (() => {
+      const minutes = services.reduce(
+        (sum, service) => sum + toServiceDurationMinutes(service.durationMinutes, service.durationUnit),
+        0,
+      );
+      return minutes > 0 ? minutes : undefined;
+    })(),
   };
 }
 

@@ -20,6 +20,7 @@ import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { listArchivedBookingsForStaff, sortArchivedBookingsForDisplay } from '@/lib/booking/bookingHistoryRepository';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverride';
 import { clearAllShopHistory, hideMerchantHistoryItem } from '@/lib/booking/merchantHistoryRepository';
 import { isAutoCompletedBooking, markBookingNoShow } from '@/lib/booking/storage';
@@ -128,6 +129,10 @@ export function OwnerHistoryPanel({
   useEffect(() => {
     void loadHistory();
   }, [loadHistory]);
+
+  useDataChanges(['bookings'], () => {
+    void loadHistory();
+  });
 
   useEffect(() => {
     if (!shop.id) return;

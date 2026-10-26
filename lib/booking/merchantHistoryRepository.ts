@@ -1,3 +1,4 @@
+import { emitDataChange } from '@/lib/data/dataChanges';
 import { getSupabase } from '@/lib/supabase/client';
 
 export type MerchantHistoryKind = 'booking' | 'store_order';
@@ -18,6 +19,7 @@ export async function hideMerchantHistoryItem(input: {
     console.warn('[merchantHistory] hide_history_item:', error.message);
     return false;
   }
+  emitDataChange(input.type === 'booking' ? 'bookings' : 'orders');
   return true;
 }
 
@@ -35,5 +37,6 @@ export async function clearAllShopHistory(input: {
     console.warn('[merchantHistory] clear_all_shop_history:', error.message);
     return false;
   }
+  emitDataChange(input.type === 'booking' ? 'bookings' : 'orders');
   return true;
 }

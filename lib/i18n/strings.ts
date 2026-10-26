@@ -2201,7 +2201,7 @@ export const EN = {
   owner_register_address_ar: 'Business address in Arabic',
   owner_register_type_hint: 'Choose the category customers will use to find you.',
   capacity_title: 'Capacity & Working Bays',
-  capacity_lead: 'How many cars this branch can service at the same time.',
+  capacity_lead: 'How many cars this branch can service at the same time. Times stay on a 30-minute grid, and each service blocks every interval it spans.',
   capacity_bays_label: 'Total Working Bays / Slots',
   capacity_interval_label: 'Slot Interval / Duration',
   capacity_interval_minutes: '{n} min',
