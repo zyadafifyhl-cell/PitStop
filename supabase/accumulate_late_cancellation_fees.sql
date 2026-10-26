@@ -157,7 +157,9 @@ set search_path = public
 as $$
 declare
   v_booking public.bookings%rowtype;
+  v_collection public.penalty_collections%rowtype;
   v_penalty numeric := 0;
+  v_returned numeric(10, 2) := 0;
   v_hours_before numeric;
   v_outstanding numeric;
 begin
@@ -185,17 +187,41 @@ begin
   end if;
 
   v_hours_before := extract(epoch from (v_booking.scheduled_at - now())) / 3600.0;
-  if v_booking.shop_type in ('wash'::public.shop_type, 'maintenance'::public.shop_type)
+  if v_booking.shop_type in (
+       'wash'::public.shop_type,
+       'detailing_studio'::public.shop_type,
+       'maintenance'::public.shop_type
+     )
+     and v_booking.status in (
+       'confirmed'::public.booking_status,
+       'in_progress'::public.booking_status
+     )
      and v_hours_before < 4 then
     v_penalty := 20;
   end if;
 
-  -- Record this cancellation before rebuilding the account total, so a second
-  -- (and third) late cancel is another 20 EGP on top of the fees already owed.
+  -- A new booking pulls the current balance off the account. If that booking is
+  -- cancelled, the customer never paid those fees, so they go back on the account
+  -- and the new 20 EGP late fee is added on top.
+  select * into v_collection
+  from public.penalty_collections
+  where collection_booking_id = p_booking_id
+  for update;
+  if found then
+    v_returned := coalesce(v_collection.amount, 0);
+    delete from public.penalty_collections
+    where collection_booking_id = p_booking_id;
+  end if;
+
   update public.bookings
   set status = 'cancelled'::public.booking_status,
       cancellation_penalty_applied_egp = v_penalty,
       late_cancelled_at = case when v_penalty > 0 then now() else null end,
+      collected_penalty_egp = 0,
+      final_amount_paid_egp = greatest(
+        coalesce(final_amount_paid_egp, service_price_egp, 0) - v_returned,
+        0
+      ),
       updated_at = now()
   where id = p_booking_id;
 

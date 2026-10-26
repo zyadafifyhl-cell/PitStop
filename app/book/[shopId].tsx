@@ -61,9 +61,11 @@ import {
 } from '@/lib/booking/shopSchedule';
 import { isSlotFullError } from '@/lib/booking/bayCapacity';
 import {
+  cancelCustomerServiceBooking,
   createBooking,
   getMyPenaltyBalance,
   getSavedCustomerPhone,
+  listBookingsForPhone,
   listBookingsForShop,
   saveCustomerPhone,
 } from '@/lib/booking/storage';
@@ -137,6 +139,8 @@ export default function BookShopScreen() {
   const [slotNowMs, setSlotNowMs] = useState(() => Date.now());
   const [saving, setSaving] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
+  const [receiptBookingId, setReceiptBookingId] = useState<string | null>(null);
+  const [cancellingReceipt, setCancellingReceipt] = useState(false);
   const [receiptSummary, setReceiptSummary] = useState<{
     shopName: string;
     serviceLabels: string[];
@@ -268,7 +272,10 @@ export default function BookShopScreen() {
     if (!shop) return;
     let cancelled = false;
     void getCachedBookableShopExtras(shop.id).then((cached) => {
-      if (!cancelled && cached) setShopExtras((current) => current ?? cached);
+      if (!cancelled && cached) {
+        // Cached offers can outlive the offers table. Wait for the live fetch.
+        setShopExtras((current) => current ?? { ...cached, offers: [] });
+      }
     });
     return () => {
       cancelled = true;
@@ -596,7 +603,7 @@ export default function BookShopScreen() {
 
     setSaving(true);
     try {
-      await createBooking({
+      const created = await createBooking({
         shopId: shop.id,
         shopType: shop.type,
         branchId: bookingBranchId,
@@ -629,10 +636,11 @@ export default function BookShopScreen() {
       }
       await saveCustomerPhone(normalizedPhone);
       await refreshLoyaltyBalance();
+      setReceiptBookingId(created.id);
       setReceiptSummary({
         shopName,
         serviceLabels,
-        totalPrice: loyaltyCheckout.finalAmountPaidEgp + collectiblePenaltyBalance,
+        totalPrice: checkoutTotalDueEgp,
         totalMinutes,
         scheduledAt,
         timeSlot,
@@ -651,10 +659,48 @@ export default function BookShopScreen() {
     }
   }
 
-  function onFinalizeBooking() {
+  function closeReceipt() {
     setSuccessVisible(false);
     setReceiptSummary(null);
+    setReceiptBookingId(null);
+  }
+
+  function onFinalizeBooking() {
+    closeReceipt();
     router.replace('/bookings');
+  }
+
+  async function onCancelReceiptBooking() {
+    if (cancellingReceipt) return;
+    setCancellingReceipt(true);
+    try {
+      let bookingId = receiptBookingId;
+      if (!bookingId && customer?.phone && shop?.id) {
+        const rows = await listBookingsForPhone(customer.phone, customer.id);
+        bookingId =
+          rows
+            .filter((row) => row.shopId === shop.id && row.status === 'pending')
+            .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0]?.id ?? null;
+      }
+      if (!bookingId) {
+        userAlert(t('book_cancel_title'), t('book_cancel_failed'));
+        return;
+      }
+      const result = await cancelCustomerServiceBooking(bookingId);
+      if (!result) {
+        userAlert(t('book_cancel_title'), t('book_cancel_failed'));
+        return;
+      }
+      const balance = await getMyPenaltyBalance().catch(() => null);
+      if (balance) setCollectiblePenaltyBalance(balance.collectibleBalance);
+      closeReceipt();
+      userAlert(
+        t('book_cancel_success'),
+        result.penaltyApplied > 0 ? t('book_cancel_penalty_added') : t('book_cancel_body_pending'),
+      );
+    } finally {
+      setCancellingReceipt(false);
+    }
   }
 
   function onRedeemMaxPoints() {
@@ -1287,7 +1333,7 @@ export default function BookShopScreen() {
         </Pressable>
       </ScrollView>
 
-      <Modal visible={successVisible} transparent animationType="fade" onRequestClose={onFinalizeBooking}>
+      <Modal visible={successVisible} transparent animationType="fade" onRequestClose={closeReceipt}>
         <View style={styles.successBackdrop}>
           <View
             style={[
@@ -1297,6 +1343,13 @@ export default function BookShopScreen() {
                 borderColor: theme.border,
               },
             ]}>
+            <Pressable
+              onPress={closeReceipt}
+              hitSlop={8}
+              accessibilityLabel={t('alert_cancel')}
+              style={[styles.receiptClose, { backgroundColor: theme.bgElevated }]}>
+              <FontAwesome name="times" size={18} color={theme.text} />
+            </Pressable>
             <View style={[styles.successIconWrap, { backgroundColor: theme.accent }]}>
               <FontAwesome name="check" size={28} color={theme.onAccent} />
             </View>
@@ -1320,7 +1373,10 @@ export default function BookShopScreen() {
               <View style={styles.receiptSection}>
                 <Text style={[styles.receiptLabel, { color: theme.textMuted }]}>{t('book_receipt_total')}</Text>
                 <Text style={[styles.receiptValue, { color: theme.text }]}>
-                  {formatEgp(receiptSummary?.totalPrice ?? baseTotalPrice, locale)}
+                  {formatEgp(
+                    checkoutTotalDueEgp > 0 ? checkoutTotalDueEgp : (receiptSummary?.totalPrice ?? baseTotalPrice),
+                    locale,
+                  )}
                   {(receiptSummary?.totalMinutes ?? totalMinutes) > 0
                     ? ` · ${receiptSummary?.totalMinutes ?? totalMinutes} ${locale === 'ar' ? 'دقيقة' : 'min'}`
                     : ''}
@@ -1342,6 +1398,17 @@ export default function BookShopScreen() {
               </View>
             </View>
 
+            <Pressable
+              onPress={onCancelReceiptBooking}
+              disabled={cancellingReceipt}
+              style={[
+                styles.receiptCancelBtn,
+                { borderColor: theme.danger, opacity: cancellingReceipt ? 0.65 : 1 },
+              ]}>
+              <Text style={[styles.receiptCancelText, { color: theme.danger }]}>
+                {cancellingReceipt ? t('book_saving') : t('book_cancel_btn')}
+              </Text>
+            </Pressable>
             <Pressable onPress={onFinalizeBooking} style={[styles.successBtn, { backgroundColor: theme.accent }]}>
               <Text style={[styles.successBtnText, { color: theme.onAccent }]}>{t('book_receipt_finalize')}</Text>
             </Pressable>
@@ -1555,6 +1622,18 @@ const styles = StyleSheet.create({
     ...BOXED_OVERLAY.card,
     alignItems: 'center',
     padding: 24,
+    position: 'relative',
+  },
+  receiptClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
   successIconWrap: {
     width: 64,
@@ -1580,6 +1659,15 @@ const styles = StyleSheet.create({
   receiptBullet: { fontSize: 14, lineHeight: 20 },
   receiptValue: { fontSize: 15, fontWeight: '800', lineHeight: 22 },
   receiptMeta: { fontSize: 13, lineHeight: 18 },
+  receiptCancelBtn: {
+    width: '100%',
+    borderRadius: 9,
+    borderWidth: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  receiptCancelText: { fontWeight: '700', fontSize: 16 },
   successBtn: {
     width: '100%',
     borderRadius: 9,

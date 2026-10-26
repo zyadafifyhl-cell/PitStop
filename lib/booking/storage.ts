@@ -528,6 +528,7 @@ export async function createBooking(
   );
   let servicePriceEgp = baseServicePriceEgp;
   let resolvedOfferId = input.offerId;
+  let offerDropped = false;
 
   if (input.offerId) {
     try {
@@ -547,28 +548,46 @@ export async function createBooking(
       }
       resolvedOfferId = offer.id;
     } catch (error) {
-      if (error instanceof OfferValidationError) {
-        throw error;
-      }
-      throw error;
+      if (!(error instanceof OfferValidationError)) throw error;
+      // The screen can still be holding a copy of an offer that is inactive
+      // or hidden. Book the visit at the normal price instead of failing.
+      offerDropped = true;
+      resolvedOfferId = undefined;
+      servicePriceEgp = baseServicePriceEgp;
     }
   }
 
-  const platformFeeEgp = computePlatformFee(
-    options?.loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp,
-    PLATFORM_FEE_RATE,
+  const loyaltyDiscountEgp = Math.min(
+    options?.loyaltyCheckout?.discountAppliedEgp ?? 0,
+    offerDropped ? baseServicePriceEgp : Number.POSITIVE_INFINITY,
   );
+  const loyaltyCheckout = offerDropped
+    ? options?.loyaltyCheckout
+      ? {
+          originalPriceEgp: baseServicePriceEgp,
+          pointsRedeemed: options.loyaltyCheckout.pointsRedeemed,
+          discountAppliedEgp: loyaltyDiscountEgp,
+          finalAmountPaidEgp: Math.max(
+            0,
+            Math.round((baseServicePriceEgp - loyaltyDiscountEgp) * 100) / 100,
+          ),
+        }
+      : undefined
+    : options?.loyaltyCheckout;
+  const chargedEgp = loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp;
+
+  const platformFeeEgp = computePlatformFee(chargedEgp, PLATFORM_FEE_RATE);
   const booking: Booking = {
     ...input,
     offerId: resolvedOfferId,
     branchId: branchId ?? input.branchId,
     bookingType,
-    servicePriceEgp: options?.loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp,
+    servicePriceEgp: chargedEgp,
     platformFeeEgp,
-    originalPriceEgp: options?.loyaltyCheckout?.originalPriceEgp ?? servicePriceEgp,
-    pointsRedeemed: options?.loyaltyCheckout?.pointsRedeemed ?? 0,
-    discountAppliedEgp: options?.loyaltyCheckout?.discountAppliedEgp ?? 0,
-    finalAmountPaidEgp: options?.loyaltyCheckout?.finalAmountPaidEgp ?? servicePriceEgp,
+    originalPriceEgp: loyaltyCheckout?.originalPriceEgp ?? servicePriceEgp,
+    pointsRedeemed: loyaltyCheckout?.pointsRedeemed ?? 0,
+    discountAppliedEgp: loyaltyCheckout?.discountAppliedEgp ?? 0,
+    finalAmountPaidEgp: chargedEgp,
     id: '',
     status: initialStatus,
     createdAt: new Date().toISOString(),
@@ -590,7 +609,7 @@ export async function createBooking(
       status: initialStatus,
       bookingType,
       branchId,
-      loyaltyCheckout: options?.loyaltyCheckout,
+      loyaltyCheckout,
     },
   );
   const { data, error } = await supabase.from('bookings').insert(insertRow).select('*').single();
@@ -612,8 +631,8 @@ export async function createBooking(
     }
   }
   if (
-    options?.loyaltyCheckout &&
-    options.loyaltyCheckout.pointsRedeemed > 0 &&
+    loyaltyCheckout &&
+    loyaltyCheckout.pointsRedeemed > 0 &&
     isUuid(created.id) &&
     isUuid(input.customerId)
   ) {
@@ -622,8 +641,8 @@ export async function createBooking(
         userId: input.customerId,
         shopId: created.shopId,
         bookingId: created.id,
-        pointsToRedeem: options.loyaltyCheckout.pointsRedeemed,
-        discountEgp: options.loyaltyCheckout.discountAppliedEgp,
+        pointsToRedeem: loyaltyCheckout.pointsRedeemed,
+        discountEgp: loyaltyCheckout.discountAppliedEgp,
       });
     } catch (loyaltyError) {
       console.warn('Merchant loyalty deduction failed (non-blocking):', loyaltyError);
@@ -980,6 +999,7 @@ export async function applyPenaltyPayment(
 
 /** Preview whether cancel_customer_service_booking would charge the 20 EGP fee. */
 export function wouldApplyLateCancelPenalty(booking: Booking, nowMs = Date.now()): boolean {
+  if (booking.status !== 'confirmed' && booking.status !== 'in_progress') return false;
   if (booking.shopType !== 'wash' && booking.shopType !== 'detailing_studio' && booking.shopType !== 'maintenance') return false;
   const scheduledMs = new Date(booking.scheduledAt).getTime();
   if (Number.isNaN(scheduledMs)) return false;

@@ -43,8 +43,7 @@ function mergeOffersIntoExtras(
 ): Record<string, ShopExtras> {
   const next: Record<string, ShopExtras> = {};
   for (const [shopId, extras] of Object.entries(extrasByShopId)) {
-    const offers = offersByShopId[shopId];
-    next[shopId] = offers?.length ? { ...extras, offers } : extras;
+    next[shopId] = { ...extras, offers: offersByShopId[shopId] ?? [] };
   }
   return next;
 }

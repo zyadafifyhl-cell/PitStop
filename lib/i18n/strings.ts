@@ -287,8 +287,10 @@ export const EN = {
   book_cancel_btn: 'Cancel booking',
   book_cancel_title: 'Cancel this booking?',
   book_cancel_body: 'This appointment will be cancelled free of charge (more than 4 hours before the slot).',
+  book_cancel_body_pending:
+    'The shop has not confirmed this booking yet, so you can cancel it for free.',
   book_cancel_body_late:
-    'Less than 4 hours remain before your appointment. Cancelling now adds a 20 EGP late-cancellation fee to your account.',
+    'The shop already confirmed this appointment, and less than 4 hours remain. Cancelling now adds a 20 EGP fee to your account.',
   book_cancel_success: 'Booking cancelled',
   book_cancel_failed: 'Could not cancel this booking. Please try again.',
   book_cancel_penalty_added: 'A 20 EGP late-cancellation fee was added to your account.',
@@ -704,7 +706,7 @@ export const EN = {
   home_next_booking_title: 'My next booking',
   home_penalty_balance_title: 'Fees on your account',
   home_penalty_balance_body:
-    'You owe {amount}. Every late cancellation adds another 20 EGP, and the total stays on your account until the next booking.',
+    'You owe {amount}. After the shop confirms, cancelling less than 4 hours before the appointment adds another 20 EGP. The total stays on your account until the next booking.',
   home_penalty_balance_body_multi:
     'You owe {amount} from {count} missed bookings and any late cancellations. Every late cancellation adds another 20 EGP.',
   home_penalty_dispute_pending: 'Your dispute is currently under review.',
@@ -915,7 +917,7 @@ export const EN = {
   book_summary_title: 'Booking summary',
   book_summary_notes: 'Notes',
   book_cancellation_policy:
-    'Free cancellation up to 4 hours before your appointment. Cancelling later adds a 20 EGP fee to your account.',
+    'Cancel for free while the booking is still pending. After the shop confirms, cancellation is free up to 4 hours before the appointment. Cancelling later adds a 20 EGP fee to your account.',
   book_selected_service: 'Selected service',
   book_additional_notes: 'Additional notes',
   slot_available: 'Available',
@@ -2509,8 +2511,9 @@ export const AR: Record<TranslationKey, string> = {
   book_cancel_btn: 'إلغاء الحجز',
   book_cancel_title: 'إلغاء الحجز ده؟',
   book_cancel_body: 'الإلغاء مجاني لأن باقي أكتر من ٤ ساعات على الموعد.',
+  book_cancel_body_pending: 'المحل لسه مأكدش الحجز، فتقدر تلغيه من غير رسوم.',
   book_cancel_body_late:
-    'باقي أقل من ٤ ساعات على الموعد. الإلغاء دلوقتي هيضيف رسوم تأخير ٢٠ جنيه على حسابك.',
+    'المحل أكّد الموعد، وباقي أقل من ٤ ساعات. الإلغاء دلوقتي هيضيف رسوم ٢٠ جنيه على حسابك.',
   book_cancel_success: 'تم إلغاء الحجز',
   book_cancel_failed: 'مقدرناش نلغي الحجز. حاول تاني.',
   book_cancel_penalty_added: 'اتضافت رسوم إلغاء متأخر ٢٠ جنيه على حسابك.',
@@ -2921,7 +2924,7 @@ export const AR: Record<TranslationKey, string> = {
   home_next_booking_title: 'حجزك الجاي',
   home_penalty_balance_title: 'رسوم على حسابك',
   home_penalty_balance_body:
-    'عليك {amount}. كل إلغاء قبل الموعد بأقل من ٤ ساعات بيضيف ٢٠ جنيه، والمجموع بيفضل على حسابك لحد الحجز الجاي.',
+    'عليك {amount}. بعد ما المحل يأكد الحجز، الإلغاء قبل الموعد بأقل من ٤ ساعات بيضيف ٢٠ جنيه، والمجموع بيفضل على حسابك لحد الحجز الجاي.',
   home_penalty_balance_body_multi:
     'عليك {amount} من {count} حجوزات لم تحضرها ومن أي إلغاء متأخر. كل إلغاء متأخر بيضيف ٢٠ جنيه تانيين.',
   home_penalty_dispute_pending: 'اعتراضك على الرسوم قيد المراجعة حاليًا.',
@@ -3131,7 +3134,7 @@ export const AR: Record<TranslationKey, string> = {
   book_summary_title: 'ملخص الحجز',
   book_summary_notes: 'ملاحظات',
   book_cancellation_policy:
-    'إلغاء مجاني قبل الموعد بـ ٤ ساعات. الإلغاء بعد كده بيضيف رسوم ٢٠ جنيه على حسابك.',
+    'تقدر تلغي من غير رسوم طول ما الحجز لسه معلّق. بعد ما المحل يأكد، الإلغاء مجاني قبل الموعد بـ ٤ ساعات. الإلغاء بعد كده بيضيف رسوم ٢٠ جنيه على حسابك.',
   book_selected_service: 'الخدمة المختارة',
   book_additional_notes: 'ملاحظات إضافية',
   slot_available: 'متاح',
