@@ -783,8 +783,17 @@ create policy "user_vehicles_delete_own" on public.user_vehicles
   for delete using (auth.uid() = user_id);
 
 drop policy if exists "Anyone can create bookings" on public.bookings;
-create policy "Anyone can create bookings" on public.bookings
-  for insert with check (true);
+drop policy if exists "Customers and shop staff can create bookings" on public.bookings;
+create policy "Customers and shop staff can create bookings" on public.bookings
+  for insert with check (
+    public.can_manage_shop(shop_id)
+    or (
+      auth.uid() is not null
+      and customer_id = auth.uid()
+      and status = 'pending'::public.booking_status
+      and booking_type::text = 'app'
+    )
+  );
 
 drop policy if exists "Customers can read own bookings" on public.bookings;
 create policy "Customers can read own bookings" on public.bookings
@@ -876,8 +885,9 @@ create policy "Shop owners can manage store" on public.store
   with check (public.is_shop_owner(shop_id));
 
 drop policy if exists "Anyone can create parts orders" on public.parts_orders;
-create policy "Anyone can create parts orders" on public.parts_orders
-  for insert with check (true);
+drop policy if exists "Customers create own parts orders" on public.parts_orders;
+create policy "Customers create own parts orders" on public.parts_orders
+  for insert with check (auth.uid() is not null and customer_id = auth.uid());
 
 drop policy if exists "Customers can read own parts orders" on public.parts_orders;
 create policy "Customers can read own parts orders" on public.parts_orders
@@ -892,8 +902,17 @@ create policy "Shop owners can update parts orders" on public.parts_orders
   for update using (public.is_shop_owner(shop_id));
 
 drop policy if exists "Anyone can create parts order items" on public.parts_order_items;
-create policy "Anyone can create parts order items" on public.parts_order_items
-  for insert with check (true);
+drop policy if exists "Customers create own parts order items" on public.parts_order_items;
+create policy "Customers create own parts order items" on public.parts_order_items
+  for insert with check (
+    auth.uid() is not null
+    and exists (
+      select 1
+      from public.parts_orders o
+      where o.id = parts_order_items.order_id
+        and o.customer_id = auth.uid()
+    )
+  );
 
 drop policy if exists "Shop owners can read parts order items" on public.parts_order_items;
 create policy "Shop owners can read parts order items" on public.parts_order_items
@@ -907,12 +926,12 @@ create policy "Shop owners can read parts order items" on public.parts_order_ite
   );
 
 drop policy if exists "Anyone can read shop push tokens" on public.shop_push_tokens;
-create policy "Anyone can read shop push tokens" on public.shop_push_tokens
-  for select using (true);
-
 drop policy if exists "Anyone can manage shop push tokens" on public.shop_push_tokens;
-create policy "Anyone can manage shop push tokens" on public.shop_push_tokens
-  for all using (true) with check (true);
+drop policy if exists "Shop staff manage push tokens" on public.shop_push_tokens;
+create policy "Shop staff manage push tokens" on public.shop_push_tokens
+  for all
+  using (public.can_manage_shop(shop_id) or public.is_platform_admin())
+  with check (public.can_manage_shop(shop_id) or public.is_platform_admin());
 
 alter table public.customer_merchant_loyalty enable row level security;
 

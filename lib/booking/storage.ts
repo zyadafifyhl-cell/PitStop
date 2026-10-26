@@ -930,7 +930,13 @@ export async function markBookingNoShow(
     p_booking_id: bookingId,
     p_penalty_amount: NO_SHOW_PENALTY_EGP,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    const message = error.message ?? '';
+    if (message.includes('no registered customer')) {
+      throw new Error('This booking has no customer account, so the fee cannot be applied.');
+    }
+    throw new Error(message || 'Could not mark this booking as a no-show.');
+  }
   const { data, error: fetchError } = await supabase
     .from('bookings')
     .select('*')

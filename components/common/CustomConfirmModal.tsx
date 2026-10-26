@@ -16,6 +16,7 @@ export type CustomConfirmModalProps = {
   visible: boolean;
   title: string;
   message: string;
+  errorText?: string | null;
   confirmLabel: string;
   cancelLabel: string;
   destructive?: boolean;
@@ -28,6 +29,7 @@ export function CustomConfirmModal({
   visible,
   title,
   message,
+  errorText,
   confirmLabel,
   cancelLabel,
   destructive = false,
@@ -62,6 +64,13 @@ export function CustomConfirmModal({
           color: theme.textMuted,
           fontSize: 15,
           lineHeight: 23,
+          textAlign: isRTL ? 'right' : 'left',
+        },
+        error: {
+          marginTop: 10,
+          color: theme.danger,
+          fontSize: 14,
+          lineHeight: 20,
           textAlign: isRTL ? 'right' : 'left',
         },
         actions: {
@@ -108,6 +117,7 @@ export function CustomConfirmModal({
         <Pressable style={styles.card} onPress={(event) => event.stopPropagation()}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
+          {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
           <View style={styles.actions}>
             <Pressable
               disabled={busy}

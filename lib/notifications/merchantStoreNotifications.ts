@@ -35,7 +35,7 @@ export async function fetchMerchantStoreOrderNotifications(
       title:
         locale === 'ar'
           ? `طلب جديد #${shortId}`
-          : `New Order Received / طلب جديد #${shortId}`,
+          : `New Order Received #${shortId}`,
       message: `${customer} • ${total} (${fulfillment})`,
       timestamp: order.createdAt,
       type: 'store_order',
