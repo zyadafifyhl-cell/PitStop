@@ -63,7 +63,7 @@ export function getDayHoursForDate(extras: ShopExtras | null | undefined, dateYm
   const d = new Date(`${dateYmd}T12:00:00`);
   const day = d.getDay() as ShopDayHours['day'];
   const weekly = extras?.weeklyHours?.find((row) => row.day === day);
-  const durationMinutes = clampSlotDuration(extras?.slotDurationMinutes ?? extras?.serviceDurationMinutes);
+  const durationMinutes = SLOT_GRID_MINUTES;
 
   if (weekly) {
     return {
