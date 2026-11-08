@@ -24,6 +24,7 @@ type Props = {
   borderColor?: string;
   backgroundColor?: string;
   textColor?: string;
+  compact?: boolean;
 };
 
 export function BookingDatePicker({
@@ -36,6 +37,7 @@ export function BookingDatePicker({
   borderColor,
   backgroundColor,
   textColor,
+  compact = false,
 }: Props) {
   const theme = useAppTheme();
   const [showAndroidPicker, setShowAndroidPicker] = useState(false);
@@ -53,8 +55,8 @@ export function BookingDatePicker({
 
   if (Platform.OS === 'web') {
     return (
-      <View style={styles.wrap}>
-        <Text style={[styles.label, { color: resolvedTextColor }]}>{label}</Text>
+      <View style={compact ? styles.wrapCompact : styles.wrap}>
+        <Text style={[compact ? styles.labelCompact : styles.label, { color: resolvedTextColor }]}>{label}</Text>
         {createElement('input', {
           type: 'date',
           value: valueYmd,
@@ -65,9 +67,9 @@ export function BookingDatePicker({
             borderWidth: 1,
             borderStyle: 'solid',
             borderColor: resolvedBorderColor,
-            borderRadius: 12,
-            padding: 14,
-            fontSize: 16,
+            borderRadius: compact ? 10 : 12,
+            padding: compact ? 8 : 14,
+            fontSize: compact ? 14 : 16,
             backgroundColor: resolvedBackgroundColor,
             color: resolvedTextColor,
             boxSizing: 'border-box',
@@ -78,13 +80,13 @@ export function BookingDatePicker({
   }
 
   return (
-    <View style={styles.wrap}>
-      <Text style={[styles.label, { color: resolvedTextColor }]}>{label}</Text>
+    <View style={compact ? styles.wrapCompact : styles.wrap}>
+      <Text style={[compact ? styles.labelCompact : styles.label, { color: resolvedTextColor }]}>{label}</Text>
       {Platform.OS === 'android' ? (
         <>
           <Pressable
             onPress={() => setShowAndroidPicker(true)}
-            style={[styles.field, { borderColor: resolvedBorderColor, backgroundColor: resolvedBackgroundColor }]}>
+            style={[compact ? styles.fieldCompact : styles.field, { borderColor: resolvedBorderColor, backgroundColor: resolvedBackgroundColor }]}>
             <FontAwesome name="calendar" size={18} color={theme.accent} />
             <Text style={[styles.value, { color: resolvedTextColor }]}>
               {formatDateYmdLabel(valueYmd, locale)}
@@ -119,7 +121,9 @@ export function BookingDatePicker({
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 10 },
+  wrapCompact: { marginTop: 4 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
+  labelCompact: { fontSize: 12, fontWeight: '700', marginBottom: 4 },
   field: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -128,6 +132,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
+  },
+  fieldCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   value: { fontSize: 16, fontWeight: '600', flex: 1 },
   pickerWrap: {

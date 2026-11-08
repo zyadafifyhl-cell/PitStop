@@ -404,6 +404,8 @@ export function WashOwnerPanel({ shop }: Props) {
   const [storeOrderFilter, setStoreOrderFilter] = useState<StoreOrderListFilter>('all');
   const [focusStoreOrderId, setFocusStoreOrderId] = useState<string | null>(null);
   const [focusBookingId, setFocusBookingId] = useState<string | null>(null);
+  const [pinnedBooking, setPinnedBooking] = useState<Booking | null>(null);
+  const pageScrollRef = useRef<ScrollView>(null);
 
   const orderNotifier = useMerchantOrderNotifier({
     shopId: shop.id,
@@ -414,8 +416,15 @@ export function WashOwnerPanel({ shop }: Props) {
   const focusedBooking =
     (focusBookingId
       ? bookings.find((booking) => booking.id === focusBookingId) ??
-        orderNotifier.pendingBookings.find((booking) => booking.id === focusBookingId)
+        orderNotifier.pendingBookings.find((booking) => booking.id === focusBookingId) ??
+        (pinnedBooking?.id === focusBookingId ? pinnedBooking : null)
       : null) ?? null;
+
+  const revealOpenedRequest = useCallback(() => {
+    const scroll = () => pageScrollRef.current?.scrollTo({ y: 0, animated: true });
+    requestAnimationFrame(scroll);
+    setTimeout(scroll, 60);
+  }, []);
 
   const openNotificationsModal = useCallback(() => {
     void orderNotifier.refreshStoreOrders();
@@ -1868,7 +1877,8 @@ export function WashOwnerPanel({ shop }: Props) {
       lead: t('owner_group_account_lead'),
     },
   ];
-  const activeGroupTitle = ownerGroups.find((item) => item.id === group)?.title ?? '';
+  const activeGroupTitle =
+    group === 'products' ? t('owner_group_products') : ownerGroups.find((item) => item.id === group)?.title ?? '';
   const ownerNavTabs = ownerGroups.map((item) => ({
     id: item.id,
     label: item.title,
@@ -2085,7 +2095,7 @@ export function WashOwnerPanel({ shop }: Props) {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+      <ScrollView ref={pageScrollRef} style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
         {group !== null ? <OwnerGroupBackBar title={activeGroupTitle} onBack={() => setGroup(null)} /> : null}
         {(group === null || group === 'account') && (
           <OwnerProfileHeader
@@ -2182,25 +2192,33 @@ export function WashOwnerPanel({ shop }: Props) {
                     <Text style={[styles.walkInBtnText, { color: theme.onAccent }]}>{t('walk_in_quick_button')}</Text>
                   </Pressable>
                 ) : null}
-                {activeBranch ? (
-                  <BayScheduleBoard
-                    shop={shop}
-                    extras={branchScheduleExtras}
-                    bookings={shopBookingRows}
-                    services={sortedServices}
-                    branchId={analyticsBranchId ?? activeBranch.id}
-                    onCreated={() => {
-                      void refreshAll();
-                      void refreshFinancials();
-                      setCrmRefreshKey((current) => current + 1);
-                      setJobBoardRefreshKey((current) => current + 1);
-                    }}
-                  />
-                ) : null}
-                {isDetailingShopType(shop.type) ? (
-                  <DetailingJobBoard shopId={shop.id} refreshKey={jobBoardRefreshKey} />
-                ) : null}
                 {loading && !analytics ? <ActivityIndicator color={theme.accent} style={{ marginVertical: 16 }} /> : null}
+                {analytics ? (
+                  <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
+                    <OwnerMetricsGrid
+                      metrics={[
+                        {
+                          id: 'today',
+                          label: t('owner_dashboard_today_bookings'),
+                          value: visibleTodayCount,
+                          icon: 'calendar-check-o',
+                        },
+                        {
+                          id: 'pending',
+                          label: t('owner_dashboard_pending_requests'),
+                          value: analytics.pendingRequests,
+                          icon: 'clock-o',
+                          tone: 'warning',
+                        },
+                      ]}
+                    />
+                    {otherTodayRows.length > 0 ? (
+                      <View style={styles.todayBookings}>
+                        {otherTodayRows.map((booking) => renderBookingCard(booking, true))}
+                      </View>
+                    ) : null}
+                  </OwnerSectionCard>
+                ) : null}
                 {analytics ? (
                   <OwnerSectionCard
                     theme={theme}
@@ -2237,31 +2255,23 @@ export function WashOwnerPanel({ shop }: Props) {
                     )}
                   </OwnerSectionCard>
                 ) : null}
-                {analytics ? (
-                  <OwnerSectionCard theme={theme} title={t('owner_dashboard_overview')} subtitle={t('wash_dashboard_lead')}>
-                    <OwnerMetricsGrid
-                      metrics={[
-                        {
-                          id: 'today',
-                          label: t('owner_dashboard_today_bookings'),
-                          value: visibleTodayCount,
-                          icon: 'calendar-check-o',
-                        },
-                        {
-                          id: 'pending',
-                          label: t('owner_dashboard_pending_requests'),
-                          value: analytics.pendingRequests,
-                          icon: 'clock-o',
-                          tone: 'warning',
-                        },
-                      ]}
-                    />
-                    {otherTodayRows.length > 0 ? (
-                      <View style={styles.todayBookings}>
-                        {otherTodayRows.map((booking) => renderBookingCard(booking, true))}
-                      </View>
-                    ) : null}
-                  </OwnerSectionCard>
+                {activeBranch ? (
+                  <BayScheduleBoard
+                    shop={shop}
+                    extras={branchScheduleExtras}
+                    bookings={shopBookingRows}
+                    services={sortedServices}
+                    branchId={analyticsBranchId ?? activeBranch.id}
+                    onCreated={() => {
+                      void refreshAll();
+                      void refreshFinancials();
+                      setCrmRefreshKey((current) => current + 1);
+                      setJobBoardRefreshKey((current) => current + 1);
+                    }}
+                  />
+                ) : null}
+                {isDetailingShopType(shop.type) ? (
+                  <DetailingJobBoard shopId={shop.id} refreshKey={jobBoardRefreshKey} />
                 ) : null}
                 <Pressable
                   onPress={() => router.push('/shop/wash-owner-hub?tab=queue')}
@@ -2495,7 +2505,7 @@ export function WashOwnerPanel({ shop }: Props) {
           </>
         )}
 
-        {sellsProducts && group === 'products' && (
+        {group === 'products' ? (
           <>
             <StoreOrdersPanel
               shop={shop}
@@ -2505,9 +2515,9 @@ export function WashOwnerPanel({ shop }: Props) {
               onFocusOrderHandled={() => setFocusStoreOrderId(null)}
               onRefresh={() => void orderNotifier.refreshStoreOrders()}
             />
-            <StoreInventoryManager shop={shop} />
+            {sellsProducts ? <StoreInventoryManager shop={shop} /> : null}
           </>
-        )}
+        ) : null}
 
         {group === 'shop' && (
           <>
@@ -2641,15 +2651,17 @@ export function WashOwnerPanel({ shop }: Props) {
         pendingStoreOrders={orderNotifier.pendingStoreOrders}
         pendingBookings={orderNotifier.pendingBookings}
         onSelectStoreOrder={(order) => {
-          if (!sellsProducts) return;
           setStoreOrderFilter('pending');
           setFocusStoreOrderId(order.id);
           setGroup('products');
+          revealOpenedRequest();
         }}
         onSelectBooking={(booking) => {
           setPanelTab('workspace');
+          setPinnedBooking(booking);
           setFocusBookingId(booking.id);
           setGroup('bookings');
+          revealOpenedRequest();
         }}
       />
 

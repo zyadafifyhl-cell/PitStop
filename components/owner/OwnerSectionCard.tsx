@@ -3,6 +3,7 @@ import React from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import type { AppThemeTokens } from '@/constants/Theme';
+import { useI18n } from '@/context/I18nContext';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 type Props = {
@@ -11,12 +12,14 @@ type Props = {
   subtitle?: string;
   icon?: React.ComponentProps<typeof FontAwesome>['name'];
   iconColor?: string;
+  headerExtra?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 };
 
-export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, style, children }: Props) {
+export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, headerExtra, style, children }: Props) {
   const contextTheme = useAppTheme();
+  const { isRTL } = useI18n();
   const cardColor = theme?.card ?? contextTheme.card;
   const borderColor = theme?.border ?? contextTheme.border;
   const accentColor = theme?.brand ?? contextTheme.brand;
@@ -26,9 +29,12 @@ export function OwnerSectionCard({ theme, title, subtitle, icon, iconColor, styl
   return (
     <View style={[styles.card, { backgroundColor: cardColor, borderColor }, style]}>
       <View style={[styles.topAccent, { backgroundColor: accentColor }]} />
-      <View style={styles.titleRow}>
+      <View style={[styles.titleRow, isRTL && styles.titleRowRtl]}>
         {icon ? <FontAwesome name={icon} size={17} color={iconColor ?? contextTheme.brand} /> : null}
-        <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
+        <Text style={[styles.title, headerExtra ? styles.titleBeside : styles.titleFill, { color: titleColor }]} numberOfLines={headerExtra ? 1 : undefined}>
+          {title}
+        </Text>
+        {headerExtra ? <View style={styles.headerExtra}>{headerExtra}</View> : null}
       </View>
       {subtitle ? <Text style={[styles.subtitle, { color: subtitleColor }]}>{subtitle}</Text> : null}
       {children}
@@ -52,6 +58,10 @@ const styles = StyleSheet.create({
     height: 1,
   },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  title: { flex: 1, fontSize: 17, fontWeight: '700' },
+  titleRowRtl: { flexDirection: 'row-reverse' },
+  title: { fontSize: 17, fontWeight: '700' },
+  titleFill: { flex: 1 },
+  titleBeside: { flex: 1 },
+  headerExtra: { width: 168, flexGrow: 0, flexShrink: 0 },
   subtitle: { fontSize: 13, lineHeight: 19, marginBottom: 12 },
 });

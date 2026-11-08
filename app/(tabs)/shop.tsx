@@ -281,7 +281,9 @@ export default function ShopScreen() {
     [bookings],
   );
   const focusedBooking = focusBookingId
-    ? bookings.find((booking) => booking.id === focusBookingId) ?? null
+    ? bookings.find((booking) => booking.id === focusBookingId) ??
+      orderNotifier.pendingBookings.find((booking) => booking.id === focusBookingId) ??
+      null
     : null;
 
   function onLogout() {
