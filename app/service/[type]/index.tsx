@@ -203,8 +203,34 @@ export default function PickAreaScreen() {
     );
   }
 
+  const activeType = type;
+  const nativeMap = viewMode === 'map' && Platform.OS !== 'web';
+
+  function renderMapBody(fill: boolean) {
+    if (mapLoading) {
+      return <ActivityIndicator color={theme.accent} style={{ marginTop: 24, marginBottom: 16 }} />;
+    }
+    if (mapShops.length === 0) {
+      return <Text style={[styles.empty, { color: theme.textMuted }]}>{t('nearby_map_no_coords')}</Text>;
+    }
+    return (
+      <CategoryShopsMap
+        shops={mapShops}
+        shopType={activeType}
+        locale={locale}
+        onShopPress={openShopProfile}
+        fill={fill}
+      />
+    );
+  }
+
   return (
-    <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+    <ScrollView
+      style={nativeMap ? styles.mapHeaderScroll : styles.screen}
+      contentContainerStyle={[styles.content, nativeMap && styles.mapHeaderContent]}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled>
       <Text style={[styles.badge, { color: theme.accent }]}>{shopTypeLabel(type, locale)}</Text>
       <Text style={[styles.title, { color: theme.text }]}>{t('area_pick_title')}</Text>
       <Text style={[styles.lead, { color: theme.textMuted }]}>{t('area_pick_lead')}</Text>
@@ -333,20 +359,7 @@ export default function PickAreaScreen() {
         </Pressable>
       </View>
 
-      {viewMode === 'map' ? (
-        mapLoading ? (
-          <ActivityIndicator color={theme.accent} style={{ marginTop: 24, marginBottom: 16 }} />
-        ) : mapShops.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textMuted }]}>{t('nearby_map_no_coords')}</Text>
-        ) : (
-          <CategoryShopsMap
-            shops={mapShops}
-            shopType={type}
-            locale={locale}
-            onShopPress={openShopProfile}
-          />
-        )
-      ) : null}
+      {viewMode === 'map' && !nativeMap ? renderMapBody(false) : null}
 
       {viewMode === 'list' && (!catalogReady || (catalogRefreshing && areas.length === 0)) ? (
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
@@ -380,11 +393,16 @@ export default function PickAreaScreen() {
         </>
       ) : null}
     </ScrollView>
+    {nativeMap ? <View style={styles.nativeMapSlot}>{renderMapBody(true)}</View> : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  mapHeaderScroll: { flexGrow: 0, flexShrink: 0, maxHeight: 300 },
+  mapHeaderContent: { paddingBottom: 8 },
+  nativeMapSlot: { flex: 1, paddingHorizontal: 20, paddingBottom: 16, minHeight: 320 },
   content: { width: '100%', maxWidth: 1024, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 48 },
   center: {
     flex: 1,

@@ -12,6 +12,8 @@ type Props = {
   locale: 'en' | 'ar';
   onShopPress: (shopId: string) => void;
   height?: number;
+  /** Native map stretches in its parent. Ignored on web. */
+  fill?: boolean;
 };
 
 const DEFAULT_HEIGHT = 420;
