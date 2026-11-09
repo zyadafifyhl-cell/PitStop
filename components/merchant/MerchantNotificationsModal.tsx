@@ -1,6 +1,6 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BOXED_OVERLAY } from '@/constants/Theme';
 import { useI18n } from '@/context/I18nContext';
@@ -71,7 +71,7 @@ export function MerchantNotificationsModal({
   onSelectBooking,
 }: Props) {
   const theme = useAppTheme();
-  const { t, locale } = useI18n();
+  const { t, locale, isRTL } = useI18n();
   const [loading, setLoading] = useState(false);
   const [storeNotifications, setStoreNotifications] = useState<MerchantNotificationItem[]>([]);
 
@@ -135,34 +135,48 @@ export function MerchantNotificationsModal({
               ? displayStoreRows.map((item) => (
                   <Pressable
                     key={`store-${item.id}`}
+                    accessibilityRole="button"
                     onPress={() => {
+                      if (!item.order) return;
                       onSelectStoreOrder?.(item.order);
                       onClose();
                     }}
-                    style={[styles.row, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                    <View style={[styles.iconWrap, { backgroundColor: theme.accentSoft }]}>
-                      <FontAwesome name="shopping-bag" size={16} color={theme.accent} />
-                    </View>
-                    <View style={styles.rowBody}>
-                      <View style={styles.titleRow}>
-                        <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={2}>
-                          {item.title}
-                        </Text>
-                        <View style={[styles.pendingChip, { backgroundColor: theme.warningSoft }]}>
-                          <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
-                        </View>
+                    style={({ pressed }) => [
+                      styles.row,
+                      {
+                        borderColor: theme.border,
+                        backgroundColor: theme.bgElevated,
+                        opacity: pressed ? 0.82 : 1,
+                      },
+                      webPointer,
+                    ]}>
+                    <View pointerEvents="none" style={styles.rowInner}>
+                      <View style={[styles.iconWrap, { backgroundColor: theme.accentSoft }]}>
+                        <FontAwesome name="shopping-bag" size={16} color={theme.accent} />
                       </View>
-                      <Text style={[styles.rowUser, { color: theme.text }]} numberOfLines={1}>
-                        {storeCustomerLabel(item.order, locale)}
-                      </Text>
-                      <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>
-                        {storeMetaLine(item.order, locale)}
-                      </Text>
-                      <Text style={[styles.rowTime, { color: theme.textDim }]}>
-                        {formatRelativeTimeAgo(item.timestamp, locale)}
-                      </Text>
+                      <View style={styles.rowBody}>
+                        <View style={styles.titleRow}>
+                          <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={2}>
+                            {item.title}
+                          </Text>
+                          <View style={[styles.pendingChip, { backgroundColor: theme.warningSoft }]}>
+                            <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.rowUser, { color: theme.text }]} numberOfLines={1}>
+                          {storeCustomerLabel(item.order, locale)}
+                        </Text>
+                        <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>
+                          {storeMetaLine(item.order, locale)}
+                        </Text>
+                        <Text style={[styles.rowTime, { color: theme.textDim }]}>
+                          {formatRelativeTimeAgo(item.timestamp, locale)}
+                        </Text>
+                      </View>
+                      <View style={styles.chevronHit}>
+                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={14} color={theme.textDim} />
+                      </View>
                     </View>
-                    <FontAwesome name="chevron-right" size={12} color={theme.textDim} />
                   </Pressable>
                 ))
               : null}
@@ -171,32 +185,45 @@ export function MerchantNotificationsModal({
               ? pendingBookings.map((booking) => (
                   <Pressable
                     key={`booking-${booking.id}`}
+                    accessibilityRole="button"
                     onPress={() => {
                       onSelectBooking?.(booking);
                       onClose();
                     }}
-                    style={[styles.row, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                    <View style={[styles.iconWrap, { backgroundColor: theme.accentSoft }]}>
-                      <FontAwesome name="calendar" size={16} color={theme.accent} />
-                    </View>
-                    <View style={styles.rowBody}>
-                      <View style={styles.titleRow}>
-                        <Text style={[styles.rowTitle, { color: theme.text }]}>
-                          {t('merchant_notif_booking_title')}
-                        </Text>
-                        <View style={[styles.pendingChip, { backgroundColor: theme.warningSoft }]}>
-                          <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
-                        </View>
+                    style={({ pressed }) => [
+                      styles.row,
+                      {
+                        borderColor: theme.border,
+                        backgroundColor: theme.bgElevated,
+                        opacity: pressed ? 0.82 : 1,
+                      },
+                      webPointer,
+                    ]}>
+                    <View pointerEvents="none" style={styles.rowInner}>
+                      <View style={[styles.iconWrap, { backgroundColor: theme.accentSoft }]}>
+                        <FontAwesome name="calendar" size={16} color={theme.accent} />
                       </View>
-                      <Text style={[styles.rowUser, { color: theme.text }]} numberOfLines={1}>
-                        {bookingCustomerLabel(booking, locale)}
-                      </Text>
-                      <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>{bookingMetaLine(booking, locale)}</Text>
-                      <Text style={[styles.rowTime, { color: theme.textDim }]}>
-                        {formatRelativeTimeAgo(booking.createdAt, locale)}
-                      </Text>
+                      <View style={styles.rowBody}>
+                        <View style={styles.titleRow}>
+                          <Text style={[styles.rowTitle, { color: theme.text }]}>
+                            {t('merchant_notif_booking_title')}
+                          </Text>
+                          <View style={[styles.pendingChip, { backgroundColor: theme.warningSoft }]}>
+                            <Text style={[styles.pendingChipText, { color: theme.warning }]}>{t('store_order_status_pending')}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.rowUser, { color: theme.text }]} numberOfLines={1}>
+                          {bookingCustomerLabel(booking, locale)}
+                        </Text>
+                        <Text style={[styles.rowBodyText, { color: theme.textMuted }]}>{bookingMetaLine(booking, locale)}</Text>
+                        <Text style={[styles.rowTime, { color: theme.textDim }]}>
+                          {formatRelativeTimeAgo(booking.createdAt, locale)}
+                        </Text>
+                      </View>
+                      <View style={styles.chevronHit}>
+                        <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={14} color={theme.textDim} />
+                      </View>
                     </View>
-                    <FontAwesome name="chevron-right" size={12} color={theme.textDim} />
                   </Pressable>
                 ))
               : null}
@@ -210,6 +237,8 @@ export function MerchantNotificationsModal({
     </Modal>
   );
 }
+
+const webPointer = Platform.OS === 'web' ? ({ cursor: 'pointer' } as const) : null;
 
 const styles = StyleSheet.create({
   backdrop: BOXED_OVERLAY.backdrop,
@@ -228,9 +257,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     padding: 12,
+  },
+  rowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  chevronHit: {
+    width: 28,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconWrap: {
     width: 36,
