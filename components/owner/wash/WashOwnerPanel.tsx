@@ -43,7 +43,7 @@ import { EmployeePayCard } from '@/components/owner/pos/EmployeePayCard';
 import { StoreInventoryManager } from '@/components/store/owner/StoreInventoryManager';
 import { StoreOrdersPanel } from '@/components/store/owner/StoreOrdersPanel';
 import type { StoreOrderListFilter } from '@/lib/store/ownerFilters';
-import { OsmLocationPicker } from '@/components/maps/OsmLocationPicker';
+import { BranchLocationPickerModal } from '@/components/owner/BranchLocationPickerModal';
 import { getFastCurrentPosition } from '@/lib/geolocation/getFastCurrentPosition';
 import { useI18n } from '@/context/I18nContext';
 import { useShopAuth } from '@/context/ShopAuthContext';
@@ -65,12 +65,7 @@ import {
   normalizeTimeHm,
   shopTypeLabel,
 } from '@/lib/booking/format';
-import {
-  formatBookingIdLabel,
-  formatOrderCardDateTime,
-  formatVehicleLine,
-  orderLineItems,
-} from '@/lib/booking/customerOrderPresentation';
+import { formatVehicleLine, orderLineItems } from '@/lib/booking/customerOrderPresentation';
 import {
   cancelBookingReminders,
   scheduleBookingReminders,
@@ -87,17 +82,22 @@ import { promptMerchantNoShowOverride } from '@/lib/booking/merchantBookingOverr
 import {
   autoCompleteDueBookings,
   completeBookingService,
+  delayBookingService,
   listBookingsForShop,
   markBookingNoShow,
+  setBookingCarDroppedOff,
   startBookingService,
   updateBookingStatus,
+  type DelayReasonKey,
 } from '@/lib/booking/storage';
+import { DelayBookingModal } from '@/components/owner/DelayBookingModal';
 import { applyCapacityToWeeklyHours } from '@/lib/booking/bayCapacity';
 import { STORE_PRODUCTS_RELEASED } from '@/lib/features/releaseHold';
 import { defaultWeeklyHours } from '@/lib/booking/shopSchedule';
 import { mergeWashBranchIntoExtras } from '@/lib/booking/wash/washSync';
-import { formatPhoneDisplay, openPhone } from '@/lib/linking/contact';
+import { formatPhoneDisplay, openPhone, openWhatsAppTo } from '@/lib/linking/contact';
 import { userAlert, userConfirm } from '@/lib/ui/userAlert';
+import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import type { Booking, BookingStatus, Shop, ShopDayHours, ShopService } from '@/lib/booking/types';
 import { computeWashAnalytics, selectShopAppointments, selectTodayShopBookings } from '@/lib/booking/wash/washAnalytics';
 import { currentMonthTimeframe, fetchPeakAnalytics } from '@/lib/posRepository';
@@ -316,6 +316,8 @@ export function WashOwnerPanel({ shop }: Props) {
   const [pickingImage, setPickingImage] = useState(false);
   const [capacitySaving, setCapacitySaving] = useState(false);
   const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null);
+  const [delayTarget, setDelayTarget] = useState<Booking | null>(null);
+  const [delayBusy, setDelayBusy] = useState(false);
 
   const [profileName, setProfileName] = useState('');
   const [profileNameAr, setProfileNameAr] = useState('');
@@ -331,7 +333,6 @@ export function WashOwnerPanel({ shop }: Props) {
   const [mapPickerVisible, setMapPickerVisible] = useState(false);
   const [mapDraftLatitude, setMapDraftLatitude] = useState<number>(DEFAULT_BRANCH_MAP_COORDS.latitude);
   const [mapDraftLongitude, setMapDraftLongitude] = useState<number>(DEFAULT_BRANCH_MAP_COORDS.longitude);
-  const [mapLocating, setMapLocating] = useState(false);
 
   const [weeklyHours, setWeeklyHours] = useState<ShopDayHours[]>([]);
   const [selectedHoursDay, setSelectedHoursDay] = useState<ShopDayHours['day']>(1);
@@ -754,16 +755,42 @@ export function WashOwnerPanel({ shop }: Props) {
     [shopBookingRows, analyticsBranchId],
   );
   const shopAppointments = useMemo(() => selectShopAppointments(shopBookingRows), [shopBookingRows]);
-  const appointmentIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const booking of shopAppointments.upcoming) ids.add(booking.id);
-    for (const booking of shopAppointments.earlierToday) ids.add(booking.id);
-    return ids;
-  }, [shopAppointments]);
-  const otherTodayRows = useMemo(
-    () => todayBookingRows.filter((booking) => !appointmentIds.has(booking.id)),
-    [todayBookingRows, appointmentIds],
-  );
+  const pendingRequestRows = useMemo(() => {
+    const nowMs = Date.now();
+    return bookings
+      .filter((booking) => {
+        if (booking.status !== 'pending') return false;
+        if (focusBookingId && booking.id === focusBookingId) return false;
+        if (analyticsBranchId && booking.branchId && booking.branchId !== analyticsBranchId) return false;
+        const ms = new Date(booking.scheduledAt).getTime();
+        return !Number.isFinite(ms) || ms > nowMs;
+      })
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  }, [bookings, analyticsBranchId, focusBookingId]);
+  const bookedCars = useMemo(() => {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const upcoming: Booking[] = [];
+    const earlierToday: Booking[] = [];
+    for (const booking of shopBookingRows) {
+      if (booking.status !== 'confirmed' && booking.status !== 'in_progress') continue;
+      const ms = new Date(booking.scheduledAt).getTime();
+      if (booking.status === 'in_progress' || (Number.isFinite(ms) && ms >= nowMs)) {
+        upcoming.push(booking);
+      } else if (Number.isFinite(ms) && ms >= todayStart) {
+        earlierToday.push(booking);
+      }
+    }
+    const byTime = (a: Booking, b: Booking) =>
+      new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+    upcoming.sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'in_progress' ? -1 : 1;
+      return byTime(a, b);
+    });
+    earlierToday.sort(byTime);
+    return { upcoming, earlierToday };
+  }, [shopBookingRows]);
   const visibleTodayCount = useMemo(() => {
     const ids = new Set(todayBookingRows.map((booking) => booking.id));
     const now = new Date();
@@ -824,39 +851,11 @@ export function WashOwnerPanel({ shop }: Props) {
     setMapPickerVisible(true);
   }
 
-  function useSavedBranchMapCoords() {
-    const lat = displayLatitude ?? DEFAULT_BRANCH_MAP_COORDS.latitude;
-    const lng = displayLongitude ?? DEFAULT_BRANCH_MAP_COORDS.longitude;
-    setMapDraftLatitude(lat);
-    setMapDraftLongitude(lng);
-  }
-
-  async function onDetectMapGps() {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(t('wash_branch_gps_denied_title'), t('wash_branch_gps_denied_body'));
-      return;
-    }
-    setMapLocating(true);
-    try {
-      const coords = await getFastCurrentPosition();
-      setMapDraftLatitude(coords.latitude);
-      setMapDraftLongitude(coords.longitude);
-    } catch {
-      Alert.alert(
-        t('wash_branch_gps_fail_title'),
-        Platform.OS === 'web' ? t('wash_branch_gps_fail_body_web') : t('wash_branch_gps_fail_body'),
-      );
-    } finally {
-      setMapLocating(false);
-    }
-  }
-
-  async function onSaveBranchMapLocation() {
-    setMapPickerVisible(false);
+  async function onSaveBranchMapLocation(lat: number, lng: number) {
     setCapturingGps(true);
     try {
-      await persistBranchCoordinates(mapDraftLatitude, mapDraftLongitude);
+      await persistBranchCoordinates(lat, lng);
+      setMapPickerVisible(false);
     } catch {
       Alert.alert(t('wash_branch_gps_fail_title'), t('wash_branch_gps_fail_body'));
     } finally {
@@ -1680,6 +1679,32 @@ export function WashOwnerPanel({ shop }: Props) {
     }
   }
 
+  async function submitDelay(minutes: number, reason?: DelayReasonKey) {
+    if (!delayTarget) return;
+    setDelayBusy(true);
+    try {
+      const updated = await delayBookingService(delayTarget, minutes, reason);
+      setDelayTarget(null);
+      await applyLifecycleBooking(updated);
+      userAlert(t('owner_delay_sent'), tp('owner_delay_sent_body', { n: String(minutes) }));
+    } catch (error) {
+      userAlert(t('owner_delay_fail'), logAndGetSafeErrorMessage(error, t, 'owner.delay'));
+    } finally {
+      setDelayBusy(false);
+    }
+  }
+
+  async function onToggleCarDroppedOff(booking: Booking) {
+    setLifecycleBusyId(booking.id);
+    try {
+      await applyLifecycleBooking(await setBookingCarDroppedOff(booking, !booking.carDroppedOff));
+    } catch (error) {
+      userAlert(t('owner_delay_fail'), logAndGetSafeErrorMessage(error, t, 'owner.carDroppedOff'));
+    } finally {
+      setLifecycleBusyId(null);
+    }
+  }
+
   function onMerchantNoShowOverride(booking: Booking) {
     promptMerchantNoShowOverride({
       title: t('merchant_noshow_override_title'),
@@ -1710,6 +1735,14 @@ export function WashOwnerPanel({ shop }: Props) {
     }
   }
 
+  async function onWhatsAppCustomer(phone: string) {
+    try {
+      await openWhatsAppTo(phone);
+    } catch {
+      Alert.alert(t('wash_contact_fail_title'), t('wash_contact_fail_body'));
+    }
+  }
+
   function renderStatCard(label: string, value: string, accent?: boolean) {
     return (
       <View style={[styles.statCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
@@ -1722,7 +1755,7 @@ export function WashOwnerPanel({ shop }: Props) {
   function renderBookingCard(
     booking: Booking,
     showActions: boolean,
-    options?: { emphasizeTime?: boolean; timePassed?: boolean },
+    options?: { timePassed?: boolean },
   ) {
     const lineItems = orderLineItems(booking, locale);
     const phone = formatPhoneDisplay(booking.customerPhone);
@@ -1741,62 +1774,139 @@ export function WashOwnerPanel({ shop }: Props) {
           day: 'numeric',
         });
 
+    const totalEgp =
+      booking.finalAmountPaidEgp ?? lineItems.reduce((sum, item) => sum + item.qty * item.priceEgp, 0);
+    const serviceSummary = lineItems.map((item) => `${item.qty} x ${item.label}`).join(', ');
+    const statusTone =
+      booking.status === 'pending'
+        ? { label: t('owner_status_pending'), fg: theme.warning, bg: theme.warningSoft }
+        : booking.status === 'confirmed'
+          ? { label: t('owner_status_accepted'), fg: theme.accent, bg: theme.accentSoft }
+          : booking.status === 'in_progress'
+            ? { label: t('owner_status_in_progress'), fg: theme.success, bg: theme.successSoft }
+            : { label: bookingStatusLabel(booking.status, locale), fg: theme.textMuted, bg: theme.cardHover };
+    const busy = lifecycleBusyId === booking.id;
+    const plate = booking.carPlate?.trim();
+    const isActiveJob = booking.status === 'confirmed' || booking.status === 'in_progress';
+    const expectedEndMs = booking.expectedCompletionAt ? new Date(booking.expectedCompletionAt).getTime() : NaN;
+    const isOverdue = booking.status === 'in_progress' && !Number.isNaN(expectedEndMs) && expectedEndMs < Date.now();
+    const delayMinutes = booking.delayMinutes ?? 0;
+
     return (
-      <View key={booking.id} style={[styles.card, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-        {options?.emphasizeTime ? (
-          <View style={{ marginBottom: 8 }}>
-            <Text style={[styles.appointmentTime, { color: theme.text }]}>{timeLabel}</Text>
-            {dayLabel ? <Text style={[styles.meta, { color: theme.textMuted }]}>{dayLabel}</Text> : null}
-            {options.timePassed ? (
-              <Text style={[styles.meta, { color: theme.textMuted }]}>{t('owner_appointments_passed')}</Text>
-            ) : null}
+      <View
+        key={booking.id}
+        style={[styles.card, styles.compactCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+        <View style={[styles.compactTopRow, isRTL && styles.bookingTopRowRtl]}>
+          <View style={styles.compactTimeCol}>
+            <Text style={[styles.compactTime, { color: theme.text }]}>{timeLabel}</Text>
+            {dayLabel ? <Text style={[styles.compactSub, { color: theme.textMuted }]}>{dayLabel}</Text> : null}
           </View>
-        ) : null}
-        <View style={[styles.bookingTopRow, isRTL && styles.bookingTopRowRtl]}>
-          <Text style={[styles.status, { color: theme.accent, marginTop: 0 }]}>{bookingStatusLabel(booking.status, locale)}</Text>
-          <Text style={[styles.meta, { color: theme.textMuted }]}>
-            {formatOrderCardDateTime(booking.scheduledAt, locale)}
-          </Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusTone.bg }]}>
+            <Text style={[styles.statusBadgeText, { color: statusTone.fg }]}>{statusTone.label}</Text>
+          </View>
+          <Text style={[styles.compactPrice, { color: theme.text }]}>{formatEgp(totalEgp, locale)}</Text>
         </View>
-        {booking.customerName ? (
-          <Text style={[styles.when, { color: theme.text }]}>{booking.customerName}</Text>
-        ) : null}
-        <Text style={[styles.meta, { color: theme.textMuted }]}>{formatBookingIdLabel(booking.id, locale)}</Text>
-        <Text style={[styles.meta, { color: theme.text }]}>{formatVehicleLine(booking)}</Text>
-        <Pressable onPress={() => onContactCustomer(booking.customerPhone)} hitSlop={6}>
-          <Text style={[styles.meta, { color: theme.textMuted }]}>
-            {t('order_mobile')}: <Text style={{ color: theme.accent, fontWeight: '800' }}>{phone}</Text>
+
+        <View style={styles.compactBody}>
+          <Text style={[styles.compactName, { color: theme.text }]} numberOfLines={1}>
+            {booking.customerName || formatPhoneDisplay(booking.customerPhone)}
+            {booking.bookingType === 'walk_in' ? (
+              <Text style={[styles.compactSub, { color: theme.accent }]}>  {t('walk_in_booking_badge')}</Text>
+            ) : null}
           </Text>
-        </Pressable>
-        {booking.bookingType === 'walk_in' ? (
-          <Text style={[styles.meta, { color: theme.accent }]}>{t('walk_in_booking_badge')}</Text>
-        ) : null}
-        <Text style={[styles.metaStrong, { color: theme.text, marginTop: 10 }]}>{t('order_service_summary')}</Text>
-        {lineItems.map((item) => (
-          <View key={item.label} style={[styles.bookingLineRow, isRTL && styles.bookingTopRowRtl]}>
-            <Text style={[styles.meta, { color: theme.text, flex: 1 }]}>
-              {item.qty} x {item.label}
+          <View style={[styles.compactMetaRow, isRTL && styles.bookingTopRowRtl]}>
+            <Text style={[styles.compactMeta, { color: theme.text }]} numberOfLines={1}>
+              {formatVehicleLine(booking)}
             </Text>
-            <Text style={[styles.metaStrong, { color: theme.text }]}>{formatEgp(item.priceEgp, locale)}</Text>
+            <View style={[styles.platePill, { borderColor: theme.border, backgroundColor: theme.bg }]}>
+              <Text style={[styles.plateText, { color: plate ? theme.text : theme.textDim }]}>
+                {plate || t('owner_plate_missing')}
+              </Text>
+            </View>
           </View>
-        ))}
-        {booking.customerNotes ? (
-          <Text style={[styles.meta, { color: theme.textMuted }]}>
-            {t('wash_booking_notes')}: {booking.customerNotes}
+          <Text style={[styles.compactMeta, { color: theme.textMuted }]} numberOfLines={2}>
+            {serviceSummary}
           </Text>
+          {booking.customerNotes ? (
+            <Text style={[styles.compactSub, { color: theme.textMuted }]} numberOfLines={1}>
+              {t('wash_booking_notes')}: {booking.customerNotes}
+            </Text>
+          ) : null}
+          {booking.ownerRejectionNote ? (
+            <Text style={[styles.compactSub, { color: theme.danger }]} numberOfLines={2}>
+              {t('wash_booking_rejection_note')}: {booking.ownerRejectionNote}
+            </Text>
+          ) : null}
+          {options?.timePassed ? (
+            <Text style={[styles.compactSub, { color: theme.textMuted }]}>{t('owner_appointments_passed')}</Text>
+          ) : null}
+          {isOverdue || delayMinutes > 0 || booking.carDroppedOff ? (
+            <View style={[styles.tagRow, isRTL && styles.bookingTopRowRtl]}>
+              {isOverdue ? (
+                <View style={[styles.tag, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
+                  <FontAwesome name="exclamation-circle" size={11} color={theme.danger} />
+                  <Text style={[styles.tagText, { color: theme.danger }]}>{t('owner_overdue')}</Text>
+                </View>
+              ) : null}
+              {delayMinutes > 0 ? (
+                <View style={[styles.tag, { backgroundColor: theme.warningSoft, borderColor: theme.warning }]}>
+                  <FontAwesome name="clock-o" size={11} color={theme.warning} />
+                  <Text style={[styles.tagText, { color: theme.warning }]}>
+                    {tp('owner_delayed_badge', { n: String(delayMinutes) })}
+                  </Text>
+                </View>
+              ) : null}
+              {booking.carDroppedOff ? (
+                <View style={[styles.tag, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+                  <FontAwesome name="car" size={11} color={theme.accent} />
+                  <Text style={[styles.tagText, { color: theme.accent }]}>{t('owner_car_left')}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+
+        <BookingLifecycleActions booking={booking} showActions={false} />
+
+        {showActions && isActiveJob ? (
+          <View style={[styles.compactActions, isRTL && styles.bookingTopRowRtl]}>
+            <Pressable
+              onPress={() => setDelayTarget(booking)}
+              disabled={busy}
+              style={[styles.compactBtnSm, { borderColor: theme.warning, backgroundColor: theme.bgElevated }]}>
+              <FontAwesome name="clock-o" size={13} color={theme.warning} />
+              <Text style={[styles.chipBtnText, { color: theme.warning }]}>{t('owner_action_delay')}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void onToggleCarDroppedOff(booking)}
+              disabled={busy}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: !!booking.carDroppedOff }}
+              style={[
+                styles.compactBtnSm,
+                booking.carDroppedOff
+                  ? { borderColor: theme.accent, backgroundColor: theme.accentSoft }
+                  : { borderColor: theme.border, backgroundColor: theme.bgElevated },
+              ]}>
+              <FontAwesome
+                name={booking.carDroppedOff ? 'check-square' : 'square-o'}
+                size={13}
+                color={booking.carDroppedOff ? theme.accent : theme.textMuted}
+              />
+              <Text style={[styles.chipBtnText, { color: booking.carDroppedOff ? theme.accent : theme.text }]}>
+                {t('owner_car_left_toggle')}
+              </Text>
+            </Pressable>
+          </View>
         ) : null}
-        {booking.ownerRejectionNote ? (
-          <Text style={[styles.meta, { color: theme.danger }]}>
-            {t('wash_booking_rejection_note')}: {booking.ownerRejectionNote}
-          </Text>
-        ) : null}
+
         {showActions ? (
-          <View style={styles.actions}>
+          <View style={[styles.compactActions, isRTL && styles.bookingTopRowRtl]}>
             {booking.status === 'pending' ? (
               <>
                 <Pressable
                   onPress={() => onBookingStatusChange(booking, 'confirmed')}
-                  style={[styles.chipBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
+                  style={[styles.compactBtn, { backgroundColor: theme.accent, borderColor: theme.accent }]}>
                   <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('wash_action_accept')}</Text>
                 </Pressable>
                 <Pressable
@@ -1804,26 +1914,62 @@ export function WashOwnerPanel({ shop }: Props) {
                     setRejectNote('');
                     setRejectTarget({ booking });
                   }}
-                  style={[styles.chipBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
+                  style={[styles.compactBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]}>
                   <Text style={styles.actionText}>{t('wash_action_reject')}</Text>
                 </Pressable>
               </>
             ) : null}
+            {booking.status === 'confirmed' ? (
+              <Pressable
+                onPress={() => void onMarkArrived(booking)}
+                disabled={busy}
+                style={[styles.compactBtn, { backgroundColor: theme.accent, borderColor: theme.accent, opacity: busy ? 0.7 : 1 }]}>
+                {busy ? (
+                  <ActivityIndicator color={theme.onAccent} size="small" />
+                ) : (
+                  <Text style={[styles.actionText, { color: theme.onAccent }]}>{t('owner_action_start_wash')}</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {booking.status === 'in_progress' ? (
+              <Pressable
+                onPress={() => void onCompleteService(booking)}
+                disabled={busy}
+                style={[styles.compactBtn, { backgroundColor: theme.success, borderColor: theme.success, opacity: busy ? 0.7 : 1 }]}>
+                {busy ? (
+                  <ActivityIndicator color={theme.white} size="small" />
+                ) : (
+                  <Text style={[styles.actionText, { color: theme.white }]}>{t('owner_action_complete_wash')}</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {booking.status === 'confirmed' || booking.status === 'in_progress' ? (
+              <Pressable
+                onPress={() => onMerchantNoShowOverride(booking)}
+                disabled={busy}
+                style={[styles.compactBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_action_no_show')}</Text>
+              </Pressable>
+            ) : null}
+            <View style={styles.compactActionsSpacer} />
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('owner_action_call')}
               onPress={() => onContactCustomer(booking.customerPhone)}
-              style={[styles.chipBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-              <Text style={[styles.chipBtnText, { color: theme.text }]}>{t('wash_action_contact')}</Text>
+              hitSlop={4}
+              style={[styles.iconBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+              <FontAwesome name="phone" size={15} color={theme.accent} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('owner_action_whatsapp')}
+              onPress={() => onWhatsAppCustomer(booking.customerPhone)}
+              hitSlop={4}
+              style={[styles.iconBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+              <FontAwesome name="whatsapp" size={16} color="#25D366" />
             </Pressable>
           </View>
         ) : null}
-        <BookingLifecycleActions
-          booking={booking}
-          showActions={showActions}
-          busy={lifecycleBusyId === booking.id}
-          onMarkArrived={() => void onMarkArrived(booking)}
-          onComplete={() => void onCompleteService(booking)}
-          onNoShow={() => onMerchantNoShowOverride(booking)}
-        />
       </View>
     );
   }
@@ -2212,11 +2358,27 @@ export function WashOwnerPanel({ shop }: Props) {
                         },
                       ]}
                     />
-                    {otherTodayRows.length > 0 ? (
-                      <View style={styles.todayBookings}>
-                        {otherTodayRows.map((booking) => renderBookingCard(booking, true))}
+                  </OwnerSectionCard>
+                ) : null}
+                {analytics ? (
+                  <OwnerSectionCard
+                    theme={theme}
+                    title={
+                      pendingRequestRows.length > 0
+                        ? `${t('owner_pending_title')} (${pendingRequestRows.length})`
+                        : t('owner_pending_title')
+                    }
+                    subtitle={t('owner_pending_lead')}
+                    icon="bell">
+                    {pendingRequestRows.length === 0 ? (
+                      <Text style={[styles.meta, { color: theme.textMuted, marginTop: 4 }]}>
+                        {t('owner_pending_empty')}
+                      </Text>
+                    ) : (
+                      <View style={styles.compactList}>
+                        {pendingRequestRows.map((booking) => renderBookingCard(booking, true))}
                       </View>
-                    ) : null}
+                    )}
                   </OwnerSectionCard>
                 ) : null}
                 {analytics ? (
@@ -2225,29 +2387,27 @@ export function WashOwnerPanel({ shop }: Props) {
                     title={t('owner_appointments_title')}
                     subtitle={t('owner_appointments_lead')}
                     icon="car">
-                    {shopAppointments.upcoming.length === 0 && shopAppointments.earlierToday.length === 0 ? (
-                      <Text style={[styles.meta, { color: theme.textMuted, marginTop: 8 }]}>
-                        {t('owner_appointments_empty')}
+                    {bookedCars.upcoming.length === 0 && bookedCars.earlierToday.length === 0 ? (
+                      <Text style={[styles.meta, { color: theme.textMuted, marginTop: 4 }]}>
+                        {t('owner_booked_empty')}
                       </Text>
                     ) : (
                       <>
-                        {shopAppointments.upcoming.length > 0 ? (
-                          <View style={styles.todayBookings}>
+                        {bookedCars.upcoming.length > 0 ? (
+                          <View style={styles.compactList}>
                             <Text style={[styles.appointmentGroupLabel, { color: theme.text }]}>
                               {t('owner_appointments_coming')}
                             </Text>
-                            {shopAppointments.upcoming.map((booking) =>
-                              renderBookingCard(booking, true, { emphasizeTime: true }),
-                            )}
+                            {bookedCars.upcoming.map((booking) => renderBookingCard(booking, true))}
                           </View>
                         ) : null}
-                        {shopAppointments.earlierToday.length > 0 ? (
-                          <View style={styles.todayBookings}>
+                        {bookedCars.earlierToday.length > 0 ? (
+                          <View style={styles.compactList}>
                             <Text style={[styles.appointmentGroupLabel, { color: theme.text }]}>
                               {t('owner_appointments_earlier')}
                             </Text>
-                            {shopAppointments.earlierToday.map((booking) =>
-                              renderBookingCard(booking, true, { emphasizeTime: true, timePassed: true }),
+                            {bookedCars.earlierToday.map((booking) =>
+                              renderBookingCard(booking, true, { timePassed: true }),
                             )}
                           </View>
                         ) : null}
@@ -2273,14 +2433,6 @@ export function WashOwnerPanel({ shop }: Props) {
                 {isDetailingShopType(shop.type) ? (
                   <DetailingJobBoard shopId={shop.id} refreshKey={jobBoardRefreshKey} />
                 ) : null}
-                <Pressable
-                  onPress={() => router.push('/shop/wash-owner-hub?tab=queue')}
-                  style={[styles.shortcutCard, { backgroundColor: theme.bgElevated, borderColor: theme.border }]}>
-                  <View style={styles.shortcutCardRow}>
-                    <Text style={[styles.shortcutTitle, { color: theme.text }]}>{t('wash_stat_pending')}</Text>
-                    <FontAwesome name={isRTL ? 'chevron-left' : 'chevron-right'} size={13} color={theme.textMuted} />
-                  </View>
-                </Pressable>
               </>
             )}
           </>
@@ -2701,85 +2853,22 @@ export function WashOwnerPanel({ shop }: Props) {
         }}
       />
 
-      <Modal
+      <BranchLocationPickerModal
         visible={mapPickerVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMapPickerVisible(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }, isRTL && styles.textRtl]}>
-              {t('wash_branch_gps_pick_on_map')}
-            </Text>
-            <Text style={[styles.modalLead, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-              {t('wash_branch_gps_map_hint')}
-            </Text>
-            <View style={styles.mapDraftStatsRow}>
-              <View style={[styles.mapDraftStatCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <Text style={[styles.mapDraftStatLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-                  {t('wash_branch_map_saved_pin')}
-                </Text>
-                <Text style={[styles.mapDraftStatValue, { color: theme.text }, isRTL && styles.textRtl]}>
-                  {displayLatitude != null && displayLongitude != null
-                    ? `${displayLatitude.toFixed(5)}, ${displayLongitude.toFixed(5)}`
-                    : '—'}
-                </Text>
-              </View>
-              <View style={[styles.mapDraftStatCard, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <Text style={[styles.mapDraftStatLabel, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-                  {t('wash_branch_map_selected_pin')}
-                </Text>
-                <Text style={[styles.mapDraftStatValue, { color: theme.accent }, isRTL && styles.textRtl]}>
-                  {mapDraftLatitude.toFixed(5)}, {mapDraftLongitude.toFixed(5)}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.mapQuickActionsRow}>
-              <Pressable
-                onPress={useSavedBranchMapCoords}
-                style={[styles.mapQuickBtn, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <Text style={[styles.mapQuickBtnText, { color: theme.text }]}>{t('wash_branch_map_use_saved')}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void onDetectMapGps()}
-                disabled={mapLocating}
-                style={[styles.mapQuickBtn, { borderColor: theme.accent, backgroundColor: theme.accentSoft, opacity: mapLocating ? 0.65 : 1 }]}>
-                <Text style={[styles.mapQuickBtnText, { color: theme.accent }]}>
-                  {mapLocating ? t('wash_branch_gps_capturing') : t('wash_branch_map_use_device')}
-                </Text>
-              </Pressable>
-            </View>
-            <View style={[styles.mapPickerWrap, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-            <OsmLocationPicker
-              initialLatitude={mapDraftLatitude}
-              initialLongitude={mapDraftLongitude}
-              onChange={(lat, lng) => {
-                setMapDraftLatitude(lat);
-                setMapDraftLongitude(lng);
-              }}
-              height={360}
-            />
-            </View>
-            <Text style={[styles.modalHelp, { color: theme.textMuted }, isRTL && styles.textRtl]}>
-              {t('wash_branch_gps_coords')
-                .replace('{lat}', mapDraftLatitude.toFixed(5))
-                .replace('{lng}', mapDraftLongitude.toFixed(5))}
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setMapPickerVisible(false)}
-                style={[styles.modalBtnSecondary, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
-                <Text style={[styles.modalBtnSecondaryText, { color: theme.text }]}>{t('add_cancel')}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void onSaveBranchMapLocation()}
-                style={[styles.modalBtnPrimary, { backgroundColor: theme.accent }]}>
-                <Text style={[styles.modalBtnPrimaryText, { color: theme.onAccent }]}>{t('wash_branch_gps_save_map_location')}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        initialLatitude={mapDraftLatitude}
+        initialLongitude={mapDraftLongitude}
+        saving={capturingGps}
+        onClose={() => setMapPickerVisible(false)}
+        onSave={onSaveBranchMapLocation}
+      />
+
+      <DelayBookingModal
+        visible={!!delayTarget}
+        subtitle={delayTarget ? delayTarget.customerName || formatPhoneDisplay(delayTarget.customerPhone) : undefined}
+        busy={delayBusy}
+        onClose={() => setDelayTarget(null)}
+        onSubmit={submitDelay}
+      />
 
       {/* Add branch modal */}
       <Modal visible={addBranchModalVisible} transparent animationType="fade" onRequestClose={() => setAddBranchModalVisible(false)}>
@@ -3252,7 +3341,59 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   todayBookings: { gap: 10, marginTop: 14 },
-  appointmentTime: { fontSize: 28, fontWeight: '800' },
+  compactList: { gap: 8, marginTop: 6 },
+  compactCard: { padding: 12, marginTop: 0, borderRadius: 12 },
+  compactTopRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  compactTimeCol: { flex: 1, minWidth: 0 },
+  compactTime: { fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  compactSub: { fontSize: 12, lineHeight: 16 },
+  compactPrice: { fontSize: 15, fontWeight: '900' },
+  statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  statusBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
+  compactBody: { marginTop: 8, gap: 3 },
+  compactName: { fontSize: 15, fontWeight: '800' },
+  compactMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  compactMeta: { fontSize: 13, lineHeight: 18, flexShrink: 1 },
+  platePill: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
+  plateText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  compactActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 10 },
+  compactActionsSpacer: { flex: 1 },
+  compactBtn: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compactBtnSm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    minHeight: 30,
+  },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  tag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  tagText: { fontSize: 11, fontWeight: '800' },
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   appointmentGroupLabel: { fontSize: 13, fontWeight: '800', marginBottom: 2 },
   card: {
     borderWidth: 1,
@@ -3301,26 +3442,6 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 8 },
   modalLead: { fontSize: 13, lineHeight: 19, marginBottom: 10 },
   modalHelp: { fontSize: 12, lineHeight: 18, marginTop: 10 },
-  mapDraftStatsRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  mapDraftStatCard: { flex: 1, borderWidth: 1, borderRadius: 10, padding: 10 },
-  mapDraftStatLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
-  mapDraftStatValue: { fontSize: 12, fontWeight: '800' },
-  mapQuickActionsRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  mapQuickBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapQuickBtnText: { fontSize: 12, fontWeight: '800' },
-  mapPickerWrap: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 6,
-    overflow: 'hidden',
-  },
   modalScroll: { maxHeight: 320 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
   couponModalActions: { gap: 12, width: '100%' },
@@ -3425,7 +3546,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 128,
+    paddingBottom: 160,
   },
   bottomTabBar: {
     flexDirection: 'row',

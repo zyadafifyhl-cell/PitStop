@@ -56,6 +56,8 @@ type ShopAuthContextValue = {
   login: (email: string, password: string) => Promise<ShopLoginResult>;
   registerOwner: (input: RegisterShopOwnerInput) => Promise<ShopRegisterResult>;
   logout: () => Promise<void>;
+  /** Apply a saved change (e.g. area) to the signed-in shop without a full session reload. */
+  patchShop: (patch: Partial<Shop>) => void;
 };
 
 const ShopAuthContext = createContext<ShopAuthContextValue | null>(null);
@@ -228,6 +230,10 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const patchShop = useCallback((patch: Partial<Shop>) => {
+    setShop((current) => (current ? { ...current, ...patch } : current));
+  }, []);
+
   const value = useMemo(
     () => ({
       ready,
@@ -243,8 +249,9 @@ export function ShopAuthProvider({ children }: { children: React.ReactNode }) {
       login,
       registerOwner,
       logout,
+      patchShop,
     }),
-    [ready, shop, staff, shopStaff, busy, login, registerOwner, logout],
+    [ready, shop, staff, shopStaff, busy, login, registerOwner, logout, patchShop],
   );
 
   return <ShopAuthContext.Provider value={value}>{children}</ShopAuthContext.Provider>;

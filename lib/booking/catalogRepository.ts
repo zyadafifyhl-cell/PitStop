@@ -228,6 +228,19 @@ export function patchShopCoordinates(shopId: string, latitude: number, longitude
   void saveCatalogToStorage();
 }
 
+/** Moves the shop to another area; customers find it under that area's shop list. */
+export async function updateShopAreaRemote(shopId: string, areaId: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase unavailable');
+  const { error } = await supabase.rpc('set_shop_area', { p_shop_id: shopId, p_area_id: areaId });
+  if (error) throw new Error(error.message);
+  const shop = shopsCache.find((row) => row.id === shopId);
+  if (shop) {
+    shop.areaId = areaId;
+    void saveCatalogToStorage();
+  }
+}
+
 /** Keep in-memory catalog in sync after owner updates the public shop phone. */
 export function patchShopPhone(shopId: string, phone: string): void {
   const shop = shopsCache.find((row) => row.id === shopId);

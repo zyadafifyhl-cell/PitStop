@@ -12,7 +12,6 @@ import {
 import {
   AUTO_COMPLETE_BUFFER_MINUTES,
   computeExpectedCompletionAt,
-  isBookingDueForAutoComplete,
   resolveBookingDurationMinutes,
 } from '@/lib/booking/bookingServiceLifecycle';
 import {
@@ -128,10 +127,8 @@ export function isConfirmedPastAutoDoneWindow(scheduledAt: string, now = Date.no
   return now - scheduledMs > AUTO_DONE_AFTER_MS;
 }
 
-/** Virtual lifecycle: in-progress jobs past expected_completion_at read as done until cron persists. */
-export function resolveEffectiveBookingStatus(booking: Booking, now = Date.now()): BookingStatus {
-  if (booking.status === 'suspended_by_shop') return booking.status;
-  if (isBookingDueForAutoComplete(booking, now)) return 'done';
+/** Bookings are completed only by the shop, so the stored status is the effective status. */
+export function resolveEffectiveBookingStatus(booking: Booking, _now = Date.now()): BookingStatus {
   return booking.status;
 }
 
@@ -250,6 +247,10 @@ type BookingRow = {
   completed_at?: string | null;
   completion_type?: BookingCompletionType | null;
   service_duration_minutes?: number | null;
+  delay_minutes?: number | null;
+  delay_reason?: string | null;
+  delayed_at?: string | null;
+  car_dropped_off?: boolean | null;
   status: BookingStatus;
   created_at: string;
   is_hidden_by_merchant?: boolean | null;
@@ -339,6 +340,10 @@ function mapBookingRow(row: BookingRow): Booking {
     completedAt: row.completed_at ?? undefined,
     completionType: row.completion_type ?? undefined,
     serviceDurationMinutes: row.service_duration_minutes ?? undefined,
+    delayMinutes: row.delay_minutes ?? undefined,
+    delayReason: row.delay_reason ?? undefined,
+    delayedAt: row.delayed_at ?? undefined,
+    carDroppedOff: Boolean(row.car_dropped_off),
     status: row.status,
     createdAt: row.created_at,
     isHiddenByMerchant: Boolean(row.is_hidden_by_merchant),
@@ -861,25 +866,45 @@ export async function completeBookingService(
   return updateBookingStatus(booking.id, 'done', booking, { completionType });
 }
 
+/** Washes are completed only when the shop presses Complete Wash, so nothing is due. */
 export async function autoCompleteDueBookings(): Promise<number> {
+  return 0;
+}
+
+export const DELAY_MINUTE_OPTIONS = [15, 30, 45, 60] as const;
+export const DELAY_REASON_KEYS = ['traffic', 'detailing', 'previous_car'] as const;
+export type DelayReasonKey = (typeof DELAY_REASON_KEYS)[number];
+
+/** Pushes a booking back and tells the customer in-app and by push. */
+export async function delayBookingService(
+  booking: Booking,
+  delayMinutes: number,
+  reason?: DelayReasonKey,
+): Promise<Booking | null> {
   const supabase = getSupabase();
-  if (!supabase) return 0;
-  const { data, error } = await supabase.rpc('auto_complete_due_bookings');
-  if (error) {
-    console.warn('autoCompleteDueBookings:', error.message);
-    return 0;
-  }
-  const payload = (data ?? {}) as { count?: number; booking_ids?: string[] };
-  const ids = Array.isArray(payload.booking_ids) ? payload.booking_ids.filter(isUuid) : [];
-  if (ids.length) {
-    const { data: rows } = await supabase.from('bookings').select('*').in('id', ids);
-    for (const row of rows ?? []) {
-      const booking = mapBookingRow(row as BookingRow);
-      await afterBookingCompleted(booking, 'in_progress');
-    }
-    emitDataChange('bookings', 'finance');
-  }
-  return Number(payload.count ?? ids.length ?? 0);
+  if (!supabase || !isUuid(booking.id)) return null;
+  const { data, error } = await supabase.rpc('delay_booking_service', {
+    p_booking_id: booking.id,
+    p_delay_minutes: delayMinutes,
+    p_reason: reason ?? null,
+  });
+  if (error) throw new Error(error.message);
+  const mapped = bookingFromRpcPayload(data);
+  if (mapped) emitDataChange('bookings');
+  return mapped;
+}
+
+export async function setBookingCarDroppedOff(booking: Booking, dropped: boolean): Promise<Booking | null> {
+  const supabase = getSupabase();
+  if (!supabase || !isUuid(booking.id)) return null;
+  const { data, error } = await supabase.rpc('set_booking_car_dropped_off', {
+    p_booking_id: booking.id,
+    p_dropped: dropped,
+  });
+  if (error) throw new Error(error.message);
+  const mapped = bookingFromRpcPayload(data);
+  if (mapped) emitDataChange('bookings');
+  return mapped;
 }
 
 export const LATE_CANCEL_WINDOW_HOURS = 4;

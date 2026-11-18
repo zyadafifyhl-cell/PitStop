@@ -59,6 +59,7 @@ import {
   type SlotAvailability,
   type TimeSlotOption,
 } from '@/lib/booking/shopSchedule';
+import { listSlotLocksForDay, type SlotLock } from '@/lib/booking/slotLocks';
 import { isSlotFullError } from '@/lib/booking/bayCapacity';
 import { SLOT_GRID_MINUTES, toServiceDurationMinutes } from '@/lib/booking/bayCapacityConfig';
 import {
@@ -495,6 +496,21 @@ export default function BookShopScreen() {
     }, []),
   );
 
+  const [slotLocks, setSlotLocks] = useState<SlotLock[]>([]);
+  const refreshSlotLocks = useCallback(async () => {
+    setSlotLocks(await listSlotLocksForDay(bookingBranchId, dateYmd));
+  }, [bookingBranchId, dateYmd]);
+
+  useEffect(() => {
+    void refreshSlotLocks();
+  }, [refreshSlotLocks]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshSlotLocks();
+    }, [refreshSlotLocks]),
+  );
+
   const timeSlots = useMemo((): TimeSlotOption[] => {
     if (!hasOwnerSchedule) return [];
     return buildSlotsForShopDate({
@@ -504,8 +520,18 @@ export default function BookShopScreen() {
       now: new Date(slotNowMs),
       branchId: bookingBranchId,
       serviceDurationMinutes: selectedDurationMinutes,
+      locks: slotLocks,
     });
-  }, [hasOwnerSchedule, shopExtras, dateYmd, shopBookings, slotNowMs, bookingBranchId, selectedDurationMinutes]);
+  }, [
+    hasOwnerSchedule,
+    shopExtras,
+    dateYmd,
+    shopBookings,
+    slotNowMs,
+    bookingBranchId,
+    selectedDurationMinutes,
+    slotLocks,
+  ]);
 
   useEffect(() => {
     const available = timeSlots.filter((s) => s.status !== 'booked');
@@ -655,6 +681,7 @@ export default function BookShopScreen() {
       if (isSlotFullError(error)) {
         userAlert(t('book_submit_fail_title'), t('book_slot_full_error'));
         void refreshShopExtras();
+        void refreshSlotLocks();
         return;
       }
       if (error instanceof OfferValidationError) {
@@ -1082,7 +1109,7 @@ export default function BookShopScreen() {
                         color: theme.textDim,
                         marginTop: 2,
                       }}>
-                      {t('slot_fully_booked')}
+                      {slot.lock ? t('slot_closed_by_shop') : t('slot_fully_booked')}
                     </Text>
                   ) : slot.status === 'almost_full' ? (
                     <Text

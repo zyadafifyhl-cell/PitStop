@@ -4,13 +4,13 @@ import { Text, View } from 'react-native';
 import { useAppTheme } from '@/context/ThemePreferenceContext';
 
 type Props = {
-  initialLatitude: number;
-  initialLongitude: number;
+  latitude: number;
+  longitude: number;
   onChange: (latitude: number, longitude: number) => void;
   height?: number;
 };
 
-export function OsmLocationPicker({ initialLatitude, initialLongitude }: Props) {
+export function OsmLocationPicker({ latitude, longitude }: Props) {
   const theme = useAppTheme();
 
   return (
@@ -28,7 +28,7 @@ export function OsmLocationPicker({ initialLatitude, initialLongitude }: Props) 
         Map picker is available on web with OpenStreetMap.
       </Text>
       <Text style={{ color: theme.text, marginTop: 6 }}>
-        {initialLatitude.toFixed(5)}, {initialLongitude.toFixed(5)}
+        {latitude.toFixed(5)}, {longitude.toFixed(5)}
       </Text>
     </View>
   );

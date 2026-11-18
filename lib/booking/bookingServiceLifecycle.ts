@@ -45,10 +45,3 @@ export function bookingProgressSnapshot(booking: Booking, now = Date.now()): Boo
     isOverdue: now >= expectedMs,
   };
 }
-
-export function isBookingDueForAutoComplete(booking: Booking, now = Date.now()): boolean {
-  if (booking.status !== 'in_progress') return false;
-  if (!booking.expectedCompletionAt) return false;
-  const dueMs = new Date(booking.expectedCompletionAt).getTime();
-  return !Number.isNaN(dueMs) && dueMs <= now;
-}

@@ -25,7 +25,10 @@ type Props = {
   settingsLabel?: string;
 };
 
-const COVER_HEIGHT = 150;
+/** Facebook-style cover ratio so wide banners aren't cropped to a thin strip. */
+const COVER_ASPECT_RATIO = 2.7;
+const COVER_MIN_HEIGHT = 150;
+const COVER_MAX_HEIGHT = 380;
 const AVATAR_SIZE = 80;
 
 export function OwnerProfileHeader({
@@ -159,7 +162,12 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   coverWrap: { position: 'relative' },
-  coverImage: { width: '100%', height: COVER_HEIGHT },
+  coverImage: {
+    width: '100%',
+    aspectRatio: COVER_ASPECT_RATIO,
+    minHeight: COVER_MIN_HEIGHT,
+    maxHeight: COVER_MAX_HEIGHT,
+  },
   notifBtn: {
     position: 'absolute',
     right: 12,

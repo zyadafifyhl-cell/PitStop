@@ -39,6 +39,15 @@ export function formatCustomerNotificationLine(
     return messages.bookingReady.replace('{shop}', readyShopName);
   }
 
+  if (notification.kind === 'booking_delayed') {
+    return (
+      (effectiveLocale === 'ar' ? notification.messageAr : notification.message)?.trim() ||
+      notification.message?.trim() ||
+      notification.messageAr?.trim() ||
+      ''
+    );
+  }
+
   if (notification.kind === 'community_post_removed') {
     const localized =
       (effectiveLocale === 'ar' ? notification.messageAr : notification.message)?.trim() ||

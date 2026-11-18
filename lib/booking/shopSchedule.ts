@@ -1,6 +1,7 @@
 import type { Booking, ShopDayHours, ShopExtras, ShopService } from '@/lib/booking/types';
 import { clampTotalBays, DEFAULT_TOTAL_BAYS, SLOT_GRID_MINUTES } from '@/lib/booking/bayCapacityConfig';
 import { occupancyForSlot } from '@/lib/booking/slotOccupancy';
+import { lockedBaysInBlock, type SlotLock } from '@/lib/booking/slotLocks';
 import { slotStartLocalMs, toDateYmd } from '@/lib/booking/format';
 
 export type SlotAvailability = 'available' | 'almost_full' | 'booked';
@@ -12,6 +13,8 @@ export type TimeSlotOption = {
   totalBays: number;
   remainingBays: number;
   isPast?: boolean;
+  /** Shop lock on this exact 30-minute slot, if any. */
+  lock?: SlotLock;
 };
 
 function hmToMinutes(hm: string): number | null {
@@ -105,6 +108,9 @@ export function buildSlotsForShopDate(input: {
   includePast?: boolean;
   /** Minutes the chosen service occupies. Defaults to one 30-minute block. */
   serviceDurationMinutes?: number;
+  /** Slots the shop closed. Customers cannot book them; the owner board only labels them. */
+  locks?: SlotLock[];
+  applyLocks?: boolean;
 }): TimeSlotOption[] {
   if (input.extras?.washShopStatus === 'vacation' || input.extras?.washShopStatus === 'closed') {
     return [];
@@ -151,6 +157,8 @@ export function buildSlotsForShopDate(input: {
     if (isPast && !input.includePast) continue;
     if (appointmentHitsBreak(start, serviceDuration, breakStart, breakEnd)) continue;
 
+    const locks = input.locks ?? [];
+    const applyLocks = input.applyLocks !== false && locks.length > 0;
     const occupancy = occupancyForSlot({
       bookings: input.bookings,
       dateYmd: input.dateYmd,
@@ -158,6 +166,7 @@ export function buildSlotsForShopDate(input: {
       durationMinutes: serviceDuration,
       totalBays,
       branchId: input.branchId,
+      blockedBaysAt: applyLocks ? (blockMs) => lockedBaysInBlock(locks, blockMs, totalBays) : undefined,
     });
 
     let status: SlotAvailability = 'available';
@@ -171,6 +180,7 @@ export function buildSlotsForShopDate(input: {
       totalBays: occupancy.total_bays,
       remainingBays: occupancy.remaining_bays,
       isPast,
+      lock: locks.find((lock) => lock.slotStartMs === slotMs),
     });
   }
 

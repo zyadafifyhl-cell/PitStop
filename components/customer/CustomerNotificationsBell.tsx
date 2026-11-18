@@ -22,8 +22,10 @@ import {
   customerNotificationIsShopReopened,
   formatCustomerNotificationLine,
 } from '@/lib/booking/customerNotificationText';
-import { autoCompleteDueBookings } from '@/lib/booking/storage';
 import type { CustomerNotification } from '@/lib/booking/types';
+import { registerCustomerPushToken } from '@/lib/push/customerPush';
+
+let registeredPushKey: string | null = null;
 
 export function CustomerNotificationsBell({
   embedded = false,
@@ -46,7 +48,6 @@ export function CustomerNotificationsBell({
       return;
     }
     try {
-      await autoCompleteDueBookings().catch(() => {});
       await processDueBookingReminders().catch(() => {});
       const input = { customerId: customer?.id, customerPhone: customer?.phone };
       const rows = await listCustomerNotifications(input);
@@ -57,6 +58,16 @@ export function CustomerNotificationsBell({
       /* keep last known rows */
     }
   }, [customer?.id, customer?.phone]);
+
+  useEffect(() => {
+    if (!customer?.id || isGuest) return;
+    const key = `${customer.id}:${locale}`;
+    if (registeredPushKey === key) return;
+    registeredPushKey = key;
+    void registerCustomerPushToken({ locale }).then((result) => {
+      if (result === 'failed' || result === 'no_session') registeredPushKey = null;
+    });
+  }, [customer?.id, isGuest, locale]);
 
   useEffect(() => {
     void refresh();
@@ -129,6 +140,8 @@ export function CustomerNotificationsBell({
                   const isShopReopened = customerNotificationIsShopReopened(notification);
                   const isRemoved = customerNotificationIsRemoved(notification);
                   const isReady = customerNotificationIsReady(notification);
+                  const isDelayed = notification.kind === 'booking_delayed';
+                  const pillColor = isDelayed ? theme.warning : approved ? theme.accent : theme.danger;
                   return (
                     <View
                       key={notification.id}
@@ -141,19 +154,25 @@ export function CustomerNotificationsBell({
                           style={[
                             styles.pill,
                             {
-                              backgroundColor: approved ? theme.accentSoft : theme.bgElevated,
-                              borderColor: approved ? theme.accent : theme.danger,
+                              backgroundColor: isDelayed
+                                ? theme.warningSoft
+                                : approved
+                                  ? theme.accentSoft
+                                  : theme.bgElevated,
+                              borderColor: pillColor,
                             },
                           ]}>
                           <Text
                             style={{
-                              color: approved ? theme.accent : theme.danger,
+                              color: pillColor,
                               fontSize: 11,
                               fontWeight: '800',
                             }}>
                             {notification.statusLabel
                               ? notification.statusLabel
-                              : isRemoved
+                              : isDelayed
+                                ? t('customer_notification_status_delayed')
+                                : isRemoved
                                 ? t('customer_notification_status_removed')
                                 : isReady
                                   ? t('customer_notification_status_ready')

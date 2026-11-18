@@ -6,6 +6,7 @@ import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { MerchantNavRow } from '@/components/owner/merchant/MerchantNavRow';
 import { OwnerSectionCard } from '@/components/owner/OwnerSectionCard';
+import { OwnerShopAreaCard } from '@/components/owner/OwnerShopAreaCard';
 import { useI18n } from '@/context/I18nContext';
 import { useAppTheme, useThemePreference } from '@/context/ThemePreferenceContext';
 import { useAppSignOut } from '@/lib/auth/useAppSignOut';
@@ -82,6 +83,8 @@ export function OwnerAccountSettings({ extraPreferenceRows = [] }: Props) {
 
   return (
     <>
+      <OwnerShopAreaCard />
+
       <OwnerSectionCard theme={theme} title={t('merchant_settings_security_title')}>
         <MerchantNavRow
           theme={theme}

@@ -42,17 +42,21 @@ function bookingOverlapsBlock(booking: OccupyingBooking, blockStartMs: number, b
   return bookedMs < blockEndMs && bookedEndMs > blockStartMs;
 }
 
+/** Bays taken by something other than a booking, e.g. a shop lock, in one 30-minute block. */
+export type BlockedBaysAt = (blockStartMs: number) => number;
+
 /** Highest number of active bookings sharing any 30-minute block inside the appointment. */
 export function peakOccupancy(input: {
   bookings: OccupyingBooking[];
   startMs: number;
   durationMinutes: number;
   branchId?: string;
+  blockedBaysAt?: BlockedBaysAt;
 }): number {
   const blocks = appointmentBlockStarts(input.startMs, input.durationMinutes);
   let peak = 0;
   for (const blockStartMs of blocks) {
-    let occupied = 0;
+    let occupied = input.blockedBaysAt?.(blockStartMs) ?? 0;
     for (const booking of input.bookings) {
       if (bookingOverlapsBlock(booking, blockStartMs, input.branchId)) occupied += 1;
     }
@@ -79,6 +83,7 @@ export function countBookingsInSlot(input: {
   timeHm: string;
   durationMinutes: number;
   branchId?: string;
+  blockedBaysAt?: BlockedBaysAt;
 }): number {
   const slotMs = slotStartLocalMs(input.dateYmd, input.timeHm);
   if (slotMs == null) return 0;
@@ -87,6 +92,7 @@ export function countBookingsInSlot(input: {
     startMs: slotMs,
     durationMinutes: input.durationMinutes,
     branchId: input.branchId,
+    blockedBaysAt: input.blockedBaysAt,
   });
 }
 
@@ -97,6 +103,7 @@ export function occupancyForSlot(input: {
   durationMinutes: number;
   totalBays: number;
   branchId?: string;
+  blockedBaysAt?: BlockedBaysAt;
 }): SlotOccupancy {
   return occupancyFromPeak(countBookingsInSlot(input), input.totalBays);
 }

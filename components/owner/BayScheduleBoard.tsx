@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BookingDatePicker } from '@/components/ui/BookingDatePicker';
@@ -9,8 +10,10 @@ import { useAppTheme } from '@/context/ThemePreferenceContext';
 import { bayOccupancyTone, isSlotFullError } from '@/lib/booking/bayCapacity';
 import { buildScheduledIso, toDateYmd } from '@/lib/booking/format';
 import { createWalkInBooking } from '@/lib/booking/storage';
-import { buildSlotsForShopDate } from '@/lib/booking/shopSchedule';
+import { buildSlotsForShopDate, type TimeSlotOption } from '@/lib/booking/shopSchedule';
+import { listSlotLocksForDay, lockSlot, unlockSlot, type SlotLock } from '@/lib/booking/slotLocks';
 import type { Booking, Shop, ShopExtras, ShopService } from '@/lib/booking/types';
+import { useDataChanges } from '@/lib/data/dataChanges';
 import { logAndGetSafeErrorMessage } from '@/lib/errors/userError';
 import { userAlert } from '@/lib/ui/userAlert';
 
@@ -29,6 +32,20 @@ export function BayScheduleBoard({ shop, extras, bookings, services, branchId, o
   const [dateYmd, setDateYmd] = useState(toDateYmd(new Date()));
   const [walkInTime, setWalkInTime] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [locks, setLocks] = useState<SlotLock[]>([]);
+  const [lockBusyTime, setLockBusyTime] = useState<string | null>(null);
+
+  const loadLocks = useCallback(async () => {
+    setLocks(await listSlotLocksForDay(branchId, dateYmd));
+  }, [branchId, dateYmd]);
+
+  useEffect(() => {
+    void loadLocks();
+  }, [loadLocks]);
+
+  useDataChanges(['bookings'], () => {
+    void loadLocks();
+  });
 
   const slots = useMemo(
     () =>
@@ -39,9 +56,30 @@ export function BayScheduleBoard({ shop, extras, bookings, services, branchId, o
         now: new Date(),
         branchId,
         includePast: true,
+        locks,
+        applyLocks: false,
       }),
-    [extras, dateYmd, bookings, branchId],
+    [extras, dateYmd, bookings, branchId, locks],
   );
+
+  async function onToggleLock(slot: TimeSlotOption) {
+    if (!branchId || lockBusyTime) return;
+    const slotStartIso = buildScheduledIso(dateYmd, slot.time);
+    if (!slotStartIso) return;
+    setLockBusyTime(slot.time);
+    try {
+      if (slot.lock) {
+        await unlockSlot(slot.lock.id);
+      } else {
+        await lockSlot({ shopId: shop.id, branchId, slotStartIso });
+      }
+      await loadLocks();
+    } catch (error) {
+      userAlert(t('bay_lock_fail'), logAndGetSafeErrorMessage(error, t, 'bay.lock'));
+    } finally {
+      setLockBusyTime(null);
+    }
+  }
 
   async function onSubmitWalkIn(payload: WalkInSlotPayload) {
     if (!walkInTime || !branchId) return;
@@ -97,23 +135,47 @@ export function BayScheduleBoard({ shop, extras, bookings, services, branchId, o
         <ScrollView style={styles.listScroll} nestedScrollEnabled showsVerticalScrollIndicator>
           <View style={styles.list}>
             {slots.map((slot) => {
+              const locked = !!slot.lock;
               const tone = bayOccupancyTone(slot.occupiedBays, slot.totalBays);
-              const toneColor =
-                tone === 'red' ? theme.danger : tone === 'orange' ? theme.warning : theme.success;
-              const toneBg =
-                tone === 'red' ? theme.dangerSoft : tone === 'orange' ? theme.warningSoft : theme.successSoft;
+              const toneColor = locked
+                ? theme.warning
+                : tone === 'red'
+                  ? theme.danger
+                  : tone === 'orange'
+                    ? theme.warning
+                    : theme.success;
+              const toneBg = locked
+                ? theme.warningSoft
+                : tone === 'red'
+                  ? theme.dangerSoft
+                  : tone === 'orange'
+                    ? theme.warningSoft
+                    : theme.successSoft;
               const canWalkIn = !slot.isPast && slot.remainingBays > 0 && !!branchId;
+              const canToggleLock = !!branchId && (!slot.isPast || locked);
+              const lockBusy = lockBusyTime === slot.time;
               return (
                 <View
                   key={slot.time}
-                  style={[styles.row, { borderColor: theme.border, backgroundColor: theme.bgElevated }]}>
+                  style={[
+                    styles.row,
+                    locked
+                      ? { borderColor: theme.warning, backgroundColor: theme.warningSoft }
+                      : { borderColor: theme.border, backgroundColor: theme.bgElevated },
+                  ]}>
                   <Text style={[styles.time, { color: slot.isPast ? theme.textMuted : theme.text }]}>{slot.time}</Text>
                   <View style={[styles.pill, { backgroundColor: toneBg, borderColor: toneColor }]}>
-                    <View style={[styles.dot, { backgroundColor: toneColor }]} />
+                    {locked ? (
+                      <FontAwesome name="lock" size={10} color={toneColor} />
+                    ) : (
+                      <View style={[styles.dot, { backgroundColor: toneColor }]} />
+                    )}
                     <Text style={[styles.pillText, { color: toneColor }]} numberOfLines={1}>
-                      {t('bay_occupancy')
-                        .replace('{occupied}', String(slot.occupiedBays))
-                        .replace('{total}', String(slot.totalBays))}
+                      {locked
+                        ? `${t('bay_locked_by_shop')} · ${slot.occupiedBays}/${slot.totalBays}`
+                        : t('bay_occupancy')
+                            .replace('{occupied}', String(slot.occupiedBays))
+                            .replace('{total}', String(slot.totalBays))}
                     </Text>
                   </View>
                   {slot.status === 'booked' ? (
@@ -128,6 +190,31 @@ export function BayScheduleBoard({ shop, extras, bookings, services, branchId, o
                     </Pressable>
                   ) : (
                     <View style={styles.walkInSpacer} />
+                  )}
+                  {canToggleLock ? (
+                    <Pressable
+                      onPress={() => void onToggleLock(slot)}
+                      disabled={lockBusy}
+                      accessibilityRole="button"
+                      accessibilityLabel={locked ? t('bay_unlock') : t('bay_lock')}
+                      style={[
+                        styles.lockBtn,
+                        locked
+                          ? { borderColor: theme.warning, backgroundColor: theme.bgElevated }
+                          : { borderColor: theme.border, backgroundColor: theme.bgElevated },
+                        lockBusy && { opacity: 0.5 },
+                      ]}>
+                      <FontAwesome
+                        name={locked ? 'unlock' : 'lock'}
+                        size={11}
+                        color={locked ? theme.warning : theme.textMuted}
+                      />
+                      <Text style={[styles.lockText, { color: locked ? theme.warning : theme.text }]}>
+                        {locked ? t('bay_unlock') : t('bay_lock')}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.lockSpacer} />
                   )}
                 </View>
               );
@@ -156,13 +243,13 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     borderWidth: 1,
     borderRadius: 10,
     paddingVertical: 5,
     paddingHorizontal: 8,
   },
-  time: { width: 48, fontSize: 13, fontWeight: '800' },
+  time: { width: 44, fontSize: 13, fontWeight: '800' },
   pill: {
     flex: 1,
     flexDirection: 'row',
@@ -182,6 +269,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  walkInSpacer: { width: 72 },
+  walkInSpacer: { width: 64 },
   walkInText: { fontSize: 11, fontWeight: '800' },
+  lockBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  lockText: { fontSize: 11, fontWeight: '800' },
+  lockSpacer: { width: 62 },
 });

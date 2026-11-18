@@ -1,6 +1,5 @@
 import type { Locale } from '@/lib/i18n/strings';
 import type { AppThemeTokens } from '@/constants/Theme';
-import { isBookingDueForAutoComplete } from '@/lib/booking/bookingServiceLifecycle';
 import type { Booking, Shop, ShopType } from '@/lib/booking/types';
 import { bookingStatusLabel, shopTypeLabel } from '@/lib/booking/format';
 import { formatEgp, normalizeBookingMoney } from '@/lib/booking/reporting';
@@ -98,19 +97,9 @@ export function normalizeCustomerOrderStatus(status: Booking['status']): Booking
   return status;
 }
 
-/**
- * Customer-facing status. In-progress jobs stay visible until complete, then fall back to
- * auto-complete once expected_completion_at is due.
- */
-export function resolveCustomerDisplayStatus(booking: Booking, now = Date.now()): Booking['status'] {
-  const raw = booking.status;
-  if (raw === 'cancelled' || raw === 'no_show' || raw === 'suspended_by_shop' || raw === 'done') {
-    return normalizeCustomerOrderStatus(raw);
-  }
-  if (raw === 'in_progress' && isBookingDueForAutoComplete(booking, now)) {
-    return 'done';
-  }
-  return normalizeCustomerOrderStatus(raw);
+/** Customer-facing status. In-progress jobs stay in progress until the shop completes them. */
+export function resolveCustomerDisplayStatus(booking: Booking, _now = Date.now()): Booking['status'] {
+  return normalizeCustomerOrderStatus(booking.status);
 }
 
 export function canBookAgainFromOrder(status: Booking['status']): boolean {

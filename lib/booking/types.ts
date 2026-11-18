@@ -80,6 +80,13 @@ export type Booking = {
   expectedCompletionAt?: string;
   completedAt?: string;
   completionType?: BookingCompletionType;
+  /** Total minutes the shop pushed this booking back with delay updates. */
+  delayMinutes?: number;
+  /** traffic | detailing | previous_car */
+  delayReason?: string;
+  delayedAt?: string;
+  /** Customer left the car at the station. */
+  carDroppedOff?: boolean;
   status: BookingStatus;
   createdAt: string;
   /** Read-time flag when confirmed slot aged past auto-done window (not persisted). */
@@ -308,7 +315,8 @@ export type CustomerNotificationKind =
   | 'parts_order_cancelled'
   | 'review_owner_reply'
   | 'community_post_removed'
-  | 'booking_ready';
+  | 'booking_ready'
+  | 'booking_delayed';
 
 export type CustomerNotification = {
   id: string;
